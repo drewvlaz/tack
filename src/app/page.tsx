@@ -1,113 +1,72 @@
+'use client';
+
 import Image from "next/image";
+import OpenAI from "openai";
 
-export default function Home() {
+const Test = () => {
+  // Handles the submit event on form submit.
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    // Stop the form from submitting and refreshing the page.
+    event.preventDefault()
+
+    // const targetUrl = 'https://sundae.school/collections/fleeces/products/broccoli-fleece-zip-up-collab-x-paulo-pastel';
+    // fetch(`https://cors-anywhere.herokuapp.com/${targetUrl}`, {
+    //   method: 'GET',
+    //   headers: {
+    //     'X-Requested-With': 'XMLHttpRequest',
+    //   },
+    // })
+    //   .then((response) => response.text())
+    //   .then((htmlString) => {
+    //     const parser = new DOMParser();
+    //     const doc = parser.parseFromString(htmlString, 'text/html');
+    //     const headContent = doc.head.innerHTML;
+    //     console.log(headContent);
+    //   })
+    //   .catch((error) => console.error('Error:', error));
+
+
+    // console.log(`The api key is ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`);
+    const data = '[<meta charset="utf-8" />, <meta content="IE=edge" http-equiv="X-UA-Compatible" />, <meta content="width=device-width,initial-scale=1" name="viewport" />, <meta content="" name="theme-color" />, <meta content="The epsom green box fit logo t-shirt for men has an oversized silhouette with dropped shoulders and a ribbed crewneck with each tee cut from 320gsm cotton." name="description" />, <meta content="about:blank" property="og:site_name" />, <meta content="https://about---blank.com/en-us/products/box-t-shirt-epsom-green" property="og:url" />, <meta content="about:blank | epsom green boxy oversized t-shirt" property="og:title" />, <meta content="product" property="og:type" />, <meta content="The epsom green box fit logo t-shirt for men has an oversized silhouette with dropped shoulders and a ribbed crewneck with each tee cut from 320gsm cotton." property="og:description" />, <meta content="http://about---blank.com/cdn/shop/products/about-blankcombox-t-shirt-epsom-green-116182.jpg?v=1692808973" property="og:image" />, <meta content="https://about---blank.com/cdn/shop/products/about-blankcombox-t-shirt-epsom-green-116182.jpg?v=1692808973" property="og:image:secure_url" />, <meta content="1365" property="og:image:width" />, <meta content="2048" property="og:image:height" />, <meta content="87.00" property="og:price:amount" />, <meta content="USD" property="og:price:currency" />, <meta content="summary_large_image" name="twitter:card" />, <meta content="about:blank | epsom green boxy oversized t-shirt" name="twitter:title" />, <meta content="The epsom green box fit logo t-shirt for men has an oversized silhouette with dropped shoulders and a ribbed crewneck with each tee cut from 320gsm cotton." name="twitter:description" />, <meta content="t3vbavIrN4W_e9-rbKafJaAL8uShi_WZzLC1VmwZ20w" name="google-site-verification" />, <meta content="/51776291012/digital_wallets/dialog" id="shopify-digital-wallet" name="shopify-digital-wallet" />, <meta content="02ea0fecfe53cfd140a43a3a681e98f9" name="shopify-checkout-api-token" />, <meta data-currency="USD" data-environment="production" data-locale="en_US" data-paypal-v4="true" data-shop-id="51776291012" data-venmo-supported="false" id="in-context-paypal-metadata" />]'
+
+    const responseJson = "{ 'name': '', 'description': '', 'images': [] }";
+    const openai = new OpenAI({
+      apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+      dangerouslyAllowBrowser: true
+    });
+    const completion = await openai.chat.completions.create({
+      messages: [{
+        role: "system",
+        content: `You are a backend API that when given a list of HTML tags, you return 
+          the name of the product, a description, and image links. You return
+          the results in the json format ${responseJson} and nothing else. The data you
+          are given is ${data}.`
+      }],
+      model: "gpt-3.5-turbo-0125",
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(completion.choices[0]['message']['content']);
+
+    console.log(result);
+    console.log(result['images'][0]);
+  }
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
-
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-full sm:before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full sm:after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 before:lg:h-[360px] z-[-1]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50 text-balance`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+    <div className="container mx-auto bg-gray-200 rounded-xl shadow border p-8 m-10">
+      <p className="text-3xl text-gray-700 font-bold mb-5">
+        Type something!
+      </p>
+      <form onSubmit={handleSubmit}>
+        <input type="text" id="prompt" name="prompt"
+          className="shadow 
+          appearance-none border rounded 
+          w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+          required />
+        <button type="submit" className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Submit</button>
+      </form>
+    </div>
   );
 }
+
+export default Test;
