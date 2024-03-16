@@ -4,13 +4,19 @@ import Image from "next/image";
 import parseData from "@/app/actions";
 
 const Test = () => {
-
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    // Prevent the default form submit behavior which refreshes the page
     event.preventDefault();
     try {
-      console.log("Calling server function...");
-      console.log(event.target.prompt.value);
-      const result = await parseData(event.target.prompt.value);
+      const input = (event.target as HTMLFormElement).prompt.value;
+      console.log("Calling server function on input:", input);
+      const result = await parseData(input);
+
+      if (result === null) {
+        console.log("Result is null, skipping rendering.");
+        return;
+      }
+
       console.log(result);
       result['images'].forEach((image: string) => {
         console.log(image);
@@ -18,7 +24,6 @@ const Test = () => {
       console.log(result['description']);
     } catch (error) {
       console.error('Failed to call server function:', error);
-      // Handle errors
     }
   };
 
