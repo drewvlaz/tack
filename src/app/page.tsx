@@ -1,13 +1,13 @@
 'use client';
 
-import Image from "next/image";
+// import Image from 'next/image'; // enforces cors policy, cant use for now
 import React, { useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import parseData from "@/app/actions";
+import parseData from '@/app/actions';
+import Piece from '@/app/piece';
 
 const Test = () => {
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [pieceImage, setPieceImage] = useState("");
+  const [pieces, setPieces] = useState<JSX.Element[]>([]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     // Prevent the default form submit behavior which refreshes the page
@@ -26,13 +26,18 @@ const Test = () => {
       result['images'].forEach((image: string) => {
         console.log(image);
       });
+      result['images'] = result['images'].slice(0, 2);
       console.log(result['description']);
-      setPieceImage(result['images'][0]);
+      setPieces(prevItems => [...prevItems, <Piece
+        name={result['name']}
+        brand={result['brand']}
+        material={result['material']}
+        description={result['description']}
+        images={result['images']}
+      />]);
     } catch (error) {
       console.error('Failed to call server function:', error);
     }
-
-    setIsSubmitted(true);
   };
   const { pending } = useFormStatus();
 
@@ -51,11 +56,15 @@ const Test = () => {
           type="submit"
           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
           aria-disabled={pending}
-        >Submit</button>
+        >Add</button>
       </form>
-      {isSubmitted && (
+      {pieces.length > 0 && (
         <div>
-          <img src={pieceImage} alt="Product image" width={500} height={500} />
+          {pieces.map((piece, index) => (
+            <div key={index} className="mt-10 padding-10 bg-gray-100 rounded-xl shadow border p-8">
+              {piece}
+            </div>
+          ))}
         </div>
       )}
     </div>
