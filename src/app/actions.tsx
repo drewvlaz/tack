@@ -8,6 +8,7 @@ const parseData = async (targetUrl: string) => {
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
+
   const htmlString = await response.text();
   const root = parse(htmlString);
   const metaTags = root.querySelectorAll('meta');
@@ -16,7 +17,7 @@ const parseData = async (targetUrl: string) => {
     meta.getAttribute('content')
   ));
 
-  const responseJson = "{ 'name': '', 'brand': '', 'description': '', 'images': [] }";
+  const responseJson = "{ 'name': '', 'brand': '', 'material': '', 'description': '', 'images': [] }";
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     dangerouslyAllowBrowser: true
@@ -24,10 +25,11 @@ const parseData = async (targetUrl: string) => {
   const completion = await openai.chat.completions.create({
     messages: [{
       role: "system",
-      content: `You are a backend API that when given a list of HTML meta tags, you return
-        the details of the product in the json format ${responseJson} and nothing else. The data you
-        are given is ${data}. For the images, if there are both http and https links, 
-        you should return the https links.`
+      content: `You are a backend API that when given a list of HTML meta tags, you return \
+        the details of the product in the json format ${responseJson} and nothing else. The data you \
+        are given is ${data}. \
+        For the images, if there are both http and https links, \
+        you should return the https links.`.replace(/\s+/g, ' ').trim()
     }],
     model: "gpt-3.5-turbo-0125",
     response_format: { type: "json_object" },
