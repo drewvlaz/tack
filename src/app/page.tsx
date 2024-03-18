@@ -1,17 +1,19 @@
-'use client';
+"use client";
 
 // import Image from 'next/image'; // enforces cors policy, cant use for now
-import React, { useState } from 'react';
-import { useFormStatus } from 'react-dom';
-import parseData from '@/app/actions';
-import Piece from '@/app/piece';
+import React, { useState } from "react";
+import parseData from "@/app/actions";
+import Piece from "@/components/ui/piece";
 
 const Test = () => {
   const [pieces, setPieces] = useState<JSX.Element[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    setLoading(true);
     // Prevent the default form submit behavior which refreshes the page
     event.preventDefault();
+
     try {
       const input = (event.target as HTMLFormElement).prompt.value;
       console.log("Calling server function on input:", input);
@@ -23,52 +25,56 @@ const Test = () => {
       }
 
       console.log(result);
-      result['images'].forEach((image: string) => {
+      result["images"].forEach((image: string) => {
         console.log(image);
       });
-      result['images'] = result['images'].slice(0, 2);
-      console.log(result['description']);
-      setPieces(prevItems => [...prevItems, <Piece
-        name={result['name']}
-        brand={result['brand']}
-        material={result['material']}
-        description={result['description']}
-        images={result['images']}
-      />]);
+      console.log(result["description"]);
+      setPieces((prevItems) => [
+        ...prevItems,
+        <Piece
+          key={result["name"]}
+          name={result["name"]}
+          brand={result["brand"]}
+          material={result["material"]}
+          description={result["description"]}
+          images={result["images"]}
+          link={input}
+        />,
+      ]);
+      console.log(result["images"][0]);
     } catch (error) {
-      console.error('Failed to call server function:', error);
+      console.error("Failed to call server function:", error);
+    } finally {
+      setLoading(false);
     }
   };
-  const { pending } = useFormStatus();
 
   return (
-    <div className="container mx-auto bg-gray-200 rounded-xl shadow border p-8 m-10">
-      <p className="text-3xl text-gray-700 font-bold mb-5">
+    <div className="container m-10 mx-auto rounded-xl border bg-gray-200 p-8 shadow">
+      <p className="mb-5 text-3xl font-bold text-gray-700">
         Add a link to a product page
       </p>
       <form onSubmit={handleSubmit}>
-        <input type="text" id="prompt" name="prompt"
-          className="shadow
-          appearance-none border rounded
-          w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          required />
+        <input
+          type="text"
+          id="prompt"
+          name="prompt"
+          className="focus:shadow-outline w-full appearance-none rounded border px-3 py-2 leading-tight text-gray-700 shadow focus:outline-none"
+          required
+        />
         <button
           type="submit"
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-          aria-disabled={pending}
-        >Add</button>
+          className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700"
+        >
+          {loading ? "Loading..." : "Add"}
+        </button>
       </form>
-      {pieces.length > 0 && (
-        <div>
-          {pieces.map((piece, index) => (
-            <div key={index} className="mt-10 padding-10 bg-gray-100 rounded-xl shadow border p-8">
-              {piece}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="mt-5 grid grid-cols-4">
+        {pieces.length > 0 &&
+          pieces.map((piece, index) => <div key={index}>{piece}</div>)}
+      </div>
     </div>
   );
-}
+};
 
 export default Test;
