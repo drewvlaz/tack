@@ -19,6 +19,10 @@ const Test = () => {
       console.log("Calling server function on input:", input);
       const result = await parseData(input);
 
+      console.log(result);
+      console.log(result.length);
+      return;
+
       if (result === null) {
         console.log("Result is null, skipping rendering.");
         return;
