@@ -27,7 +27,7 @@ const parseData = async (targetUrl: string) => {
   const data = metaTags.map((meta) => meta.getAttribute("content"));
 
   const responseJson =
-    "{ 'name': '', 'brand': '', 'material': '', 'description': '', 'images': [] }";
+    "{ 'name': '', 'brand': '', 'price':'', 'material': '', 'description': '', 'images': [] }";
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     dangerouslyAllowBrowser: true,
