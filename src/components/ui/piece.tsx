@@ -8,6 +8,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 
+import HoverCardV2 from "@/components/hovercard-v2";
+
 type PieceProps = {
   name: string;
   brand: string;
@@ -56,32 +58,7 @@ const Piece = (props: PieceProps) => {
     return `https://res.cloudinary.com/demo/image/fetch/${src}`;
   };
 
-  return (
-    <HoverCard>
-      <HoverCardTrigger asChild>
-        <Image
-          key={name}
-          src={images[0]}
-          className="rounded-[36px] shadow-xl"
-          alt="Product image"
-          // onMouseEnter={handleMouseEnter}
-          // onMouseLeave={handleMouseLeave}
-          onClick={handleClick}
-          width={200}
-          height={200}
-        />
-      </HoverCardTrigger>
-      <HoverCardContent>
-        <div className="text-gray-700">
-          <h1>
-            Name: {name} ({brand})
-          </h1>
-          <p>Material: {material}</p>
-          <p>Description: {description}</p>
-        </div>
-      </HoverCardContent>
-    </HoverCard>
-  );
+  return <HoverCardV2 name={name} image={images[0]} />;
 };
 
 export default Piece;

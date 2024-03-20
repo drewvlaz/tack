@@ -28,7 +28,6 @@ const Test = () => {
       result["images"].forEach((image: string) => {
         console.log(image);
       });
-      console.log(result["description"]);
       setPieces((prevItems) => [
         ...prevItems,
         <Piece

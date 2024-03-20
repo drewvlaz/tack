@@ -4,16 +4,16 @@ import OpenAI from "openai";
 import { parse } from "node-html-parser";
 
 const parseData = async (targetUrl: string) => {
-  // const p = new Promise((resolve) => setTimeout(resolve, 1000));
-  // await p;
-  // const res = {
-  //   name: "Product Name",
-  //   brand: "Brand",
-  //   material: "Material",
-  //   description: "Description",
-  //   images: ["https://sundae.school/cdn/shop/products/D7_broc_002_bbfcad3f-02a8-4c79-ae51-9c9a827393d0_600x600.jpg?v=1668031218"]
-  // };
-  // return res;
+  const product = {
+    name: "Product Name",
+    Brand: "Brand Name",
+    price: "$10.99",
+    material: "Unknown",
+    images: [
+      "https://sundae.school/cdn/shop/products/D7_Broccoli_F_006_d04d6c83-5a08-4f82-ac5f-53b85c5a6908_600x600.jpg?v=1668031218",
+    ],
+  };
+  return product;
 
   const response = await fetch(targetUrl, { method: "GET" });
   if (!response.ok) {
@@ -27,7 +27,7 @@ const parseData = async (targetUrl: string) => {
   const data = metaTags.map((meta) => meta.getAttribute("content"));
 
   const responseJson =
-    "{ 'name': '', 'brand': '', 'price':'', 'material': '', 'description': '', 'images': [] }";
+    "{ 'name': '', 'brand': '', 'price':'', 'material': '', 'images': [] }";
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     dangerouslyAllowBrowser: true,
@@ -40,6 +40,7 @@ const parseData = async (targetUrl: string) => {
           `You are a backend API that when given a list of HTML meta tags, you return \
         the details of the product in the json format ${responseJson} and nothing else. The data you \
         are given is ${data}. If you cannot determine the material, return "Unknown". \
+        Return the price as a string beginning with the currency symbol (e.g. $10.99). \
         For the images, if there are both http and https links, \
         you should return the https links and no duplicates.`
             .replace(/\s+/g, " ")
