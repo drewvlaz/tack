@@ -12,7 +12,9 @@ const parseEntirePage = async (
   finalJsonTags: string,
 ) => {
   const data = page.innerHTML;
-  const tagsToRemove = page.querySelectorAll("script, style, path, footer");
+  const tagsToRemove = page.querySelectorAll(
+    "button, div, footer, noscript, path, script, style, span, svg, symbol",
+  );
   const attributesToRemove = ["style", "srcset"];
   const allElements = page.querySelectorAll("*");
 
@@ -23,6 +25,15 @@ const parseEntirePage = async (
     });
   });
 
+  // const metaTags = root.querySelectorAll("meta");
+  // const data = metaTags.map((meta) => meta.getAttribute("content"));
+  // const data = root.innerHTML;
+  // const tags = root.querySelectorAll(
+  //   "meta, link, p, h1, h2, h3, h4, h5, h6, a, img, ul, ol, li, table, tr, td, th, span",
+  // );
+
+  // return tags.map((tag) => tag.outerHTML).join("\n");
+
   // https://api.js.langchain.com/classes/langchain_text_splitter.RecursiveCharacterTextSplitter.html
   const splitter = RecursiveCharacterTextSplitter.fromLanguage("html", {
     chunkSize: 10000,
@@ -30,7 +41,7 @@ const parseEntirePage = async (
   });
   const docs = await splitter.createDocuments([data]);
 
-  // return output
+  // return docs
   //   .map((doc) => doc.pageContent.replace(/\s+/g, " ").trim())
   //   .join("\n\n\n");
 
