@@ -1,34 +1,20 @@
 "use server";
 
-// import OpenAI from "openai";
-import { parse } from "node-html-parser";
+import OpenAI from "openai";
+import { parse, HTMLElement as ParsedHTMLElement } from "node-html-parser";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { OpenAI, ChatOpenAI } from "@langchain/openai";
+import { OpenAI as LangchainOpenAI, ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { loadSummarizationChain } from "langchain/chains";
 
-const parseData = async (targetUrl: string) => {
-  const product = {
-    name: "Product Name",
-    Brand: "Brand Name",
-    price: "$10.99",
-    material: "Unknown",
-    images: [
-      "https://sundae.school/cdn/shop/products/D7_Broccoli_F_006_d04d6c83-5a08-4f82-ac5f-53b85c5a6908_600x600.jpg?v=1668031218",
-    ],
-  };
-  return product;
-
-  const response = await fetch(targetUrl, { method: "GET" });
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  const htmlString = await response.text();
-  const root = parse(htmlString);
-  const tagsToRemove = root.querySelectorAll("script, style, path, footer");
+const parseEntirePage = async (
+  page: ParsedHTMLElement,
+  finalJsonTags: string,
+) => {
+  const data = page.innerHTML;
+  const tagsToRemove = page.querySelectorAll("script, style, path, footer");
   const attributesToRemove = ["style", "srcset"];
-  const allElements = root.querySelectorAll("*");
+  const allElements = page.querySelectorAll("*");
 
   tagsToRemove.forEach((item) => item.remove());
   allElements.forEach((elem) => {
@@ -36,10 +22,6 @@ const parseData = async (targetUrl: string) => {
       elem.removeAttribute(attr);
     });
   });
-
-  // const metaTags = root.querySelectorAll("meta");
-  // const data = metaTags.map((meta) => meta.getAttribute("content"));
-  const data = root.innerHTML;
 
   // https://api.js.langchain.com/classes/langchain_text_splitter.RecursiveCharacterTextSplitter.html
   const splitter = RecursiveCharacterTextSplitter.fromLanguage("html", {
@@ -52,19 +34,14 @@ const parseData = async (targetUrl: string) => {
   //   .map((doc) => doc.pageContent.replace(/\s+/g, " ").trim())
   //   .join("\n\n\n");
 
-  const model = new OpenAI({
+  const model = new LangchainOpenAI({
     openAIApiKey: process.env.OPENAI_API_KEY,
     modelName: "gpt-3.5-turbo-0125",
-    // maxTokens: 128,
-    // }).bind({
-    //   response_format: {
-    //     type: "json_object",
-    //   },
   });
 
-  const combineModel = new OpenAI({
+  const combineModel = new LangchainOpenAI({
     openAIApiKey: process.env.OPENAI_API_KEY,
-    modelName: "gpt-3.5-turbo-0125",
+    modelName: "gpt-3.5-turbo",
     // maxTokens: 128,
     // callbacks: [
     //   {
@@ -91,15 +68,13 @@ const parseData = async (targetUrl: string) => {
     inputVariables: ["text"],
   });
 
-  const responseJson =
-    "'name': '', 'brand': '', 'price': '', 'material': '', 'description': '', 'images': []";
   const combinePromptTemplate = new PromptTemplate({
     template:
       `You are a backend API that when given a list of HTML meta tags, you return \
-      the details of the product in the json format ${responseJson} and nothing else. The data you \
-      are given is {text}. If you cannot determine the material, return "Unknown". \
+      the details of the product in the json format ${finalJsonTags} and nothing else. \
+      If you cannot determine the material, return "Unknown". \
       For the images, if there are both http and https links, \
-      you should return the https links and no duplicates.`
+      you should return the https links and no duplicates. The data you are given is {text}.`
         .replace(/\s+/g, " ")
         .trim(),
     inputVariables: ["text"],
@@ -112,38 +87,21 @@ const parseData = async (targetUrl: string) => {
     combinePrompt: combinePromptTemplate,
   });
 
+  // TODO: switch to invoke() when typing issues fixed
   const res = await summaryChain.call({
     input_documents: docs,
   });
 
-  return res !== null ? JSON.parse(res["text"]) : null;
+  return res;
+};
 
-  // llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-16k-0613")
-  // text_splitter = RecursiveCharacterTextSplitter(
-  //     separators=["\n\n", "\n"], chunk_size=10000, chunk_overlap=500)
-  // docs = text_splitter.create_documents([content])
-  // map_prompt = """
-  // Write a summary of the following text for {objective}:
-  // "{text}"
-  // SUMMARY:
-  // """
-  // map_prompt_template = PromptTemplate(
-  //     template=map_prompt, input_variables=["text", "objective"])
-  //
-  // summary_chain = load_summarize_chain(
-  //     llm=llm,
-  //     chain_type='map_reduce',
-  //     map_prompt=map_prompt_template,
-  //     combine_prompt=map_prompt_template,
-  //     verbose=True
-  // )
-  //
-  // output = summary_chain.run(input_documents=docs, objective=objective)
-  //
-  // return output
+const parseMetaTags = async (
+  page: ParsedHTMLElement,
+  finalJsonTags: string,
+) => {
+  const metaTags = page.querySelectorAll("meta");
+  const data = metaTags.map((meta) => meta.getAttribute("content"));
 
-  // const responseJson =
-  //   "{ 'name': '', 'brand': '', 'price': '', 'material': '', 'description': '', 'images': [] }";
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     dangerouslyAllowBrowser: true,
@@ -154,7 +112,7 @@ const parseData = async (targetUrl: string) => {
         role: "system",
         content:
           `You are a backend API that when given a list of HTML meta tags, you return \
-          the details of the product in the json format ${responseJson} and nothing else. The data you \
+          the details of the product in the json format ${finalJsonTags} and nothing else. The data you \
           are given is ${data}. If you cannot determine the material, return "Unknown". \
           For the images, if there are both http and https links, \
           you should return the https links and no duplicates.`
@@ -162,12 +120,25 @@ const parseData = async (targetUrl: string) => {
             .trim(),
       },
     ],
-    model: "gpt-3.5-turbo-0125",
+    model: "gpt-3.5-turbo",
     response_format: { type: "json_object" },
   });
 
-  const content = completion.choices[0]["message"]["content"];
-  return content !== null ? JSON.parse(content) : null;
+  return completion.choices[0]["message"]["content"];
+};
+
+const parseData = async (targetUrl: string) => {
+  const response = await fetch(targetUrl, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const htmlString = await response.text();
+  const root = parse(htmlString);
+  const responseJson =
+    "'name': '', 'brand': '', 'price': '', 'material': '', 'images': []";
+  const data = await parseMetaTags(root, responseJson);
+  return data !== null ? JSON.parse(data) : null;
 };
 
 export default parseData;
