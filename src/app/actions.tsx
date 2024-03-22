@@ -123,10 +123,10 @@ const parseMetaTags = async (
         role: "system",
         content:
           `You are a backend API that when given a list of HTML meta tags, you return \
-          the details of the product in the json format ${finalJsonTags} and nothing else. The data you \
-          are given is ${data}. If you cannot determine the material, return "Unknown". \
+          the details of the product in the json format ${finalJsonTags} and nothing else. \
+          If you cannot determine the material, return "Unknown". \
           For the images, if there are both http and https links, \
-          you should return the https links and no duplicates.`
+          you should return the https links and no duplicates. The data you are given is ${data}.`
             .replace(/\s+/g, " ")
             .trim(),
       },
@@ -139,6 +139,16 @@ const parseMetaTags = async (
 };
 
 const parseData = async (targetUrl: string) => {
+  return {
+    name: "test",
+    brand: "test",
+    price: "test",
+    material: "test",
+    images: [
+      "https://sundae.school/cdn/shop/products/D7_Broccoli_F_006_d04d6c83-5a08-4f82-ac5f-53b85c5a6908_600x600.jpg?v=1668031218",
+    ],
+  };
+
   const response = await fetch(targetUrl, { method: "GET" });
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
