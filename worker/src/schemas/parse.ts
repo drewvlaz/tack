@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { SafeUrl } from './primitives';
 
 export const ParseUrlBody = z.object({
-  url: z.url(),
+  url: SafeUrl,
 });
 
 export const StoredImageSchema = z.discriminatedUnion('kind', [

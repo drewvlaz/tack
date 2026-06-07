@@ -1,4 +1,5 @@
 import { genId } from '../lib/id';
+import { safeFetch, UnsafeUrlError } from '../lib/safeFetch';
 
 export type StoredImage =
   | { kind: 'r2'; key: string; sourceUrl: string }
@@ -28,7 +29,7 @@ export async function storeImage(
   sourceUrl: string,
 ): Promise<StoredImage | null> {
   try {
-    const res = await fetch(sourceUrl);
+    const res = await safeFetch(sourceUrl);
     if (!res.ok || !res.body) {
       return { kind: 'external', url: sourceUrl, sourceUrl };
     }
@@ -41,7 +42,10 @@ export async function storeImage(
       res.headers.get('content-type') ?? DEFAULT_IMAGE_CONTENT_TYPE;
     await images.put(key, res.body, { httpMetadata: { contentType } });
     return { kind: 'r2', key, sourceUrl };
-  } catch {
+  } catch (err) {
+    // Unsafe URLs (private IPs, non-http schemes) must not be persisted —
+    // even as 'external' the frontend would render them via <img src>.
+    if (err instanceof UnsafeUrlError) return null;
     return { kind: 'external', url: sourceUrl, sourceUrl };
   }
 }

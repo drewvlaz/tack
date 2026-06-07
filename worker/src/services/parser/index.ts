@@ -1,3 +1,4 @@
+import { safeFetch } from '../../lib/safeFetch';
 import type { ParseResult } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
@@ -36,7 +37,7 @@ export async function fetchAndParseMeta(
   url: string,
   apiKey: string,
 ): Promise<ParsedMeta> {
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Moodboard/1.0)' },
   });
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);

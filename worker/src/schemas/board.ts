@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ItemDetailSchema, StoredImageSchema } from './parse';
+import { Coord, SafeUrl, Size, ZIndex } from './primitives';
 
 export const BoardSchema = z.object({
   id: z.string(),
@@ -46,23 +47,23 @@ export const BoardItemSchema = z.object({
 });
 
 export const PatchBoardItemBody = z.object({
-  x: z.number().optional(),
-  y: z.number().optional(),
-  zIndex: z.number().optional(),
-  width: z.number().optional(),
-  height: z.number().optional(),
+  x: Coord.optional(),
+  y: Coord.optional(),
+  zIndex: ZIndex.optional(),
+  width: Size.optional(),
+  height: Size.optional(),
 });
 
 export const AddItemBody = z.object({
-  sourceUrl: z.string(),
+  sourceUrl: SafeUrl,
   title: z.string().nullable(),
   brand: z.string().nullable(),
   description: z.string().nullable(),
   price: z.number().nullable(),
   details: z.array(ItemDetailSchema),
   images: z.array(StoredImageSchema),
-  x: z.number(),
-  y: z.number(),
+  x: Coord,
+  y: Coord,
 });
 
 export type BoardItem = z.infer<typeof BoardItemSchema>;
