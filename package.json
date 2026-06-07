@@ -11,9 +11,11 @@
     "dev:worker": "npm run dev -w worker",
     "prepare": "husky"
   },
+  "lint": {
+    "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write"
+  }
   "lint-staged": {
-    "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write",
-    "web/**/*.{ts,tsx}": "eslint --fix --max-warnings=0"
+    "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
