@@ -1,5 +1,5 @@
 import { safeFetch } from '../../lib/safeFetch';
-import type { ParseResult } from '../../schemas/parse';
+import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
 import {
@@ -36,7 +36,8 @@ function hostnameOf(raw: string | undefined, base: string): string | null {
 export async function fetchAndParseMeta(
   url: string,
   apiKey: string,
-): Promise<ParsedMeta> {
+): Promise<{ meta: ParsedMeta; warnings: ParseWarning[] }> {
+  const warnings: ParseWarning[] = [];
   const res = await safeFetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Moodboard/1.0)' },
   });
@@ -81,16 +82,19 @@ export async function fetchAndParseMeta(
     }
     details = meta.details;
   } catch {
-    // fields stay as-is
+    warnings.push('claude_failed');
   }
 
   return {
-    title,
-    brand,
-    description,
-    price,
-    imageUrls: imageUrls.slice(0, MAX_IMAGES),
-    details,
+    meta: {
+      title,
+      brand,
+      description,
+      price,
+      imageUrls: imageUrls.slice(0, MAX_IMAGES),
+      details,
+    },
+    warnings,
   };
 }
 
@@ -99,11 +103,15 @@ export async function parseProductUrl(
   anthropicKey: string,
   images: R2Bucket,
 ): Promise<ParseResult> {
-  const meta = await fetchAndParseMeta(url, anthropicKey);
+  const { meta, warnings } = await fetchAndParseMeta(url, anthropicKey);
 
   const stored = (
     await Promise.all(meta.imageUrls.map((src) => storeImage(images, src)))
   ).filter((s): s is StoredImage => s !== null);
+
+  if (stored.length < meta.imageUrls.length)
+    warnings.push('image_fetch_failed');
+  if (stored.length === 0) warnings.push('no_images');
 
   return {
     title: meta.title,
@@ -112,5 +120,6 @@ export async function parseProductUrl(
     price: meta.price,
     details: meta.details,
     images: stored,
+    warnings,
   };
 }

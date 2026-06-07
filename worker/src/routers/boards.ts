@@ -8,17 +8,19 @@ import {
 } from '../schemas/board';
 import {
   addBoardItem,
-  createBoard,
-  deleteBoard,
   deleteBoardItem,
   emptyBoardTrash,
   listBoardItems,
-  listBoards,
   listTrashedBoardItems,
   patchBoardItem,
   purgeBoardItem,
-  renameBoard,
   restoreBoardItem,
+} from '../services/boardItems';
+import {
+  createBoard,
+  deleteBoard,
+  listBoards,
+  renameBoard,
 } from '../services/boards';
 import { publicProcedure, router } from '../trpc/init';
 

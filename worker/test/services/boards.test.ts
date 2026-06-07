@@ -2,11 +2,10 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDb } from '../../src/db/client';
 import * as schema from '../../src/db/schema';
+import { addBoardItem, listBoardItems } from '../../src/services/boardItems';
 import {
-  addBoardItem,
   createBoard,
   deleteBoard,
-  listBoardItems,
   listBoards,
 } from '../../src/services/boards';
 

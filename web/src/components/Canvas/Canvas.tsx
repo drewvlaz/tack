@@ -1,22 +1,14 @@
-import {
-  animate,
-  motion,
-  useMotionValueEvent,
-  type AnimationPlaybackControls,
-} from 'framer-motion';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  canvas,
-  card as cardConfig,
-  spring,
-  zoom as zoomConfig,
-} from '../../config';
+import { motion, useMotionValueEvent } from 'framer-motion';
+import { useCallback, useState } from 'react';
+import { canvas, card as cardConfig, zoom as zoomConfig } from '../../config';
 import { useCanvasGesture } from '../../hooks/interaction/useCanvasGesture';
+import { usePanForPanel } from '../../hooks/interaction/usePanForPanel';
 import { useAddItem } from '../../hooks/server/useAddItem';
 import { useBoardItems } from '../../hooks/server/useBoardItems';
 import { useSyncPosition } from '../../hooks/server/useSyncPosition';
 import { useHotkey } from '../../hooks/useHotkey';
 import { resolveImageUrl } from '../../lib/api';
+import { screenToCanvas } from '../../lib/canvasMath';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
 import { useRailsStore } from '../../store/rails';
@@ -25,7 +17,9 @@ import Card from './Card';
 import UrlBar from './UrlBar';
 import ZoomBar from './ZoomBar';
 
-const PANEL_EDGE_MARGIN = 24;
+// Drop new cards slightly above viewport center so the title is readable below
+// the user's gaze rather than directly under the cursor.
+const ADD_CARD_Y_BIAS = 200;
 
 export default function Canvas() {
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
@@ -38,35 +32,13 @@ export default function Canvas() {
   const syncPosition = useSyncPosition();
   const addItem = useAddItem();
 
-  const panelOffsetRef = useRef(0);
-  const panAnimRef = useRef<AnimationPlaybackControls | null>(null);
-
-  useEffect(() => {
-    const wasOpen = panelOffsetRef.current !== 0;
-    const isOpen = selectedId !== null;
-    if (isOpen && !wasOpen) {
-      const selected = items.find(
-        (i) => i.kind === 'real' && i.id === selectedId,
-      );
-      if (!selected) return;
-
-      const z = zoomMV.get();
-      const itemRightScreen = panX.get() + (selected.x + selected.width) * z;
-      const panelLeftScreen = window.innerWidth - rightWidth;
-      const overlap = itemRightScreen - (panelLeftScreen - PANEL_EDGE_MARGIN);
-      if (overlap <= 0) return;
-
-      const delta = -overlap;
-      panelOffsetRef.current = delta;
-      panAnimRef.current?.stop();
-      panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
-    } else if (!isOpen && wasOpen) {
-      const delta = -panelOffsetRef.current;
-      panelOffsetRef.current = 0;
-      panAnimRef.current?.stop();
-      panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
-    }
-  }, [selectedId, rightWidth, panX, zoomMV, items]);
+  usePanForPanel({
+    selectedId,
+    rightWidth,
+    items,
+    panX,
+    zoom: zoomMV,
+  });
 
   const [bgStyle, setBgStyle] = useState(() => ({
     backgroundSize: `${canvas.dotSpacing}px ${canvas.dotSpacing}px`,
@@ -89,10 +61,13 @@ export default function Canvas() {
   const handleAddUrl = useCallback(
     (url: string) => {
       if (!activeBoardId) return;
-      const x =
-        (-panX.get() + window.innerWidth / 2 - cardConfig.width / 2) /
-        zoomMV.get();
-      const y = (-panY.get() + window.innerHeight / 2 - 200) / zoomMV.get();
+      const { x, y } = screenToCanvas(
+        window.innerWidth / 2 - cardConfig.width / 2,
+        window.innerHeight / 2 - ADD_CARD_Y_BIAS,
+        panX.get(),
+        panY.get(),
+        zoomMV.get(),
+      );
       addItem.mutate({ url, boardId: activeBoardId, x, y });
     },
     [activeBoardId, panX, panY, zoomMV, addItem],

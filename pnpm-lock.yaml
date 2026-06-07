@@ -59,6 +59,9 @@ importers:
       '@use-gesture/react':
         specifier: ^10.3.1
         version: 10.3.1(react@19.2.7)
+      consola:
+        specifier: ^3.4.2
+        version: 3.4.2
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
@@ -117,6 +120,9 @@ importers:
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.8.3)
+      consola:
+        specifier: ^3.4.2
+        version: 3.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260607.1)
@@ -1983,6 +1989,10 @@ packages:
     resolution: {integrity: sha512-hc3LH4UaKWd/bbyDK/IGVa4RB6PtQ3CUYwtrkzqHn+wIG3Hr5fhpRlk0L/gCa8ZE1L/Ufj50Zho69cI5w8SQBA==}
     engines: {node: '>=22'}
     hasBin: true
+
+  consola@3.4.2:
+    resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
+    engines: {node: ^14.18.0 || >=16.10.0}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -4431,6 +4441,8 @@ snapshots:
       supports-color: 10.2.2
       tree-kill: 1.2.2
       yargs: 18.0.0
+
+  consola@3.4.2: {}
 
   convert-source-map@2.0.0: {}
 

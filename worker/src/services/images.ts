@@ -1,4 +1,5 @@
 import { genId } from '../lib/id';
+import { log } from '../lib/log';
 import { safeFetch, UnsafeUrlError } from '../lib/safeFetch';
 
 export type StoredImage =
@@ -57,8 +58,10 @@ export async function deleteStoredImage(
   if (img.kind !== 'r2') return;
   try {
     await images.delete(img.key);
-  } catch {
-    // best-effort
+  } catch (err) {
+    // best-effort; SQL has already dropped the reference, so the blob is now
+    // an orphan and GC-able. Surface in logs so operators can spot leaks.
+    log.warn(`R2 delete failed for ${img.key}:`, err);
   }
 }
 

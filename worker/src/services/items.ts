@@ -3,7 +3,8 @@ import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
-import { deleteStoredImage, fromR2Key, storeImage, toR2Key } from './images';
+import { storeImage, toR2Key } from './images';
+import { commitWithBlobCleanup } from './itemImages';
 import { fetchAndParseMeta } from './parser';
 
 export async function setPrimaryImage(
@@ -63,7 +64,7 @@ export async function reparseItem(
   });
   if (!item) throw new Error(`Item not found: ${itemId}`);
 
-  const meta = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
+  const { meta } = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
 
   const nextDetails = meta.details.length > 0 ? meta.details : null;
   const updated = {
@@ -114,8 +115,8 @@ export async function reparseItem(
     return { id: itemId, updated, imageCount: existing.length };
   }
 
-  // R2 writes before SQL so a crash leaves orphaned blobs (GC-able) rather
-  // than a row pointing at images that were just deleted.
+  // R2 writes before SQL: SQL inserts need the new keys, and a crash here
+  // leaves orphan blobs (GC-able) rather than rows pointing at missing bytes.
   const stored = (
     await Promise.all(meta.imageUrls.map((src) => storeImage(imagesR2, src)))
   ).filter((s) => s !== null);
@@ -130,28 +131,28 @@ export async function reparseItem(
       null)
     : null;
 
-  await db.batch([
-    buildItemUpdate(reboundPrimaryId),
-    db.delete(schema.itemImages).where(eq(schema.itemImages.itemId, itemId)),
-    db.insert(schema.itemImages).values(
-      stored.map((s, i) => ({
-        id: newIds[i],
-        itemId,
-        r2Key: toR2Key(s),
-        sourceUrl: s.sourceUrl,
-        displayOrder: i,
-        createdAt: now,
-        updatedAt: now,
-      })),
-    ),
-  ]);
-
-  for (const img of existing) {
-    await deleteStoredImage(
-      imagesR2,
-      fromR2Key(img.r2Key, img.sourceUrl ?? ''),
-    );
-  }
+  await commitWithBlobCleanup(
+    imagesR2,
+    () =>
+      db.batch([
+        buildItemUpdate(reboundPrimaryId),
+        db
+          .delete(schema.itemImages)
+          .where(eq(schema.itemImages.itemId, itemId)),
+        db.insert(schema.itemImages).values(
+          stored.map((s, i) => ({
+            id: newIds[i],
+            itemId,
+            r2Key: toR2Key(s),
+            sourceUrl: s.sourceUrl,
+            displayOrder: i,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        ),
+      ]),
+    existing,
+  );
 
   return { id: itemId, updated, imageCount: meta.imageUrls.length };
 }

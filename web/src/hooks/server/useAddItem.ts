@@ -16,6 +16,9 @@ export function useAddItem() {
   return useMutation({
     mutationFn: async ({ url, boardId, x, y }: AddItemArgs) => {
       const parsed = await parseUrl(url);
+      if (parsed.warnings.length > 0) {
+        console.warn('parseUrl warnings:', parsed.warnings, 'for', url);
+      }
       return addItem(boardId, {
         sourceUrl: url,
         title: parsed.title,
