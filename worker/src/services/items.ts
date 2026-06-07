@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import { genId } from '../lib/id';
@@ -16,6 +16,7 @@ export async function setPrimaryImage(
       where: and(
         eq(schema.itemImages.id, imageId),
         eq(schema.itemImages.itemId, itemId),
+        isNull(schema.itemImages.deletedAt),
       ),
     });
     if (!owned)
@@ -58,7 +59,7 @@ export async function reparseItem(
   anthropicKey: string,
 ): Promise<ReparseResult> {
   const item = await db.query.items.findFirst({
-    where: eq(schema.items.id, itemId),
+    where: and(eq(schema.items.id, itemId), isNull(schema.items.deletedAt)),
   });
   if (!item) throw new Error(`Item not found: ${itemId}`);
 
@@ -96,7 +97,10 @@ export async function reparseItem(
   }
 
   const existing = await db.query.itemImages.findMany({
-    where: eq(schema.itemImages.itemId, itemId),
+    where: and(
+      eq(schema.itemImages.itemId, itemId),
+      isNull(schema.itemImages.deletedAt),
+    ),
     orderBy: asc(schema.itemImages.displayOrder),
   });
 

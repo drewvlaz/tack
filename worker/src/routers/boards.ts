@@ -11,10 +11,14 @@ import {
   createBoard,
   deleteBoard,
   deleteBoardItem,
+  emptyBoardTrash,
   listBoardItems,
   listBoards,
+  listTrashedBoardItems,
   patchBoardItem,
+  purgeBoardItem,
   renameBoard,
+  restoreBoardItem,
 } from '../services/boards';
 import { publicProcedure, router } from '../trpc/init';
 
@@ -61,6 +65,35 @@ export const boardsRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await deleteBoardItem(ctx.db, input.id);
+      return { ok: true as const };
+    }),
+
+  listTrash: publicProcedure
+    .input(z.object({ boardId: z.string() }))
+    .query(async ({ ctx, input }) =>
+      z
+        .array(BoardItemSchema)
+        .parse(await listTrashedBoardItems(ctx.db, input.boardId)),
+    ),
+
+  restoreItem: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await restoreBoardItem(ctx.db, input.id);
+      return { ok: true as const };
+    }),
+
+  purgeItem: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await purgeBoardItem(ctx.db, ctx.images, input.id);
+      return { ok: true as const };
+    }),
+
+  emptyTrash: publicProcedure
+    .input(z.object({ boardId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await emptyBoardTrash(ctx.db, ctx.images, input.boardId);
       return { ok: true as const };
     }),
 });

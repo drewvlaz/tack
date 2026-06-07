@@ -44,3 +44,19 @@ export function addItem(
 export function deleteItem(id: string): Promise<{ ok: true }> {
   return trpc.boards.deleteItem.mutate({ id });
 }
+
+export function listTrash(boardId: string): Promise<BoardItem[]> {
+  return trpc.boards.listTrash.query({ boardId });
+}
+
+export function restoreItem(id: string): Promise<{ ok: true }> {
+  return trpc.boards.restoreItem.mutate({ id });
+}
+
+export function purgeItem(id: string): Promise<{ ok: true }> {
+  return trpc.boards.purgeItem.mutate({ id });
+}
+
+export function emptyTrash(boardId: string): Promise<{ ok: true }> {
+  return trpc.boards.emptyTrash.mutate({ boardId });
+}

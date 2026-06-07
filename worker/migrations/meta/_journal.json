@@ -43,6 +43,13 @@
       "when": 1780824294369,
       "tag": "0005_zippy_leo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1780859881663,
+      "tag": "0006_soft_delete_items_images",
+      "breakpoints": true
     }
   ]
 }

@@ -113,6 +113,9 @@ This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "d
 
 ## Scripts
 
-- `npm run dev` — Vite dev server
-- `npm run build` — `tsc -b && vite build`
-- `npm run lint` — `tsc --noEmit && eslint .`
+All scripts work from the repo root (mirrored as `npm run <name>` or `<name>:web`) or from `web/`. See the root `CLAUDE.md` for the full table.
+
+- `dev` — Vite dev server
+- `build` — `tsc -b && vite build`
+- `preview` — Vite preview of the production build
+- `lint` — `tsc --noEmit && eslint .`

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { spring } from '../../config';
 import { useHotkey } from '../../hooks/useHotkey';
+import UrlInputRow from '../shared/UrlInputRow';
 
 type AddUrlModalProps = {
   open: boolean;
@@ -62,6 +63,12 @@ export default function AddUrlModal({
             aria-label="Add URL"
             onSubmit={handleSubmit}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                close();
+              }
+            }}
             className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] items-center gap-2 rounded-xl px-4 py-3 shadow-2xl ring-1"
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -73,34 +80,12 @@ export default function AddUrlModal({
             }}
             transition={{ type: 'spring', ...spring.panel }}
           >
-            <input
-              ref={inputRef}
-              type="url"
+            <UrlInputRow
               value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Paste product URL…"
-              disabled={isPending}
-              className="text-fg placeholder:text-fg-subtle flex-1 bg-transparent text-sm outline-none disabled:opacity-50"
+              onChange={setValue}
+              isPending={isPending}
+              inputRef={inputRef}
             />
-            <button
-              type="submit"
-              disabled={!value.trim() || isPending}
-              className="bg-fg text-surface flex h-7 w-7 items-center justify-center rounded-full transition-opacity disabled:opacity-30"
-            >
-              {isPending ? (
-                <span className="border-surface block h-3 w-3 animate-spin rounded-full border-2 border-t-transparent" />
-              ) : (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path
-                    d="M2 6h8M6 2l4 4-4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </button>
           </motion.form>
         </motion.div>
       )}

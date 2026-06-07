@@ -13,12 +13,27 @@ web/      React 19 + Vite frontend
 worker/   Hono + tRPC on Cloudflare Workers (D1, R2, Anthropic API)
 ```
 
-Root scripts (`package.json`):
+## Scripts
 
-- `npm run dev` — frontend dev server (Vite, port 5173/5174)
-- `npm run dev:worker` — `wrangler dev` for the backend (port 8787)
-- `npm run build` — frontend production build
-- `npm run lint` — typecheck + ESLint across both workspaces
+Every command runs from the repo root **or** from inside a workspace — the root mirrors each workspace script as `-w` passthrough. From root, bare names hit the natural target (web for `build`, both for `dev`/`lint`/`test`); `:web` / `:worker` suffixes pin a workspace.
+
+| Script                      | Root (`npm run …`)                               | Web (`web/`) | Worker (`worker/`) |
+| --------------------------- | ------------------------------------------------ | ------------ | ------------------ |
+| `dev`                       | both, concurrently (`concurrently`)              | Vite         | `wrangler dev`     |
+| `dev:web`                   | web only                                         | —            | —                  |
+| `dev:worker`                | worker only                                      | —            | —                  |
+| `build` / `build:web`       | web prod build                                   | ✓            | —                  |
+| `preview`                   | Vite preview                                     | ✓            | —                  |
+| `lint` / `:web` / `:worker` | typecheck + ESLint per workspace                 | ✓            | ✓                  |
+| `test` / `:web` / `:worker` | vitest                                           | —            | ✓                  |
+| `deploy`                    | `wrangler deploy`                                | —            | ✓                  |
+| `cf-typegen`                | `wrangler types`                                 | —            | ✓                  |
+| `db:generate`               | `drizzle-kit generate` (pass `-- --name <desc>`) | —            | ✓                  |
+| `db:migrate` / `:local`     | apply migrations to remote / local D1            | —            | ✓                  |
+| `db:seed:local`             | apply `seed.sql` to local D1                     | —            | ✓                  |
+| `db:studio`                 | drizzle-kit studio UI                            | —            | ✓                  |
+
+**Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "npm run <name> -w <workspace> --"` (trailing `--` lets users pass args via `npm run <name> -- <args>`). Cross-workspace scripts that should fan out (lint/test) use `npm run <name> --workspaces --if-present`.
 
 Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:8787'}/trpc`. Images are served via the worker's `/api/images/*` proxy (not tRPC).
 
@@ -73,17 +88,13 @@ These are load-bearing — break them and the layering collapses.
 ## Running locally
 
 ```bash
-# 1. Backend (needs ANTHROPIC_API_KEY)
-cd worker
-# put ANTHROPIC_API_KEY in .dev.vars (gitignored)
+# Put ANTHROPIC_API_KEY in worker/.dev.vars (gitignored), then from the repo root:
 npm run db:migrate:local   # apply migrations to local D1
 npm run db:seed:local      # seed board-1 with 3 placeholder items
-npm run dev                # wrangler dev → http://localhost:8787
-
-# 2. Frontend
-cd web
-npm run dev                # vite → http://localhost:5173 (or 5174)
+npm run dev                # web (5173/5174) + worker (8787) concurrently
 ```
+
+Run `npm run dev:web` or `npm run dev:worker` to start only one. Anything that works at root also works inside `web/` or `worker/`.
 
 The frontend reads the active board from `localStorage` via `useBoardsStore` (key `activeBoardId`). The seed creates `board-1`, which the boards sidebar will list and the user can select.
 
@@ -96,7 +107,7 @@ Defined in `worker/src/db/schema.ts`. Tables:
 - `item_images` — N images per item, ordered by `display_order`. `r2_key` points into R2.
 - `board_items` — placement of an item on a board (x, y, width, height, z_index). Unique on `(board_id, item_id)`.
 
-Generate migrations: `cd worker && npm run db:generate`. Apply locally: `npm run db:migrate:local`. Apply to prod: `npm run db:migrate`.
+Generate migrations: `npm run db:generate -- --name <description>`. Apply locally: `npm run db:migrate:local`. Apply to prod: `npm run db:migrate`. All work from root or `worker/`.
 
 ## Testing
 

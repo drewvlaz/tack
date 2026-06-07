@@ -24,7 +24,6 @@ export const boardItems = sqliteTable(
     width: real('width').notNull().default(220),
     height: real('height').notNull().default(400),
     zIndex: integer('z_index').notNull().default(0),
-    deletedAt: integer('deleted_at'),
   },
   (t) => [unique().on(t.boardId, t.itemId)],
 );

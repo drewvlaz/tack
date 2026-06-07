@@ -69,7 +69,53 @@ describe('parseHtml', () => {
       description: null,
       ogImages: [],
       jsonLdImages: [],
+      imgTagImages: [],
     });
+  });
+
+  it('collects <img> src when no srcset is present', async () => {
+    const result = await parseHtml(`
+      <img src="https://cdn.test/hero.jpg" alt="x">
+    `);
+    expect(result.imgTagImages).toEqual(['https://cdn.test/hero.jpg']);
+  });
+
+  it('picks the largest URL from each <img srcset>', async () => {
+    const result = await parseHtml(`
+      <img srcset="https://cdn.test/a-256.jpg 256w, https://cdn.test/a-1920.jpg 1920w" src="https://cdn.test/a-fallback.jpg">
+      <img srcset="https://cdn.test/b-256.jpg 256w, https://cdn.test/b-1080.jpg 1080w">
+    `);
+    expect(result.imgTagImages).toEqual([
+      'https://cdn.test/a-1920.jpg',
+      'https://cdn.test/b-1080.jpg',
+    ]);
+  });
+
+  // SSENSE-style page: og:image and JSON-LD each have only 1 URL (the _1
+  // shot); the rest of the gallery lives in <img srcset>. Verify all 4
+  // distinct shots survive merge+dedupe.
+  it('SSENSE-shaped page yields all distinct product shots', async () => {
+    const html = `
+      <meta property="og:image" content="https://img.ssensemedia.com/images/w_640/SKU_1/p.jpg">
+      <script type="application/ld+json">{"@type":"Product","image":"https://img.ssensemedia.com/images/__IMAGE_PARAMS__/SKU_1/p.jpg"}</script>
+      <img srcset="https://img.ssensemedia.com/images/w_256/SKU_1/p.jpg 256w, https://img.ssensemedia.com/images/w_1920/SKU_1/p.jpg 1920w">
+      <img srcset="https://img.ssensemedia.com/images/w_256/SKU_2/p.jpg 256w, https://img.ssensemedia.com/images/w_1920/SKU_2/p.jpg 1920w">
+      <img srcset="https://img.ssensemedia.com/images/w_256/SKU_3/p.jpg 256w, https://img.ssensemedia.com/images/w_1920/SKU_3/p.jpg 1920w">
+      <img srcset="https://img.ssensemedia.com/images/w_256/SKU_4/p.jpg 256w, https://img.ssensemedia.com/images/w_1920/SKU_4/p.jpg 1920w">
+      <img src="https://other-cdn.test/widget.svg">
+    `;
+    const parsed = await parseHtml(html);
+    expect(parsed.imgTagImages).toHaveLength(5); // 4 product + 1 widget
+    const sameHost = parsed.imgTagImages.filter((u) =>
+      u.includes('ssensemedia.com'),
+    );
+    const merged = resolveAndDedupeUrls('https://www.ssense.com/x', [
+      ...parsed.jsonLdImages,
+      ...parsed.ogImages,
+      ...sameHost,
+    ]).filter((u) => !/__[A-Z][A-Z0-9_]*__/.test(u));
+    const skuCount = merged.filter((u) => /\/SKU_\d\//.test(u)).length;
+    expect(skuCount).toBe(4);
   });
 
   it('extracts images from JSON-LD with image as a string', async () => {
@@ -146,6 +192,24 @@ describe('resolveAndDedupeUrls', () => {
         'https://cdn.test/img.webp?v=1&width=1200',
       ]),
     ).toHaveLength(1);
+  });
+
+  it('collapses Cloudinary-style size-transform variants of the same image', () => {
+    const out = resolveAndDedupeUrls(base, [
+      'https://cdn.test/images/w_640/SKU_1/shot.jpg',
+      'https://cdn.test/images/f_auto,c_limit,w_1920/SKU_1/shot.jpg',
+      'https://cdn.test/images/w_256/SKU_1/shot.jpg',
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('keeps distinct shots of the same product (different SKU suffix)', () => {
+    const out = resolveAndDedupeUrls(base, [
+      'https://cdn.test/images/w_1920/SKU_1/shot.jpg',
+      'https://cdn.test/images/w_1920/SKU_2/shot.jpg',
+      'https://cdn.test/images/w_1920/SKU_3/shot.jpg',
+    ]);
+    expect(out).toHaveLength(3);
   });
 
   it('skips empty strings', () => {

@@ -15,6 +15,7 @@ export type ParsedHtml = {
   description: string | null;
   ogImages: string[];
   jsonLdImages: string[];
+  imgTagImages: string[];
 };
 
 const OG_IMAGE_PROPS = new Set([
@@ -31,6 +32,7 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
   let description: string | null = null;
   const ogImages: string[] = [];
   const jsonLdScripts: string[] = [];
+  const imgTagImages: string[] = [];
   let currentScript: string | null = null;
 
   const rewriter = new HTMLRewriter()
@@ -57,6 +59,15 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
           currentScript = null;
         }
       },
+    })
+    .on('img', {
+      element(el) {
+        const srcset = el.getAttribute('srcset');
+        const picked = srcset
+          ? largestFromSrcset(srcset)
+          : (el.getAttribute('src') ?? null);
+        if (picked) imgTagImages.push(picked);
+      },
     });
 
   await rewriter.transform(new Response(html)).arrayBuffer();
@@ -74,7 +85,27 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
     walkForImages(data, jsonLdImages);
   }
 
-  return { title, brand, description, ogImages, jsonLdImages };
+  return { title, brand, description, ogImages, jsonLdImages, imgTagImages };
+}
+
+// Picks the URL with the largest width descriptor from a srcset string. Falls
+// back to the first URL if descriptors are missing/malformed.
+export function largestFromSrcset(srcset: string): string | null {
+  let bestUrl: string | null = null;
+  let bestWidth = -1;
+  for (const candidate of srcset.split(',')) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    const [url, descriptor] = trimmed.split(/\s+/, 2);
+    if (!url) continue;
+    const m = descriptor?.match(/^(\d+)w$/);
+    const width = m ? parseInt(m[1], 10) : 0;
+    if (bestUrl === null || width > bestWidth) {
+      bestUrl = url;
+      bestWidth = width;
+    }
+  }
+  return bestUrl;
 }
 
 function walkForImages(node: unknown, out: string[]): void {
@@ -118,6 +149,18 @@ export function extractPrice(html: string): number | null {
   return null;
 }
 
+// Cloudinary/Imgix-style size-transform path segments, e.g. "w_640",
+// "f_auto,c_limit,w_1920", "q_80", "dpr_2". Stripping these from the dedupe
+// key collapses size variants of the same underlying image.
+const TRANSFORM_SEGMENT = /^(?:[a-z]{1,4}_[\w.-]+)(?:,[a-z]{1,4}_[\w.-]+)*$/;
+
+function dedupeKey(parsed: URL): string {
+  const segments = parsed.pathname
+    .split('/')
+    .filter((s) => s && !TRANSFORM_SEGMENT.test(s));
+  return `${parsed.origin}/${segments.join('/')}`;
+}
+
 export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -129,7 +172,7 @@ export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
     } catch {
       continue;
     }
-    const key = `${parsed.origin}${parsed.pathname}`;
+    const key = dedupeKey(parsed);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(parsed.toString());

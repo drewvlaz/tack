@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import { genId } from '../lib/id';
@@ -11,7 +11,12 @@ import {
   type BoardItem,
   type PatchBoardItemInput,
 } from '../schemas/board';
-import { fromR2Key, imageDisplayUrl, toR2Key } from './images';
+import {
+  deleteStoredImage,
+  fromR2Key,
+  imageDisplayUrl,
+  toR2Key,
+} from './images';
 
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 280;
@@ -67,48 +72,65 @@ export async function listBoardItems(
   db: Db,
   boardId: string,
 ): Promise<BoardItem[]> {
+  return queryBoardItems(db, boardId, isNull(schema.boardItems.deletedAt));
+}
+
+export async function listTrashedBoardItems(
+  db: Db,
+  boardId: string,
+): Promise<BoardItem[]> {
+  return queryBoardItems(db, boardId, isNotNull(schema.boardItems.deletedAt));
+}
+
+async function queryBoardItems(
+  db: Db,
+  boardId: string,
+  placementFilter: ReturnType<typeof isNull>,
+): Promise<BoardItem[]> {
   const results = await db.query.boardItems.findMany({
-    where: and(
-      eq(schema.boardItems.boardId, boardId),
-      isNull(schema.boardItems.deletedAt),
-    ),
+    where: and(eq(schema.boardItems.boardId, boardId), placementFilter),
     with: {
       item: {
         with: {
-          images: { orderBy: asc(schema.itemImages.displayOrder) },
+          images: {
+            where: isNull(schema.itemImages.deletedAt),
+            orderBy: asc(schema.itemImages.displayOrder),
+          },
         },
       },
     },
   });
 
-  return results.map((bi): BoardItem => {
-    const sortedImages = sortImagesPrimaryFirst(
-      bi.item.images,
-      bi.item.primaryImageId,
-    );
-    return {
-      id: bi.id,
-      itemId: bi.itemId,
-      title: bi.item.title,
-      brand: bi.item.brand,
-      description: bi.item.description,
-      price: bi.item.price,
-      currency: bi.item.currency,
-      details: bi.item.details ?? [],
-      images: sortedImages.map((img) => ({
-        id: img.id,
-        url: imageDisplayUrl(fromR2Key(img.r2Key, img.sourceUrl ?? '')),
-      })),
-      sourceUrl: bi.item.sourceUrl,
-      addedAt: bi.createdAt,
-      updatedAt: bi.item.updatedAt,
-      x: bi.x,
-      y: bi.y,
-      width: bi.width,
-      height: bi.height,
-      zIndex: bi.zIndex,
-    };
-  });
+  return results
+    .filter((bi) => bi.item.deletedAt === null)
+    .map((bi): BoardItem => {
+      const sortedImages = sortImagesPrimaryFirst(
+        bi.item.images,
+        bi.item.primaryImageId,
+      );
+      return {
+        id: bi.id,
+        itemId: bi.itemId,
+        title: bi.item.title,
+        brand: bi.item.brand,
+        description: bi.item.description,
+        price: bi.item.price,
+        currency: bi.item.currency,
+        details: bi.item.details ?? [],
+        images: sortedImages.map((img) => ({
+          id: img.id,
+          url: imageDisplayUrl(fromR2Key(img.r2Key, img.sourceUrl ?? '')),
+        })),
+        sourceUrl: bi.item.sourceUrl,
+        addedAt: bi.createdAt,
+        updatedAt: bi.item.updatedAt,
+        x: bi.x,
+        y: bi.y,
+        width: bi.width,
+        height: bi.height,
+        zIndex: bi.zIndex,
+      };
+    });
 }
 
 function sortImagesPrimaryFirst<T extends { id: string }>(
@@ -223,4 +245,94 @@ export async function deleteBoardItem(db: Db, id: string): Promise<void> {
     .update(schema.boardItems)
     .set({ deletedAt: now, updatedAt: now })
     .where(eq(schema.boardItems.id, id));
+}
+
+export async function restoreBoardItem(db: Db, id: string): Promise<void> {
+  await db
+    .update(schema.boardItems)
+    .set({ deletedAt: null, updatedAt: nowSec() })
+    .where(eq(schema.boardItems.id, id));
+}
+
+export async function purgeBoardItem(
+  db: Db,
+  imagesR2: R2Bucket,
+  id: string,
+): Promise<void> {
+  const placement = await db.query.boardItems.findFirst({
+    where: eq(schema.boardItems.id, id),
+  });
+  if (!placement) return;
+  await purgeBoardItemsByIds(db, imagesR2, [placement.id], [placement.itemId]);
+}
+
+export async function emptyBoardTrash(
+  db: Db,
+  imagesR2: R2Bucket,
+  boardId: string,
+): Promise<void> {
+  const trashed = await db.query.boardItems.findMany({
+    where: and(
+      eq(schema.boardItems.boardId, boardId),
+      isNotNull(schema.boardItems.deletedAt),
+    ),
+  });
+  if (trashed.length === 0) return;
+  await purgeBoardItemsByIds(
+    db,
+    imagesR2,
+    trashed.map((p) => p.id),
+    trashed.map((p) => p.itemId),
+  );
+}
+
+// Hard-deletes the given placements. For any item that has no remaining
+// placements after the delete, also wipes the item and its R2 blobs (item
+// rows cascade to item_images and board_items). R2 deletes happen after the
+// SQL batch so a crash leaves orphan blobs (GC-able) rather than rows pointing
+// at missing bytes.
+async function purgeBoardItemsByIds(
+  db: Db,
+  imagesR2: R2Bucket,
+  placementIds: string[],
+  itemIds: string[],
+): Promise<void> {
+  const uniqueItemIds = [...new Set(itemIds)];
+  const placementIdSet = new Set(placementIds);
+
+  const allPlacements = await db.query.boardItems.findMany({
+    where: inArray(schema.boardItems.itemId, uniqueItemIds),
+    columns: { id: true, itemId: true },
+  });
+  const stillReferenced = new Set(
+    allPlacements.filter((p) => !placementIdSet.has(p.id)).map((p) => p.itemId),
+  );
+  const orphanItemIds = uniqueItemIds.filter(
+    (iid) => !stillReferenced.has(iid),
+  );
+
+  const orphanImages = orphanItemIds.length
+    ? await db.query.itemImages.findMany({
+        where: inArray(schema.itemImages.itemId, orphanItemIds),
+      })
+    : [];
+
+  const placementDelete = db
+    .delete(schema.boardItems)
+    .where(inArray(schema.boardItems.id, placementIds));
+  if (orphanItemIds.length) {
+    await db.batch([
+      placementDelete,
+      db.delete(schema.items).where(inArray(schema.items.id, orphanItemIds)),
+    ]);
+  } else {
+    await placementDelete;
+  }
+
+  for (const img of orphanImages) {
+    await deleteStoredImage(
+      imagesR2,
+      fromR2Key(img.r2Key, img.sourceUrl ?? ''),
+    );
+  }
 }

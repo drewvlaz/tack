@@ -74,15 +74,17 @@ Schema lives in `src/db/schema/` — one file per table, with `relations.ts` hol
 
 Use Drizzle's relational query API (`db.query.boardItems.findMany({ with: { item: { with: { images } } } })`) when you need joined data — see `listBoardItems` for the canonical example.
 
-**Migrations:**
+**Migrations** (run from root or `worker/` — both work):
 
 ```bash
-npm run db:generate         # write a new migration from schema diff
-npm run db:migrate:local    # apply to local D1
-npm run db:migrate          # apply to remote D1
-npm run db:seed:local       # apply seed.sql (board-1 + 3 items)
-npm run db:studio           # drizzle-kit studio UI
+npm run db:generate -- --name describe_change   # write a new migration from schema diff
+npm run db:migrate:local                        # apply to local D1
+npm run db:migrate                              # apply to remote D1
+npm run db:seed:local                           # apply seed.sql (board-1 + 3 items)
+npm run db:studio                               # drizzle-kit studio UI
 ```
+
+Always pass `--name <snake_case_description>` to `db:generate` so the file is named after what changes (e.g. `0002_base_timestamps.sql`, not drizzle's random `0006_calm_vulcan.sql`). The name is the only at-a-glance record of intent in the migrations folder.
 
 Timestamps: store as `Math.floor(Date.now() / 1000)` (unix seconds, integer column). Don't store ISO strings.
 
@@ -109,8 +111,11 @@ Zod 4 for everything crossing the wire. Input schemas (`AddItemBody`, `PatchBoar
 
 ## Scripts
 
-- `npm run dev` — `wrangler dev` (port 8787)
-- `npm run deploy` — `wrangler deploy`
-- `npm run lint` — `tsc --noEmit && eslint .`
-- `npm run cf-typegen` — regenerate `worker-configuration.d.ts` from `wrangler.toml`
-- `npm run db:*` — see Database section above
+All scripts work from the repo root (mirrored as `npm run <name>`) or from `worker/`. See the root `CLAUDE.md` for the full table.
+
+- `dev` — `wrangler dev` (port 8787)
+- `deploy` — `wrangler deploy`
+- `lint` — `tsc --noEmit && eslint .`
+- `test` / `test:watch` — `vitest`
+- `cf-typegen` — regenerate `worker-configuration.d.ts` from `wrangler.toml`
+- `db:*` — see Migrations section above

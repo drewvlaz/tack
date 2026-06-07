@@ -12,6 +12,24 @@ import {
 
 const MAX_IMAGES = 12;
 
+// Some CDN-templated URLs in JSON-LD contain a literal placeholder the page's
+// JS would substitute at runtime (e.g. SSENSE's `__IMAGE_PARAMS__`). Server-side
+// fetches of these 404, so drop them rather than store broken externals.
+const PLACEHOLDER_SEGMENT = /__[A-Z][A-Z0-9_]*__|\{\{[^}]+\}\}/;
+
+function hasPlaceholderSegment(url: string): boolean {
+  return PLACEHOLDER_SEGMENT.test(url);
+}
+
+function hostnameOf(raw: string | undefined, base: string): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw, base).hostname;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchAndParseMeta(
   url: string,
   apiKey: string,
@@ -23,16 +41,31 @@ export async function fetchAndParseMeta(
   const html = await res.text();
 
   const parsed = await parseHtml(html);
-  const { title, brand, ogImages, jsonLdImages } = parsed;
+  const { title, brand, ogImages, jsonLdImages, imgTagImages } = parsed;
+  console.log('[parser counts]', {
+    htmlLen: html.length,
+    og: ogImages.length,
+    jsonLd: jsonLdImages.length,
+    imgTag: imgTagImages.length,
+    imgTagSample: imgTagImages.slice(0, 5),
+  });
   let description = parsed.description;
   let price = extractPrice(html);
   let details: ParsedDetail[] = [];
 
-  // Merge both sources — retailers vary: some put the full gallery in JSON-LD,
-  // some only in og:image tags, some split (e.g. SSENSE: JSON-LD has the primary
-  // shot, og has the full gallery). JSON-LD first preserves canonical ordering;
-  // dedupe collapses overlap.
-  let imageUrls = resolveAndDedupeUrls(url, [...jsonLdImages, ...ogImages]);
+  // Combine sources. Retailers vary: some put the full gallery in JSON-LD,
+  // some only in og:image, and many (e.g. SSENSE) only expose secondary
+  // shots in <img srcset> markup. Order: jsonLd → og → <img>; dedupe collapses
+  // overlap and size variants.
+  const ogHost = hostnameOf(ogImages[0], url);
+  const filteredImgTagImages = ogHost
+    ? imgTagImages.filter((u) => hostnameOf(u, url) === ogHost)
+    : imgTagImages;
+  let imageUrls = resolveAndDedupeUrls(url, [
+    ...jsonLdImages,
+    ...ogImages,
+    ...filteredImgTagImages,
+  ]).filter((u) => !hasPlaceholderSegment(u));
 
   // Details (size/care/materials) live in page body, never og tags — so we
   // always need Claude for them. Also covers price/description/images fallback.

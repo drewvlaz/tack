@@ -11,15 +11,15 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "cf-typegen": "wrangler types",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply fashion-mood --local",
-    "db:migrate": "wrangler d1 migrations apply fashion-mood",
-    "db:seed:local": "wrangler d1 execute fashion-mood --local --file=seed.sql",
-    "db:studio": "drizzle-kit studio",
     "lint": "tsc --noEmit && eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply fashion-mood",
+    "db:migrate:local": "wrangler d1 migrations apply fashion-mood --local",
+    "db:seed:local": "wrangler d1 execute fashion-mood --local --file=seed.sql",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.8.0",
