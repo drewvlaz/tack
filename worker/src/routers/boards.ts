@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { imageDisplayUrl } from '../lib/imageRoute';
 import {
   AddItemBody,
-  BoardItemSchema,
   CreateBoardBody,
   PatchBoardItemBody,
   RenameBoardBody,
@@ -30,6 +29,11 @@ import { publicProcedure, router } from '../trpc/init';
 // Domain → wire. Resolves each StoredImage ref to a `/api/images/...` URL
 // (or external URL) the frontend can fetch directly. This is the ONE place
 // transport URLs are constructed from service output.
+//
+// No Zod re-parse: services already validate with BoardItemRowSchema, and the
+// transformation here is total (every field on BoardItem comes from a typed
+// row field). A second parse at the router was double work that couldn't
+// catch anything the first parse missed.
 function toBoardItemWire(row: BoardItemRow): BoardItem {
   return {
     ...row,
@@ -50,7 +54,7 @@ export const boardsRouter = router({
   delete: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await deleteBoard(ctx.db, input.id);
+      await deleteBoard(ctx.db, ctx.images, input.id);
       return { ok: true as const };
     }),
 
@@ -62,7 +66,7 @@ export const boardsRouter = router({
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rows = await listBoardItems(ctx.db, input.boardId);
-      return z.array(BoardItemSchema).parse(rows.map(toBoardItemWire));
+      return rows.map(toBoardItemWire);
     }),
 
   patchItem: publicProcedure
@@ -76,7 +80,7 @@ export const boardsRouter = router({
     .input(z.object({ boardId: z.string(), item: AddItemBody }))
     .mutation(async ({ ctx, input }) => {
       const row = await addBoardItem(ctx.db, input.boardId, input.item);
-      return BoardItemSchema.parse(toBoardItemWire(row));
+      return toBoardItemWire(row);
     }),
 
   deleteItem: publicProcedure
@@ -90,7 +94,7 @@ export const boardsRouter = router({
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rows = await listTrashedBoardItems(ctx.db, input.boardId);
-      return z.array(BoardItemSchema).parse(rows.map(toBoardItemWire));
+      return rows.map(toBoardItemWire);
     }),
 
   restoreItem: publicProcedure

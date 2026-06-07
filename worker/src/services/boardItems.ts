@@ -165,6 +165,11 @@ export async function addBoardItem(
     brand: input.brand,
     description: input.description,
     price: input.price,
+    // `currency` defaults to 'USD' at the column level — only override when the
+    // parser actually extracted an ISO code from the source. This means missing
+    // currency still looks like USD on the wire (existing behavior) but a real
+    // £/€ product now persists correctly.
+    ...(input.currency ? { currency: input.currency } : {}),
     details: input.details.length > 0 ? input.details : null,
     createdAt: now,
     updatedAt: now,
@@ -270,7 +275,7 @@ export async function emptyBoardTrash(
 // placements after the delete, also wipes the item and its R2 blobs (item
 // rows cascade to item_images and board_items). Ordering invariant lives in
 // `commitWithBlobCleanup`: R2 cleanup runs only after SQL succeeds.
-async function purgeBoardItemsByIds(
+export async function purgeBoardItemsByIds(
   db: Db,
   imagesR2: R2Bucket,
   placementIds: string[],

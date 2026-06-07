@@ -3,6 +3,7 @@ import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
 import {
+  extractCurrency,
   extractPrice,
   extractTemplateImageUrls,
   parseHtml,
@@ -14,6 +15,75 @@ import {
 } from './meta';
 
 const MAX_IMAGES = 12;
+
+// Cap on the raw HTML we'll buffer. Real product pages are well under this;
+// anything larger is either a tarpit or not a product page.
+const MAX_HTML_BYTES = 4 * 1024 * 1024;
+
+// Concurrency cap on storeImage. With MAX_IMAGES=12 and 10s per fetch, an
+// unbounded Promise.all can monopolize subrequest budget and worker wall-clock.
+// 4 hits a reasonable wall-clock without amplifying upstream load.
+const IMAGE_FETCH_CONCURRENCY = 4;
+
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) {
+        return;
+      }
+      out[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return out;
+}
+
+async function readBodyCapped(
+  res: Response,
+  maxBytes: number,
+): Promise<string> {
+  const declared = res.headers.get('content-length');
+  if (declared !== null && Number(declared) > maxBytes) {
+    throw new Error(`HTML body too large: ${declared} bytes`);
+  }
+  if (!res.body) {
+    return '';
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error(`HTML body too large: >${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder('utf-8').decode(concatChunks(chunks, total));
+}
+
+function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
 
 // Some CDN-templated URLs in JSON-LD contain a literal placeholder the page's
 // JS would substitute at runtime (e.g. SSENSE's `__IMAGE_PARAMS__`). Server-side
@@ -56,12 +126,13 @@ export async function fetchAndParseMeta(
     throw new Error(`Fetch failed: ${res.status}`);
   }
 
-  const html = await res.text();
+  const html = await readBodyCapped(res, MAX_HTML_BYTES);
 
   const parsed = await parseHtml(html);
   const { title, brand, ogImages, jsonLdImages, imgTagImages } = parsed;
   let description = parsed.description;
   let price = extractPrice(html);
+  let currency = extractCurrency(html);
   let details: ParsedDetail[] = [];
 
   // Combine sources. Retailers vary: some put the full gallery in JSON-LD,
@@ -92,6 +163,9 @@ export async function fetchAndParseMeta(
     if (price === null) {
       price = meta.price;
     }
+    if (currency === null) {
+      currency = meta.currency;
+    }
     if (description === null) {
       description = meta.description;
     }
@@ -109,6 +183,7 @@ export async function fetchAndParseMeta(
       brand,
       description,
       price,
+      currency,
       imageUrls: imageUrls.slice(0, MAX_IMAGES),
       details,
     },
@@ -124,7 +199,9 @@ export async function parseProductUrl(
   const { meta, warnings } = await fetchAndParseMeta(url, anthropicKey);
 
   const stored = (
-    await Promise.all(meta.imageUrls.map((src) => storeImage(images, src)))
+    await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
+      storeImage(images, src),
+    )
   ).filter((s): s is StoredImage => s !== null);
   if (stored.length < meta.imageUrls.length) {
     warnings.push('image_fetch_failed');
@@ -138,6 +215,7 @@ export async function parseProductUrl(
     brand: meta.brand,
     description: meta.description,
     price: meta.price,
+    currency: meta.currency,
     details: meta.details,
     images: stored,
     warnings,

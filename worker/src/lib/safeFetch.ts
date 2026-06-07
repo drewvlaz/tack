@@ -24,6 +24,7 @@ const BLOCKED_HOSTNAMES = new Set([
 ]);
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 5;
 
 function isPrivateIPv4(host: string): boolean {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
@@ -98,9 +99,9 @@ export async function safeFetch(
   raw: string,
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
-  const check = checkSafeUrl(raw);
-  if (!check.ok) {
-    throw new UnsafeUrlError(check.reason, raw);
+  const initialCheck = checkSafeUrl(raw);
+  if (!initialCheck.ok) {
+    throw new UnsafeUrlError(initialCheck.reason, raw);
   }
 
   const {
@@ -113,5 +114,42 @@ export async function safeFetch(
     ? AbortSignal.any([callerSignal, timeoutSignal])
     : timeoutSignal;
 
-  return fetch(check.url.toString(), { ...rest, signal });
+  // Walk redirects manually so each Location is re-checked against the SSRF
+  // policy. The platform's `redirect: 'follow'` would happily chase a public
+  // hostname into a private range.
+  let currentUrl = initialCheck.url.toString();
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const res = await fetch(currentUrl, {
+      ...rest,
+      signal,
+      redirect: 'manual',
+    });
+
+    if (res.status < 300 || res.status >= 400) {
+      return res;
+    }
+
+    const location = res.headers.get('location');
+    if (!location) {
+      return res;
+    }
+
+    let nextUrl: string;
+    try {
+      nextUrl = new URL(location, currentUrl).toString();
+    } catch {
+      throw new UnsafeUrlError('malformed redirect location', location);
+    }
+
+    const nextCheck = checkSafeUrl(nextUrl);
+    if (!nextCheck.ok) {
+      throw new UnsafeUrlError(nextCheck.reason, nextUrl);
+    }
+
+    // Drain the redirect body so the connection isn't left half-open.
+    await res.body?.cancel().catch(() => undefined);
+    currentUrl = nextCheck.url.toString();
+  }
+
+  throw new UnsafeUrlError('too many redirects', currentUrl);
 }

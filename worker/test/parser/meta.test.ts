@@ -371,10 +371,18 @@ describe('extractPrice', () => {
     expect(extractPrice('foo "price": 99.99 bar')).toBe(99.99);
   });
 
-  it('falls back to "$N" near the word price', () => {
-    expect(extractPrice('Now on sale, price $128.50 with free shipping')).toBe(
+  it('falls back to microdata itemprop="price"', () => {
+    expect(extractPrice('<meta itemprop="price" content="128.50" />')).toBe(
       128.5,
     );
+  });
+
+  it('ignores stray "$N" body copy when no structured data exists', () => {
+    // The old loose regex latched onto unrelated `$N` near the word "price",
+    // mis-tagging body copy (related products, marketing) as the item price.
+    expect(
+      extractPrice('Now on sale, price $128.50 with free shipping'),
+    ).toBeNull();
   });
 
   it('returns null when nothing matches', () => {

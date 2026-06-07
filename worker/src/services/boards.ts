@@ -4,6 +4,7 @@ import * as schema from '../db/schema';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import { BoardSchema, type Board } from '../schemas/board';
+import { purgeBoardItemsByIds } from './boardItems';
 
 export async function listBoards(db: Db): Promise<Board[]> {
   const rows = await db.query.boards.findMany({
@@ -22,18 +23,30 @@ export async function createBoard(db: Db, name: string): Promise<Board> {
   return BoardSchema.parse({ id, name, createdAt: now });
 }
 
-export async function deleteBoard(db: Db, id: string): Promise<void> {
-  const now = nowSec();
-  await db.batch([
-    db
-      .update(schema.boards)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(schema.boards.id, id)),
-    db
-      .update(schema.boardItems)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(schema.boardItems.boardId, id)),
-  ]);
+// Hard purge: drops all placements for the board, items that become orphans
+// (no remaining placements anywhere), their R2 blobs, then the board row.
+// There's no board-restore UI, so soft-deleting the board would just strand
+// the placements and blobs indefinitely.
+export async function deleteBoard(
+  db: Db,
+  imagesR2: R2Bucket,
+  id: string,
+): Promise<void> {
+  const placements = await db.query.boardItems.findMany({
+    where: eq(schema.boardItems.boardId, id),
+    columns: { id: true, itemId: true },
+  });
+
+  if (placements.length > 0) {
+    await purgeBoardItemsByIds(
+      db,
+      imagesR2,
+      placements.map((p) => p.id),
+      placements.map((p) => p.itemId),
+    );
+  }
+
+  await db.delete(schema.boards).where(eq(schema.boards.id, id));
 }
 
 export async function renameBoard(

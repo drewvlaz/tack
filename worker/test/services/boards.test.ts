@@ -52,7 +52,7 @@ describe('boards service', () => {
     expect(boards.map((b) => b.name)).toEqual(['First', 'Second']);
   });
 
-  it('deleteBoard soft-deletes the board and its placements', async () => {
+  it('deleteBoard hard-purges board, placements, and orphan items+blobs', async () => {
     const board = await createBoard(db(), 'To delete');
     await addBoardItem(db(), board.id, {
       sourceUrl: 'https://example.com/p',
@@ -60,23 +60,31 @@ describe('boards service', () => {
       brand: null,
       description: null,
       price: null,
+      currency: null,
       details: [],
-      images: [],
+      images: [
+        { kind: 'r2', key: 'items/del-1', sourceUrl: 'https://cdn/a.jpg' },
+      ],
       x: 0,
       y: 0,
     });
+    await env.IMAGES.put('items/del-1', new Uint8Array([1, 2, 3]));
     expect(await listBoardItems(db(), board.id)).toHaveLength(1);
 
-    await deleteBoard(db(), board.id);
+    await deleteBoard(db(), env.IMAGES, board.id);
 
     expect(await listBoards(db())).toEqual([]);
     expect(await listBoardItems(db(), board.id)).toEqual([]);
-    // Soft-delete: rows remain but are marked with deletedAt.
-    const placements = await db().query.boardItems.findMany({
-      where: (bi, { eq }) => eq(bi.boardId, board.id),
-    });
-    expect(placements).toHaveLength(1);
-    expect(placements[0].deletedAt).not.toBeNull();
+    // Hard purge: the board, its placements, the orphan item, and image rows
+    // are all gone. R2 blob is also dropped.
+    expect(
+      await db().query.boardItems.findMany({
+        where: (bi, { eq }) => eq(bi.boardId, board.id),
+      }),
+    ).toEqual([]);
+    expect(await db().query.items.findMany()).toEqual([]);
+    expect(await db().query.itemImages.findMany()).toEqual([]);
+    expect(await env.IMAGES.get('items/del-1')).toBeNull();
   });
 });
 
@@ -93,6 +101,7 @@ describe('addBoardItem', () => {
       brand: 'LEMAIRE',
       description: 'A soft leather blouson.',
       price: 2450,
+      currency: 'EUR',
       details: [
         { label: 'Materials', value: '100% lambskin' },
         { label: 'Care', value: 'Specialist leather clean' },
@@ -137,6 +146,7 @@ describe('addBoardItem', () => {
       brand: null,
       description: null,
       price: null,
+      currency: null,
       details: [],
       images: [],
       x: 0,
@@ -159,6 +169,7 @@ describe('addBoardItem', () => {
         brand: null,
         description: null,
         price: null,
+        currency: null,
         details: [],
         images: [
           { kind: 'r2', key: 'items/x', sourceUrl: 'https://cdn/x.jpg' },

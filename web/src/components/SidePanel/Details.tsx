@@ -11,6 +11,21 @@ function hostname(url: string): string | null {
   }
 }
 
+function formatPrice(amount: number, currency: string): string {
+  // Intl handles symbol + locale formatting (so EUR becomes €, GBP becomes £,
+  // JPY drops decimals, etc). Pinning to en-US for consistent grouping while
+  // still surfacing the right symbol.
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+    }).format(amount);
+  } catch {
+    // Unknown currency code → fall back to a plain decimal + ISO suffix.
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
 type DetailsProps = {
   item: BoardItem;
 };
@@ -41,8 +56,7 @@ export default function Details({ item }: DetailsProps) {
       )}
       {item.price !== null && (
         <p className="text-fg mt-3 text-base tabular-nums">
-          ${item.price.toFixed(2)}
-          <span className="text-fg-subtle ml-1.5 text-xs">{item.currency}</span>
+          {formatPrice(item.price, item.currency)}
         </p>
       )}
 

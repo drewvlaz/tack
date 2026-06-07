@@ -5,6 +5,7 @@ export type ParsedMeta = {
   brand: string | null;
   description: string | null;
   price: number | null;
+  currency: string | null;
   imageUrls: string[];
   details: ParsedDetail[];
 };
@@ -170,6 +171,7 @@ function walkForImages(node: unknown, out: string[]): void {
 }
 
 export function extractPrice(html: string): number | null {
+  // Prefer structured data — JSON-LD / microdata both expose `price`.
   const sdMatch = html.match(/"price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/);
   if (sdMatch) {
     const n = parseFloat(sdMatch[1]);
@@ -177,12 +179,42 @@ export function extractPrice(html: string): number | null {
       return n;
     }
   }
-  const priceMatch = html.match(/price[^$]*\$\s*(\d+(?:\.\d{1,2})?)/);
-  if (priceMatch) {
-    const n = parseFloat(priceMatch[1]);
+  // microdata fallback — `<meta itemprop="price" content="...">`.
+  const itempropMatch = html.match(
+    /itemprop=["']price["'][^>]*content=["'](\d+(?:\.\d{1,2})?)["']/i,
+  );
+  if (itempropMatch) {
+    const n = parseFloat(itempropMatch[1]);
     if (!isNaN(n)) {
       return n;
     }
+  }
+  return null;
+}
+
+// ISO 4217 currency codes are 3 uppercase letters. Returned uppercase so the
+// downstream service writes a stable canonical value.
+const CURRENCY_RE = /^[A-Z]{3}$/;
+
+export function extractCurrency(html: string): string | null {
+  // JSON-LD priceCurrency
+  const jsonLd = html.match(/"priceCurrency"\s*:\s*"([A-Za-z]{3})"/);
+  if (jsonLd && CURRENCY_RE.test(jsonLd[1].toUpperCase())) {
+    return jsonLd[1].toUpperCase();
+  }
+  // microdata
+  const microdata = html.match(
+    /itemprop=["']priceCurrency["'][^>]*content=["']([A-Za-z]{3})["']/i,
+  );
+  if (microdata && CURRENCY_RE.test(microdata[1].toUpperCase())) {
+    return microdata[1].toUpperCase();
+  }
+  // og:price:currency
+  const og = html.match(
+    /property=["']og:price:currency["'][^>]*content=["']([A-Za-z]{3})["']/i,
+  );
+  if (og && CURRENCY_RE.test(og[1].toUpperCase())) {
+    return og[1].toUpperCase();
   }
   return null;
 }

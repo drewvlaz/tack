@@ -21,6 +21,10 @@ export async function handleImageRequest(
     headers: {
       'content-type': img.contentType,
       'cache-control': `public, max-age=${ONE_YEAR_SECONDS}, immutable`,
+      // Defense in depth: ingest already clamps content-type to an image
+      // allowlist (services/images.ts), but nosniff blocks any future bypass
+      // from turning a polyglot blob into a rendered document.
+      'x-content-type-options': 'nosniff',
     },
   });
 }

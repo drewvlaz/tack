@@ -38,7 +38,7 @@ export default function AddUrlModal({
     }
   }, [open]);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const url = value.trim();
     if (!url || isPending) {

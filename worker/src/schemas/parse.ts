@@ -36,6 +36,7 @@ export const ParseResultSchema = z.object({
   brand: z.string().nullable(),
   description: z.string().nullable(),
   price: z.number().nullable(),
+  currency: z.string().nullable(),
   details: z.array(ItemDetailSchema),
   images: z.array(StoredImageSchema),
   warnings: z.array(ParseWarningSchema),

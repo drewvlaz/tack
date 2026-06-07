@@ -36,6 +36,7 @@ describe('AddItemBody.sourceUrl', () => {
     brand: null,
     description: null,
     price: null,
+    currency: null,
     details: [],
     images: [],
     x: 0,

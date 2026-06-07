@@ -19,10 +19,12 @@ export async function commitWithBlobCleanup(
   blobsToDelete: ImageRow[],
 ): Promise<void> {
   await commit();
-  for (const row of blobsToDelete) {
-    await deleteStoredImage(
-      imagesR2,
-      fromR2Key(row.r2Key, row.sourceUrl ?? ''),
-    );
-  }
+  // Parallel cleanup — deleteStoredImage is best-effort and never throws, so
+  // Promise.all here can't reject. Sequential was a ~12× round-trip tax on
+  // requests that purge an item with a full image gallery.
+  await Promise.all(
+    blobsToDelete.map((row) =>
+      deleteStoredImage(imagesR2, fromR2Key(row.r2Key, row.sourceUrl ?? '')),
+    ),
+  );
 }

@@ -9,10 +9,44 @@ export type StoredImage =
 const R2_KEY_PREFIX = 'items/';
 const DEFAULT_IMAGE_CONTENT_TYPE = 'image/jpeg';
 
+// Allowlist for stored image bytes. Origins can claim any content-type, and
+// serving back e.g. `text/html` from `/api/images/*` would be a same-origin XSS
+// path — clamp at ingest and again at serve time.
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/gif',
+]);
+
+function baseContentType(contentType: string | null): string | null {
+  if (!contentType) {
+    return null;
+  }
+  return contentType.split(';', 1)[0].trim().toLowerCase();
+}
+
+export function isAllowedImageType(contentType: string | null): boolean {
+  const base = baseContentType(contentType);
+  return base !== null && ALLOWED_IMAGE_TYPES.has(base);
+}
+
+export function normalizeImageType(contentType: string | null): string {
+  const base = baseContentType(contentType);
+  return base !== null && ALLOWED_IMAGE_TYPES.has(base)
+    ? base
+    : DEFAULT_IMAGE_CONTENT_TYPE;
+}
+
 // Drops icons / thumbnails / placeholder assets — well below any real product
 // shot, even heavily compressed. Content-Length is advisory: we trust it when
 // present and skip the byte sniff when absent.
 const MIN_IMAGE_BYTES = 10_000;
+
+// Hard ceiling. Beyond this we drop rather than risk worker memory / R2 spam
+// from a rogue origin.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export function fromR2Key(r2Key: string, sourceUrl: string): StoredImage {
   return r2Key.startsWith(R2_KEY_PREFIX)
@@ -34,14 +68,26 @@ export async function storeImage(
       return { kind: 'external', url: sourceUrl, sourceUrl };
     }
 
-    const contentLength = res.headers.get('content-length');
-    if (contentLength !== null && Number(contentLength) < MIN_IMAGE_BYTES) {
+    const rawType = res.headers.get('content-type');
+    if (!isAllowedImageType(rawType)) {
+      // Origin lied or served a non-image: don't persist, don't fall back to
+      // external (frontend would still render the URL).
       return null;
     }
 
+    const contentLength = res.headers.get('content-length');
+    if (contentLength !== null) {
+      const n = Number(contentLength);
+      if (n < MIN_IMAGE_BYTES) {
+        return null;
+      }
+      if (n > MAX_IMAGE_BYTES) {
+        return null;
+      }
+    }
+
     const key = `${R2_KEY_PREFIX}${genId()}`;
-    const contentType =
-      res.headers.get('content-type') ?? DEFAULT_IMAGE_CONTENT_TYPE;
+    const contentType = normalizeImageType(rawType);
 
     await images.put(key, res.body, { httpMetadata: { contentType } });
 
@@ -87,6 +133,6 @@ export async function loadImage(
   }
   return {
     body: obj.body,
-    contentType: obj.httpMetadata?.contentType ?? DEFAULT_IMAGE_CONTENT_TYPE,
+    contentType: normalizeImageType(obj.httpMetadata?.contentType ?? null),
   };
 }

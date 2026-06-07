@@ -5,7 +5,9 @@ import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import { storeImage, toR2Key } from './images';
 import { commitWithBlobCleanup } from './itemImages';
-import { fetchAndParseMeta } from './parser';
+import { fetchAndParseMeta, mapLimit } from './parser';
+
+const IMAGE_FETCH_CONCURRENCY = 4;
 
 export async function setPrimaryImage(
   db: Db,
@@ -91,6 +93,7 @@ export async function reparseItem(
       brand: meta.brand ?? item!.brand,
       description: meta.description ?? item!.description,
       price: meta.price ?? item!.price,
+      currency: meta.currency ?? item!.currency,
       details: nextDetails ?? item!.details,
       updatedAt: now,
     };
@@ -126,7 +129,9 @@ export async function reparseItem(
   // R2 writes before SQL: SQL inserts need the new keys, and a crash here
   // leaves orphan blobs (GC-able) rather than rows pointing at missing bytes.
   const stored = (
-    await Promise.all(meta.imageUrls.map((src) => storeImage(imagesR2, src)))
+    await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
+      storeImage(imagesR2, src),
+    )
   ).filter((s) => s !== null);
   const newIds = stored.map(() => genId());
 

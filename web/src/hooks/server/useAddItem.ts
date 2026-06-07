@@ -28,6 +28,7 @@ export function useAddItem() {
         brand: parsed.brand,
         description: parsed.description,
         price: parsed.price,
+        currency: parsed.currency,
         details: parsed.details,
         images: parsed.images,
         x,

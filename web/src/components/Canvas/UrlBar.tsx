@@ -9,7 +9,7 @@ type UrlBarProps = {
 export default function UrlBar({ onAdd, isPending }: UrlBarProps) {
   const [value, setValue] = useState('');
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const url = value.trim();
     if (!url || isPending) {

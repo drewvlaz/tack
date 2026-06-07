@@ -10,6 +10,7 @@ const SYSTEM_PROMPT = `Extract product metadata from HTML. Return only JSON, no 
   "brand": "brand name or null",
   "description": "1-2 sentence product description or null",
   "price": 99.99,
+  "currency": "ISO-4217 code like USD, GBP, EUR — or null",
   "image_urls": ["highest-res product image URLs in order, omit thumbnails/swatches/related products"],
   "details": [
     { "label": "Materials", "value": "100% wool" },
@@ -19,6 +20,8 @@ const SYSTEM_PROMPT = `Extract product metadata from HTML. Return only JSON, no 
 }
 
 Return the sale price if both sale and original prices exist. Use null for any unknown field. Keep description concise — strip marketing fluff. Return an empty array if no product images found.
+
+For "currency": only return a 3-letter ISO 4217 code (USD, GBP, EUR, JPY, etc). Never infer from currency symbols ($ could be USD/CAD/AUD); return null if no explicit code is present.
 
 For "details": extract supplemental product facts that don't fit in description — materials/composition, care instructions, sizing/fit notes, country of origin, dimensions, fabric weight, color name, model height/wearing size. Each entry is one short label and one short value (no marketing copy, no full sentences when a phrase will do). Return an empty array if nothing fits. Skip facts already in title/brand/price.`;
 
@@ -53,6 +56,14 @@ function normalizeDetails(raw: unknown): ParsedDetail[] {
   return out;
 }
 
+function normalizeCurrency(raw: unknown): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const code = raw.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : null;
+}
+
 function normalizeMeta(raw: Record<string, unknown>): ParsedMeta {
   return {
     title: typeof raw.title === 'string' ? raw.title : null,
@@ -60,6 +71,7 @@ function normalizeMeta(raw: Record<string, unknown>): ParsedMeta {
     description: typeof raw.description === 'string' ? raw.description : null,
     price:
       typeof raw.price === 'number' && !isNaN(raw.price) ? raw.price : null,
+    currency: normalizeCurrency(raw.currency),
     imageUrls: Array.isArray(raw.image_urls)
       ? raw.image_urls.filter((u): u is string => typeof u === 'string')
       : [],

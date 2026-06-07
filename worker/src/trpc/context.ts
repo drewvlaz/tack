@@ -4,4 +4,6 @@ export type Context = {
   db: Db;
   images: R2Bucket;
   anthropicKey: string;
+  parseLimiter: RateLimit;
+  clientIp: string;
 };

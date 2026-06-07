@@ -6,6 +6,7 @@ const baseResult = {
   brand: 'LEMAIRE',
   description: null,
   price: 850,
+  currency: 'EUR',
   details: [],
   images: [],
 };

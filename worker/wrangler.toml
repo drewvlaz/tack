@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Every 6h: sweep R2 blobs that no item_images row references. Catches the
+# `parseUrl` → `addItem` orphan window (user closes tab between the two) plus
+# the rare R2-delete failure leftovers from `commitWithBlobCleanup`.
+[triggers]
+crons = ["0 */6 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "fashion-mood"
@@ -12,6 +18,14 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "IMAGES"
 bucket_name = "fashion-mood-images"
+
+# Rate-limits parseUrl per client IP. The procedure is the only expensive,
+# unauthenticated entry point (HTML fetch + Claude call + image downloads),
+# so cap it independently of the rest of the API.
+[[ratelimits]]
+name = "PARSE_LIMITER"
+namespace_id = "fashion-mood-parse"
+simple = { limit = 30, period = 60 }
 
 [vars]
 ENVIRONMENT = "development"

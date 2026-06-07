@@ -48,7 +48,14 @@ src/
 
 **Services take dependencies as parameters.** `services/boards.ts:listBoardItems(db, boardId)` — `db` is passed in, not pulled from context. This makes services testable without spinning up a request and makes the dependency surface explicit.
 
-**Atomicity is at the DB, scoped to the procedure (view).** Every mutation procedure must commit its DB writes in a single transaction — either one SQL statement or one `db.batch([...])` call. The unit of atomicity is the procedure; the enforcement is D1's batch transaction. If a procedure calls a service that does multi-row writes, that service uses `db.batch`; routers stay thin and don't compose multiple batches. For procedures involving R2 (`reparseItem`), the SQL batch is the atomicity boundary — R2 uploads precede it (orphan-safe), R2 deletes follow it (orphan-safe).
+**Atomicity is at the DB, scoped to the procedure's commit (view).** For mutations that touch multiple rows in a single observable change, commit in one `db.batch([...])` — D1's batch is transactional. Routers stay thin and don't compose multiple batches.
+
+For procedures involving R2 (`reparseItem`, `purgeBoardItem`, `emptyTrash`, `deleteBoard`), the SQL batch is the atomicity boundary — R2 uploads precede it (orphan-safe; failure leaves GC-able bytes, never dangling rows), R2 deletes follow it via `commitWithBlobCleanup` (orphan-safe; failure leaves GC-able bytes).
+
+**Where the invariant intentionally relaxes:**
+
+- `setPrimaryImage` does a SELECT for ownership then an UPDATE — a TOCTOU window exists where the image could be soft-deleted between the two. Acceptable because the worst case is setting a primary to a just-deleted image, which the list-time filter resolves on next read.
+- `reparseItem` interleaves a Claude call and R2 uploads outside the final batch. Concurrent reparses for the same item are last-write-wins on `items` columns; image batches may also interleave. Don't fire concurrent reparses for the same item.
 
 **Context shape:** `{ db, images, anthropicKey }`. Built in `index.ts` per request from `c.env`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
 
@@ -61,6 +68,17 @@ src/
 - `DB` — D1 database `fashion-mood`. **Note:** `database_id` is currently `placeholder-replace-after-create` — run `wrangler d1 create fashion-mood` and paste the real ID before deploying.
 - `IMAGES` — R2 bucket `fashion-mood-images`.
 - `ANTHROPIC_API_KEY` — set as a worker secret (or in `.dev.vars` locally, which is gitignored).
+- `PARSE_LIMITER` — first-party rate-limit binding (`[[ratelimits]]` block), 30 requests per 60s per `cf-connecting-ip`. Only `parseUrl` consults it; the rest of the API isn't rate-limited yet.
+
+## CORS / auth posture
+
+CORS is currently locked to localhost dev origins (`5173`/`5174`) in `index.ts`. **The worker has no auth yet** — every tRPC procedure is `publicProcedure`. Before any production deploy, add auth and extend the CORS allowlist to the deployed frontend origin. See the `TODO(auth)` marker in `index.ts`.
+
+## Cron triggers
+
+`[triggers] crons = ["0 */6 * * *"]` — every 6 hours, the `scheduled` handler in `index.ts` runs `services/gc.ts:sweepOrphanR2Blobs`. It lists every `items/*` blob in R2, anti-joins against `item_images.r2_key` in D1, and deletes anything older than 30 minutes that has no referencing row.
+
+The grace period exists for the `parseUrl` → `addItem` flow: `parseUrl` writes R2 blobs and returns their refs; the frontend then calls `addItem` which inserts the rows. Between those two calls, the blob is orphan-ish — sweeping it would break the add. The 30-min window is well beyond any realistic gap.
 
 Regenerate Cloudflare types after binding changes: `pnpm cf-typegen`.
 
@@ -94,20 +112,23 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
 
 `services/parser/index.ts:parseProductUrl` is the orchestrator. Order:
 
-1. `fetch(url)` with a browser-like User-Agent. Throws on non-2xx.
-2. Extract `<og:title>`, `<og:site_name>`, `<og:description>`, price regex, JSON-LD images, then `<og:image>` as fallback.
-3. **Only if** something's missing (price/description/no images), strip the HTML and call Claude Haiku. Token reduction is the point — most retailer pages give us everything in og tags.
-4. For each resolved image URL: fetch bytes, write to R2 under `items/{nanoid}`, return the display URL `/api/images/items/{nanoid}`.
+1. `safeFetch(url)` with a browser-like User-Agent. Manually walks redirects and re-validates each `Location` against the SSRF policy. Throws on non-2xx.
+2. Body capped at 4MB via a streaming reader — pathological responses abort rather than OOMing the isolate.
+3. Extract `<og:title>`, `<og:site_name>`, `<og:description>`, structured-data price (JSON-LD / microdata), JSON-LD images, then `<og:image>` and `<img>` tags as fallbacks. Currency from JSON-LD / microdata / og:price:currency.
+4. **Always** call Claude Haiku on the stripped HTML — it fills in any gaps (description/price/currency/images) plus the `details` array (materials/care/sizing/etc) which doesn't live in og tags. Prompt caching is on; system block is `ephemeral`-cached.
+5. For each resolved image URL: fetch bytes (concurrency capped at 4), validate content-type against an image allowlist, validate size between 10KB and 10MB, write to R2 under `items/{nanoid}`, return a `StoredImage` ref. Failures drop the URL rather than persisting a broken external.
 
-Claude returns JSON only (no markdown, no prose) — the system prompt lives in `services/parser/claude.ts`; the underlying HTTP call is `lib/anthropic.ts:callClaude`. The model ID is pinned: `claude-haiku-4-5-20251001`. Bump intentionally.
+Claude returns JSON only — the system prompt lives in `services/parser/claude.ts`; the HTTP call is `lib/anthropic.ts:callClaude` (auto-retries 429/5xx with backoff, three attempts). The model ID is pinned: `claude-haiku-4-5-20251001`. Bump intentionally.
 
-If Claude fails (network error, invalid JSON), we swallow it and return whatever we got from og tags. The user gets a partial card rather than a hard failure.
+If Claude fails after retries, we swallow it and return whatever we got from og tags. The user gets a partial card with a `claude_failed` warning rather than a hard failure.
 
-Cap: `MAX_IMAGES = 12` per item.
+Cap: `MAX_IMAGES = 12` per item, `IMAGE_FETCH_CONCURRENCY = 4`.
 
 ## Validation
 
-Zod 4 for everything crossing the wire. Input schemas (`AddItemBody`, `PatchBoardItemBody`) live in `schemas/`. Procedure inputs are wrapped in `z.object({ ... })` in the router. Output validation: services re-parse with `BoardItemSchema.parse(...)` before returning — see `addBoardItem` and `listBoardItems`. Don't skip the output parse; it catches drift between DB shape and API shape.
+Zod 4 for everything crossing the wire. Input schemas (`AddItemBody`, `PatchBoardItemBody`) live in `schemas/`. Procedure inputs are wrapped in `z.object({ ... })` in the router.
+
+Output validation lives in the **service**, not the router. `addBoardItem` parses with `BoardItemRowSchema` before returning; that's the boundary that catches DB-shape drift. The router's `toBoardItemWire` is a pure, total mapping (`StoredImage` → display URL) — no re-parse needed. Don't add a router-side `z.parse` "for safety"; it can't catch anything the service-side parse missed.
 
 ## Scripts
 
