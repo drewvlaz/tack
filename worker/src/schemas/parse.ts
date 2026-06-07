@@ -1,12 +1,25 @@
 import { z } from 'zod';
 
 export const ParseUrlBody = z.object({
-  url: z.string().url(),
+  url: z.url(),
 });
 
-export const StoredImageSchema = z.object({
-  r2Key: z.string(),
-  sourceUrl: z.string(),
+export const StoredImageSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('r2'),
+    key: z.string(),
+    sourceUrl: z.string(),
+  }),
+  z.object({
+    kind: z.literal('external'),
+    url: z.string(),
+    sourceUrl: z.string(),
+  }),
+]);
+
+export const ItemDetailSchema = z.object({
+  label: z.string(),
+  value: z.string(),
 });
 
 export const ParseResultSchema = z.object({
@@ -14,8 +27,10 @@ export const ParseResultSchema = z.object({
   brand: z.string().nullable(),
   description: z.string().nullable(),
   price: z.number().nullable(),
+  details: z.array(ItemDetailSchema),
   images: z.array(StoredImageSchema),
 });
 
 export type ParseResult = z.infer<typeof ParseResultSchema>;
 export type StoredImageRef = z.infer<typeof StoredImageSchema>;
+export type ItemDetail = z.infer<typeof ItemDetailSchema>;

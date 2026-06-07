@@ -19,7 +19,7 @@ src/
 │   └── parser/
 │       ├── index.ts     fetchAndParseMeta, parseProductUrl
 │       ├── meta.ts      og tag / json-ld / price regex extractors
-│       └── claude.ts    Direct fetch to Anthropic /v1/messages
+│       └── claude.ts    Product-meta system prompt + JSON normalization. HTTP via `lib/anthropic.ts`.
 ├── routes/
 │   └── images.ts        Hono handler for GET /api/images/* (R2 stream)
 ├── trpc/
@@ -38,7 +38,8 @@ src/
 │   ├── board.ts         BoardItemSchema, AddItemBody, PatchBoardItemBody
 │   └── parse.ts         ParseResult
 └── lib/
-    └── id.ts            genId (nanoid)
+    ├── id.ts            genId (nanoid)
+    └── anthropic.ts     callClaude — generic POST /v1/messages, no domain types
 ```
 
 ## Architectural rules
@@ -46,6 +47,8 @@ src/
 **Routers are thin.** Each procedure does: parse input → call a service → return. No DB queries, no business logic in routers. Look at `routers/boards.ts` — it's all one-liners delegating to `services/boards.ts`. Keep it that way.
 
 **Services take dependencies as parameters.** `services/boards.ts:listBoardItems(db, boardId)` — `db` is passed in, not pulled from context. This makes services testable without spinning up a request and makes the dependency surface explicit.
+
+**Atomicity is at the DB, scoped to the procedure (view).** Every mutation procedure must commit its DB writes in a single transaction — either one SQL statement or one `db.batch([...])` call. The unit of atomicity is the procedure; the enforcement is D1's batch transaction. If a procedure calls a service that does multi-row writes, that service uses `db.batch`; routers stay thin and don't compose multiple batches. For procedures involving R2 (`reparseItem`), the SQL batch is the atomicity boundary — R2 uploads precede it (orphan-safe), R2 deletes follow it (orphan-safe).
 
 **Context shape:** `{ db, images, anthropicKey }`. Built in `index.ts` per request from `c.env`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
 
@@ -94,7 +97,7 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
 3. **Only if** something's missing (price/description/no images), strip the HTML and call Claude Haiku. Token reduction is the point — most retailer pages give us everything in og tags.
 4. For each resolved image URL: fetch bytes, write to R2 under `items/{nanoid}`, return the display URL `/api/images/items/{nanoid}`.
 
-Claude returns JSON only (no markdown, no prose) — see the prompt in `services/parser/claude.ts`. The model ID is pinned: `claude-haiku-4-5-20251001`. Bump intentionally.
+Claude returns JSON only (no markdown, no prose) — the system prompt lives in `services/parser/claude.ts`; the underlying HTTP call is `lib/anthropic.ts:callClaude`. The model ID is pinned: `claude-haiku-4-5-20251001`. Bump intentionally.
 
 If Claude fails (network error, invalid JSON), we swallow it and return whatever we got from og tags. The user gets a partial card rather than a hard failure.
 

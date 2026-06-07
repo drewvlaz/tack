@@ -1,70 +1,80 @@
+export type ParsedDetail = { label: string; value: string };
+
 export type ParsedMeta = {
   title: string | null;
   brand: string | null;
   description: string | null;
   price: number | null;
   imageUrls: string[];
+  details: ParsedDetail[];
 };
 
-export function extractOgTag(html: string, property: string): string | null {
-  const a = html.match(
-    new RegExp(
-      `<meta[^>]+property=["']og:${property}["'][^>]+content=["']([^"']+)["']`,
-      'i',
-    ),
-  );
-  const b = html.match(
-    new RegExp(
-      `<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${property}["']`,
-      'i',
-    ),
-  );
-  return a?.[1] ?? b?.[1] ?? null;
-}
+export type ParsedHtml = {
+  title: string | null;
+  brand: string | null;
+  description: string | null;
+  ogImages: string[];
+  jsonLdImages: string[];
+};
 
-export function extractPrice(html: string): number | null {
-  const sdMatch = html.match(/"price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/);
-  if (sdMatch) {
-    const n = parseFloat(sdMatch[1]);
-    if (!isNaN(n)) return n;
-  }
-  const priceMatch = html.match(/price[^$]*\$\s*(\d+(?:\.\d{1,2})?)/);
-  if (priceMatch) {
-    const n = parseFloat(priceMatch[1]);
-    if (!isNaN(n)) return n;
-  }
-  return null;
-}
+const OG_IMAGE_PROPS = new Set([
+  'og:image',
+  'og:image:secure_url',
+  'og:image:url',
+]);
 
-export function extractOgImages(html: string): string[] {
-  const urls: string[] = [];
-  const forward =
-    /<meta[^>]+(?:property|name)=["']og:image(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/gi;
-  let m: RegExpExecArray | null;
-  while ((m = forward.exec(html)) !== null) urls.push(m[1]);
-  const reverse =
-    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image(?::secure_url|:url)?["']/gi;
-  while ((m = reverse.exec(html)) !== null) urls.push(m[1]);
-  return urls;
-}
+const MAX_STRIPPED_HTML_CHARS = 40_000;
 
-export function extractJsonLdImages(html: string): string[] {
-  const urls: string[] = [];
-  const ldRegex =
-    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = ldRegex.exec(html)) !== null) {
-    const raw = match[1].trim();
-    if (!raw) continue;
+export async function parseHtml(html: string): Promise<ParsedHtml> {
+  let title: string | null = null;
+  let brand: string | null = null;
+  let description: string | null = null;
+  const ogImages: string[] = [];
+  const jsonLdScripts: string[] = [];
+  let currentScript: string | null = null;
+
+  const rewriter = new HTMLRewriter()
+    .on('meta', {
+      element(el) {
+        const prop = el.getAttribute('property') ?? el.getAttribute('name');
+        const content = el.getAttribute('content');
+        if (!prop || !content) return;
+        if (prop === 'og:title') title ??= content;
+        else if (prop === 'og:site_name') brand ??= content;
+        else if (prop === 'og:description') description ??= content;
+        else if (OG_IMAGE_PROPS.has(prop)) ogImages.push(content);
+      },
+    })
+    .on('script[type="application/ld+json"]', {
+      element() {
+        currentScript = '';
+      },
+      text(chunk) {
+        if (currentScript === null) return;
+        currentScript += chunk.text;
+        if (chunk.lastInTextNode) {
+          jsonLdScripts.push(currentScript);
+          currentScript = null;
+        }
+      },
+    });
+
+  await rewriter.transform(new Response(html)).arrayBuffer();
+
+  const jsonLdImages: string[] = [];
+  for (const raw of jsonLdScripts) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
     let data: unknown;
     try {
-      data = JSON.parse(raw);
+      data = JSON.parse(trimmed);
     } catch {
       continue;
     }
-    walkForImages(data, urls);
+    walkForImages(data, jsonLdImages);
   }
-  return urls;
+
+  return { title, brand, description, ogImages, jsonLdImages };
 }
 
 function walkForImages(node: unknown, out: string[]): void {
@@ -92,6 +102,20 @@ function walkForImages(node: unknown, out: string[]): void {
     if (typeof u === 'string') out.push(u);
   }
   for (const v of Object.values(obj)) walkForImages(v, out);
+}
+
+export function extractPrice(html: string): number | null {
+  const sdMatch = html.match(/"price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/);
+  if (sdMatch) {
+    const n = parseFloat(sdMatch[1]);
+    if (!isNaN(n)) return n;
+  }
+  const priceMatch = html.match(/price[^$]*\$\s*(\d+(?:\.\d{1,2})?)/);
+  if (priceMatch) {
+    const n = parseFloat(priceMatch[1]);
+    if (!isNaN(n)) return n;
+  }
+  return null;
 }
 
 export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
@@ -123,5 +147,5 @@ export function stripHtml(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
-    .slice(0, 40000);
+    .slice(0, MAX_STRIPPED_HTML_CHARS);
 }

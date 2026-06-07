@@ -2,12 +2,11 @@ import type { ParseResult } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
 import {
-  extractJsonLdImages,
-  extractOgImages,
-  extractOgTag,
   extractPrice,
+  parseHtml,
   resolveAndDedupeUrls,
   stripHtml,
+  type ParsedDetail,
   type ParsedMeta,
 } from './meta';
 
@@ -23,28 +22,30 @@ export async function fetchAndParseMeta(
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   const html = await res.text();
 
-  const title = extractOgTag(html, 'title');
-  const brand = extractOgTag(html, 'site_name');
-  let description = extractOgTag(html, 'description');
+  const parsed = await parseHtml(html);
+  const { title, brand, ogImages, jsonLdImages } = parsed;
+  let description = parsed.description;
   let price = extractPrice(html);
+  let details: ParsedDetail[] = [];
 
-  const jsonLdImages = extractJsonLdImages(html);
-  let imageUrls = resolveAndDedupeUrls(
-    url,
-    jsonLdImages.length > 0 ? jsonLdImages : extractOgImages(html),
-  );
+  // Merge both sources — retailers vary: some put the full gallery in JSON-LD,
+  // some only in og:image tags, some split (e.g. SSENSE: JSON-LD has the primary
+  // shot, og has the full gallery). JSON-LD first preserves canonical ordering;
+  // dedupe collapses overlap.
+  let imageUrls = resolveAndDedupeUrls(url, [...jsonLdImages, ...ogImages]);
 
-  if (price === null || description === null || imageUrls.length === 0) {
-    try {
-      const meta = await extractMetaWithClaude(stripHtml(html), apiKey);
-      if (price === null) price = meta.price;
-      if (description === null) description = meta.description;
-      if (imageUrls.length === 0) {
-        imageUrls = resolveAndDedupeUrls(url, meta.imageUrls);
-      }
-    } catch {
-      // fields stay as-is
+  // Details (size/care/materials) live in page body, never og tags — so we
+  // always need Claude for them. Also covers price/description/images fallback.
+  try {
+    const meta = await extractMetaWithClaude(stripHtml(html), apiKey);
+    if (price === null) price = meta.price;
+    if (description === null) description = meta.description;
+    if (imageUrls.length === 0) {
+      imageUrls = resolveAndDedupeUrls(url, meta.imageUrls);
     }
+    details = meta.details;
+  } catch {
+    // fields stay as-is
   }
 
   return {
@@ -53,6 +54,7 @@ export async function fetchAndParseMeta(
     description,
     price,
     imageUrls: imageUrls.slice(0, MAX_IMAGES),
+    details,
   };
 }
 
@@ -72,6 +74,7 @@ export async function parseProductUrl(
     brand: meta.brand,
     description: meta.description,
     price: meta.price,
+    details: meta.details,
     images: stored,
   };
 }

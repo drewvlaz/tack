@@ -8,6 +8,41 @@
       "when": 1780801100088,
       "tag": "0000_sharp_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1780821594600,
+      "tag": "0001_dehyphenate_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780821594657,
+      "tag": "0002_base_timestamps",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780822585607,
+      "tag": "0003_uneven_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780822791442,
+      "tag": "0004_lying_zombie",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1780824294369,
+      "tag": "0005_zippy_leo",
+      "breakpoints": true
     }
   ]
 }

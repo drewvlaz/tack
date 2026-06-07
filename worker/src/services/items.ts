@@ -1,9 +1,31 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import { genId } from '../lib/id';
-import { deleteStoredImage, storeImage } from './images';
+import { nowSec } from '../lib/time';
+import { deleteStoredImage, fromR2Key, storeImage, toR2Key } from './images';
 import { fetchAndParseMeta } from './parser';
+
+export async function setPrimaryImage(
+  db: Db,
+  itemId: string,
+  imageId: string | null,
+): Promise<void> {
+  if (imageId !== null) {
+    const owned = await db.query.itemImages.findFirst({
+      where: and(
+        eq(schema.itemImages.id, imageId),
+        eq(schema.itemImages.itemId, itemId),
+      ),
+    });
+    if (!owned)
+      throw new Error(`Image ${imageId} does not belong to ${itemId}`);
+  }
+  await db
+    .update(schema.items)
+    .set({ primaryImageId: imageId, updatedAt: nowSec() })
+    .where(eq(schema.items.id, itemId));
+}
 
 export type ReparseResult = {
   id: string;
@@ -12,9 +34,22 @@ export type ReparseResult = {
     brand: boolean;
     description: boolean;
     price: boolean;
+    details: boolean;
   };
   imageCount: number;
 };
+
+function detailsEqual(
+  a: Array<{ label: string; value: string }> | null | undefined,
+  b: Array<{ label: string; value: string }> | null | undefined,
+): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  if (left.length !== right.length) return false;
+  return left.every(
+    (d, i) => d.label === right[i].label && d.value === right[i].value,
+  );
+}
 
 export async function reparseItem(
   db: Db,
@@ -29,51 +64,89 @@ export async function reparseItem(
 
   const meta = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
 
+  const nextDetails = meta.details.length > 0 ? meta.details : null;
   const updated = {
     title: meta.title !== null && meta.title !== item.title,
     brand: meta.brand !== null && meta.brand !== item.brand,
     description:
       meta.description !== null && meta.description !== item.description,
     price: meta.price !== null && meta.price !== item.price,
+    details:
+      meta.details.length > 0 && !detailsEqual(nextDetails, item.details),
   };
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSec();
 
-  await db
-    .update(schema.items)
-    .set({
-      title: meta.title ?? item.title,
-      brand: meta.brand ?? item.brand,
-      description: meta.description ?? item.description,
-      price: meta.price ?? item.price,
+  function buildItemUpdate(primaryImageId: string | null | undefined) {
+    const set: Record<string, unknown> = {
+      title: meta.title ?? item!.title,
+      brand: meta.brand ?? item!.brand,
+      description: meta.description ?? item!.description,
+      price: meta.price ?? item!.price,
+      details: nextDetails ?? item!.details,
       updatedAt: now,
-    })
-    .where(eq(schema.items.id, itemId));
+    };
+    if (primaryImageId !== undefined) set.primaryImageId = primaryImageId;
+    return db.update(schema.items).set(set).where(eq(schema.items.id, itemId));
+  }
 
-  if (meta.imageUrls.length > 0) {
-    const existing = await db.query.itemImages.findMany({
-      where: eq(schema.itemImages.itemId, itemId),
-    });
-    for (const img of existing) {
-      await deleteStoredImage(imagesR2, img.r2Key);
-    }
-    await db
-      .delete(schema.itemImages)
-      .where(eq(schema.itemImages.itemId, itemId));
+  if (meta.imageUrls.length === 0) {
+    await buildItemUpdate(undefined);
+    return { id: itemId, updated, imageCount: 0 };
+  }
 
-    const stored = await Promise.all(
-      meta.imageUrls.map((src) => storeImage(imagesR2, src)),
-    );
-    for (let i = 0; i < stored.length; i++) {
-      await db.insert(schema.itemImages).values({
-        id: genId(),
+  const existing = await db.query.itemImages.findMany({
+    where: eq(schema.itemImages.itemId, itemId),
+    orderBy: asc(schema.itemImages.displayOrder),
+  });
+
+  const existingSrcs = existing.map((img) => img.sourceUrl);
+  const sourceUrlsMatch =
+    existingSrcs.length === meta.imageUrls.length &&
+    existingSrcs.every((s, i) => s === meta.imageUrls[i]);
+
+  if (sourceUrlsMatch) {
+    await buildItemUpdate(undefined);
+    return { id: itemId, updated, imageCount: existing.length };
+  }
+
+  // R2 writes before SQL so a crash leaves orphaned blobs (GC-able) rather
+  // than a row pointing at images that were just deleted.
+  const stored = await Promise.all(
+    meta.imageUrls.map((src) => storeImage(imagesR2, src)),
+  );
+  const newIds = stored.map(() => genId());
+
+  // Preserve primary across reparse when the same source URL is still present.
+  const prevPrimary = item.primaryImageId
+    ? existing.find((img) => img.id === item.primaryImageId)
+    : null;
+  const reboundPrimaryId = prevPrimary?.sourceUrl
+    ? (newIds[stored.findIndex((s) => s.sourceUrl === prevPrimary.sourceUrl)] ??
+      null)
+    : null;
+
+  await db.batch([
+    buildItemUpdate(reboundPrimaryId),
+    db.delete(schema.itemImages).where(eq(schema.itemImages.itemId, itemId)),
+    db.insert(schema.itemImages).values(
+      stored.map((s, i) => ({
+        id: newIds[i],
         itemId,
-        r2Key: stored[i].r2Key,
-        sourceUrl: stored[i].sourceUrl,
+        r2Key: toR2Key(s),
+        sourceUrl: s.sourceUrl,
         displayOrder: i,
         createdAt: now,
-      });
-    }
+        updatedAt: now,
+      })),
+    ),
+  ]);
+
+  for (const img of existing) {
+    await deleteStoredImage(
+      imagesR2,
+      fromR2Key(img.r2Key, img.sourceUrl ?? ''),
+    );
   }
 
   return { id: itemId, updated, imageCount: meta.imageUrls.length };

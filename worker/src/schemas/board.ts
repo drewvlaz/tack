@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { StoredImageSchema } from './parse';
+import { ItemDetailSchema, StoredImageSchema } from './parse';
 
 export const BoardSchema = z.object({
   id: z.string(),
@@ -20,6 +20,11 @@ export type Board = z.infer<typeof BoardSchema>;
 export type CreateBoardInput = z.infer<typeof CreateBoardBody>;
 export type RenameBoardInput = z.infer<typeof RenameBoardBody>;
 
+export const BoardImageSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+});
+
 export const BoardItemSchema = z.object({
   id: z.string(),
   itemId: z.string(),
@@ -28,8 +33,10 @@ export const BoardItemSchema = z.object({
   description: z.string().nullable(),
   price: z.number().nullable(),
   currency: z.string(),
-  imageUrls: z.array(z.string()),
+  details: z.array(ItemDetailSchema),
+  images: z.array(BoardImageSchema),
   sourceUrl: z.string(),
+  addedAt: z.number(),
   updatedAt: z.number(),
   x: z.number(),
   y: z.number(),
@@ -52,11 +59,13 @@ export const AddItemBody = z.object({
   brand: z.string().nullable(),
   description: z.string().nullable(),
   price: z.number().nullable(),
+  details: z.array(ItemDetailSchema),
   images: z.array(StoredImageSchema),
   x: z.number(),
   y: z.number(),
 });
 
 export type BoardItem = z.infer<typeof BoardItemSchema>;
+export type BoardImage = z.infer<typeof BoardImageSchema>;
 export type PatchBoardItemInput = z.infer<typeof PatchBoardItemBody>;
 export type AddItemInput = z.infer<typeof AddItemBody>;

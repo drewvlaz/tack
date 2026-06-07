@@ -9,23 +9,36 @@ src/
 ├── api/           Pure async fns wrapping tRPC client. No React, no hooks.
 │   ├── boards.ts  getItems, patchBoardItem, addItem, deleteItem
 │   └── parse.ts   parseUrl
-├── components/    PascalCase.tsx. View layer.
-│   ├── App.tsx              Root layout (Canvas + AppUI overlay)
-│   ├── AppUI.tsx            Screen-space overlay (SidePanel etc.)
-│   ├── Canvas.tsx           Pan/zoom container; renders Cards + UrlBar + ZoomBar
-│   ├── Card.tsx             Draggable card on the canvas
-│   ├── CardExpanded.tsx     Expanded view (Framer Motion layoutId)
-│   ├── SidePanel.tsx        Screen-space list of board items
-│   ├── UrlBar.tsx           URL input → useAddItem
-│   └── ZoomBar.tsx          Zoom controls bound to canvas zoom MV
-├── hooks/         TanStack Query + gesture hooks
-│   ├── useBoardItems.ts     useQuery — server state: items on a board
-│   ├── useAddItem.ts        useMutation — parseUrl → addItem with optimistic skeleton
-│   ├── useDeleteItem.ts     useMutation — optimistic removal
-│   ├── useSyncPosition.ts   useMutation — PATCH x/y on drag end (fire-and-forget)
-│   ├── useCanvasGesture.ts  Pan + zoom gesture wiring (returns refs + motion values)
-│   ├── useCanvasPan.ts      Pan-only gesture (legacy/decomposed)
-│   └── useCardGesture.ts    Per-card drag gesture
+├── components/    PascalCase.tsx. View layer. Subcomponents nest under their parent folder.
+│   ├── AppUI.tsx            Screen-space overlay (BoardsSidebar + SidePanel)
+│   ├── BoardsSidebar.tsx    Left rail: list, create, rename, delete boards
+│   ├── Canvas/
+│   │   ├── Canvas.tsx       Pan/zoom container; renders Cards + UrlBar + ZoomBar
+│   │   ├── Card.tsx         Draggable card on the canvas
+│   │   ├── UrlBar.tsx       URL input → useAddItem
+│   │   └── ZoomBar.tsx      Zoom controls bound to canvas zoom MV
+│   ├── SidePanel/
+│   │   ├── SidePanel.tsx    Right rail: details for the selected item
+│   │   ├── TopBar.tsx       Close + re-parse buttons
+│   │   ├── Hero.tsx         Hero image + thumbnail strip
+│   │   ├── ImageLightbox.tsx  Full-bleed image overlay
+│   │   ├── Details.tsx      Title/brand/price/description/metadata
+│   │   └── RemoveButton.tsx Delete-with-confirm
+│   └── shared/
+│       ├── ConfirmDialog.tsx
+│       └── Rail.tsx         Resizable left/right rail container
+├── hooks/
+│   ├── server/         TanStack Query — server state (boards + items)
+│   │   ├── useBoards.ts, useCreateBoard.ts, useDeleteBoard.ts, useRenameBoard.ts
+│   │   ├── useBoardItems.ts   useQuery — items on a board
+│   │   ├── useAddItem.ts      useMutation — parseUrl → addItem with optimistic skeleton
+│   │   ├── useDeleteItem.ts   useMutation — optimistic removal
+│   │   ├── useReparseItem.ts  useMutation — re-fetch item from source URL
+│   │   └── useSyncPosition.ts useMutation — PATCH x/y on drag end (fire-and-forget)
+│   └── interaction/    Gesture hooks (Framer Motion + use-gesture)
+│       ├── useCanvasGesture.ts Pan + zoom wiring (returns refs + motion values)
+│       ├── useCardGesture.ts   Per-card drag gesture
+│       └── useCardResize.ts    Per-card resize gesture
 ├── store/         Zustand. INTERACTION STATE ONLY.
 │   ├── canvas.ts  selectedId, zIndices, bringToFront, setSelectedId
 │   └── theme.ts
@@ -37,13 +50,13 @@ src/
 
 ## State ownership (do not blur)
 
-| Concern | Owner |
-|---|---|
-| List of items on a board, their persisted position | TanStack Query (`useBoardItems`) |
-| Currently selected card (for expand) | Zustand (`useCanvasStore.selectedId`) |
-| Per-card z-index stack from user clicks | Zustand (`useCanvasStore.zIndices`) |
-| Drag/pan/zoom in-flight values | Framer Motion `MotionValue` (not React state) |
-| Canvas viewport (panX, panY, zoom) | `useCanvasGesture` motion values |
+| Concern                                            | Owner                                         |
+| -------------------------------------------------- | --------------------------------------------- |
+| List of items on a board, their persisted position | TanStack Query (`useBoardItems`)              |
+| Currently selected card (for expand)               | Zustand (`useCanvasStore.selectedId`)         |
+| Per-card z-index stack from user clicks            | Zustand (`useCanvasStore.zIndices`)           |
+| Drag/pan/zoom in-flight values                     | Framer Motion `MotionValue` (not React state) |
+| Canvas viewport (panX, panY, zoom)                 | `useCanvasGesture` motion values              |
 
 If you find yourself putting items into Zustand or selectedId into the query cache, stop. The split is deliberate — server data invalidates separately from interaction state, and motion values bypass React renders during drag.
 
@@ -52,7 +65,7 @@ If you find yourself putting items into Zustand or selectedId into the query cac
 `src/lib/trpc.ts` creates a single `trpc` client and exports inferred types:
 
 ```ts
-import { trpc, type BoardItem, type ParseResult } from './lib/trpc'
+import { trpc, type BoardItem, type ParseResult } from './lib/trpc';
 ```
 
 `BoardItem` and `ParseResult` come from `inferRouterOutputs<AppRouter>` — the source of truth is `worker/src/router.ts`. If you change a procedure's return shape, the frontend types update automatically.
@@ -85,8 +98,8 @@ Backend returns image URLs like `/api/images/items/{uuid}`. Resolve them with `r
 Cards live in canvas space; pan/zoom live in screen space. To place a new card at the viewport center:
 
 ```ts
-const x = (-panX.get() + window.innerWidth / 2 - cardWidth / 2) / zoom
-const y = (-panY.get() + window.innerHeight / 2 - 200) / zoom
+const x = (-panX.get() + window.innerWidth / 2 - cardWidth / 2) / zoom;
+const y = (-panY.get() + window.innerHeight / 2 - 200) / zoom;
 ```
 
 This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "drop at center" affordance.

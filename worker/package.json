@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "exports": {
+    "./router": {
+      "types": "./src/router.ts"
+    }
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -12,7 +17,9 @@
     "db:migrate": "wrangler d1 migrations apply fashion-mood",
     "db:seed:local": "wrangler d1 execute fashion-mood --local --file=seed.sql",
     "db:studio": "drizzle-kit studio",
-    "lint": "tsc --noEmit && eslint ."
+    "lint": "tsc --noEmit && eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.8.0",
@@ -23,9 +30,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.71",
     "@cloudflare/workers-types": "^4.20260607.1",
     "drizzle-kit": "^0.31.10",
     "typescript": "~5.8.0",
+    "vitest": "^3.2.6",
     "wrangler": "^4.98.0"
   }
 }

@@ -85,7 +85,7 @@ cd web
 npm run dev                # vite → http://localhost:5173 (or 5174)
 ```
 
-The frontend hardcodes `BOARD_ID = 'board-1'` (see `web/src/components/Canvas.tsx`), which matches the seed.
+The frontend reads the active board from `localStorage` via `useBoardsStore` (key `activeBoardId`). The seed creates `board-1`, which the boards sidebar will list and the user can select.
 
 ## DB schema (D1, managed by Drizzle)
 

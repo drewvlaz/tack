@@ -1,11 +1,11 @@
-import Canvas from './components/Canvas'
-import AppUI from './components/AppUI'
+import AppUI from './components/AppUI';
+import Canvas from './components/Canvas/Canvas';
 
 export default function App() {
   return (
-    <div className="relative w-screen h-screen overflow-hidden">
+    <div className="relative h-screen w-screen overflow-hidden">
       <Canvas />
       <AppUI />
     </div>
-  )
+  );
 }

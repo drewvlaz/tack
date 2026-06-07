@@ -1,85 +1,95 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { format, formatDistanceToNow } from 'date-fns'
-import { useBoards } from '../hooks/useBoards'
-import { useCreateBoard } from '../hooks/useCreateBoard'
-import { useDeleteBoard } from '../hooks/useDeleteBoard'
-import { useRenameBoard } from '../hooks/useRenameBoard'
-import { useBoardsStore } from '../store/boards'
-import { useRailsStore } from '../store/rails'
-import ConfirmDialog from './ConfirmDialog'
-import Rail from './Rail'
+import { format, formatDistanceToNow } from 'date-fns';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBoards } from '../hooks/server/useBoards';
+import { useCreateBoard } from '../hooks/server/useCreateBoard';
+import { useDeleteBoard } from '../hooks/server/useDeleteBoard';
+import { useRenameBoard } from '../hooks/server/useRenameBoard';
+import { useBoardsStore } from '../store/boards';
+import { useRailsStore } from '../store/rails';
+import ConfirmDialog from './shared/ConfirmDialog';
+import Rail from './shared/Rail';
 
-const PENDING_PREFIX = '__pending__'
+const PENDING_PREFIX = '__pending__';
 
 export default function BoardsSidebar() {
-  const { boards } = useBoards()
-  const createBoard = useCreateBoard()
-  const deleteBoard = useDeleteBoard()
-  const renameBoard = useRenameBoard()
-  const activeBoardId = useBoardsStore((s) => s.activeBoardId)
-  const setActiveBoardId = useBoardsStore((s) => s.setActiveBoardId)
-  const leftWidth = useRailsStore((s) => s.leftWidth)
-  const setLeftWidth = useRailsStore((s) => s.setLeftWidth)
+  const { boards, isLoading: boardsLoading } = useBoards();
+  const createBoard = useCreateBoard();
+  const deleteBoard = useDeleteBoard();
+  const renameBoard = useRenameBoard();
 
-  const [draftName, setDraftName] = useState<string | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
-  const [renaming, setRenaming] = useState<{ id: string; draft: string; original: string } | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const activeBoardId = useBoardsStore((s) => s.activeBoardId);
+  const setActiveBoardId = useBoardsStore((s) => s.setActiveBoardId);
+
+  const leftWidth = useRailsStore((s) => s.leftWidth);
+  const setLeftWidth = useRailsStore((s) => s.setLeftWidth);
+
+  const [draftName, setDraftName] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [renaming, setRenaming] = useState<{
+    id: string;
+    draft: string;
+    original: string;
+  } | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const renameInputRef = useCallback((el: HTMLInputElement | null) => {
     if (el) {
-      el.focus()
-      el.select()
+      el.focus();
+      el.select();
     }
-  }, [])
+  }, []);
 
-  // Reconcile active id when boards load or change.
+  // Reconcile active id once boards have loaded.
   useEffect(() => {
+    if (boardsLoading) return;
     if (boards.length === 0) {
-      if (activeBoardId !== null) setActiveBoardId(null)
-      return
+      if (activeBoardId !== null) setActiveBoardId(null);
+      return;
     }
     if (!activeBoardId || !boards.some((b) => b.id === activeBoardId)) {
-      setActiveBoardId(boards[0].id)
+      setActiveBoardId(boards[0].id);
     }
-  }, [boards, activeBoardId, setActiveBoardId])
+  }, [boardsLoading, boards, activeBoardId, setActiveBoardId]);
 
   useEffect(() => {
-    if (draftName !== null) inputRef.current?.focus()
-  }, [draftName])
+    if (draftName !== null) inputRef.current?.focus();
+  }, [draftName]);
 
   function commitDraft() {
-    const name = draftName?.trim()
-    setDraftName(null)
-    if (name) createBoard.mutate(name)
+    const name = draftName?.trim();
+    setDraftName(null);
+    if (name) createBoard.mutate(name);
   }
 
   function confirmDelete() {
-    if (!pendingDelete) return
+    if (!pendingDelete) return;
     deleteBoard.mutate(pendingDelete.id, {
       onSuccess: () => setPendingDelete(null),
-    })
+    });
   }
 
   function commitRename() {
-    if (!renaming) return
-    const next = renaming.draft.trim()
+    if (!renaming) return;
+    const next = renaming.draft.trim();
     if (next && next !== renaming.original) {
-      renameBoard.mutate({ id: renaming.id, name: next })
+      renameBoard.mutate({ id: renaming.id, name: next });
     }
-    setRenaming(null)
+    setRenaming(null);
   }
 
   return (
     <Rail side="left" width={leftWidth} onResize={setLeftWidth}>
       <header className="flex shrink-0 items-center justify-between px-5 py-4">
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-fg-subtle">
+        <p className="text-fg-subtle text-[11px] font-medium tracking-[0.18em] uppercase">
           Tack
         </p>
         <button
           onClick={() => setDraftName('')}
           aria-label="New board"
-          className="flex h-7 w-7 items-center justify-center rounded-full text-fg-muted ring-1 ring-border/60 hover:text-fg hover:ring-border transition-colors"
+          className="text-fg-muted ring-border/60 hover:text-fg hover:ring-border flex h-7 w-7 items-center justify-center rounded-full ring-1 transition-colors"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path
@@ -99,25 +109,25 @@ export default function BoardsSidebar() {
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitDraft()
-              else if (e.key === 'Escape') setDraftName(null)
+              if (e.key === 'Enter') commitDraft();
+              else if (e.key === 'Escape') setDraftName(null);
             }}
             onBlur={commitDraft}
             placeholder="New board name…"
-            className="mb-1 w-full rounded-md bg-surface-muted px-3 py-2 text-sm text-fg placeholder:text-fg-subtle outline-none ring-1 ring-border/60 focus:ring-border"
+            className="bg-surface-muted text-fg placeholder:text-fg-subtle ring-border/60 focus:ring-border mb-1 w-full rounded-md px-3 py-2 text-sm ring-1 outline-none"
           />
         )}
 
         {boards.length === 0 && draftName === null && (
-          <p className="px-3 py-6 text-center text-xs text-fg-subtle">
+          <p className="text-fg-subtle px-3 py-6 text-center text-xs">
             No boards yet — click + to create one.
           </p>
         )}
 
         {boards.map((board) => {
-          const isActive = board.id === activeBoardId
-          const isPending = board.id.startsWith(PENDING_PREFIX)
-          const isRenaming = renaming?.id === board.id
+          const isActive = board.id === activeBoardId;
+          const isPending = board.id.startsWith(PENDING_PREFIX);
+          const isRenaming = renaming?.id === board.id;
           return (
             <div
               key={board.id}
@@ -135,18 +145,22 @@ export default function BoardsSidebar() {
                     setRenaming({ ...renaming, draft: e.target.value })
                   }
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename()
-                    else if (e.key === 'Escape') setRenaming(null)
+                    if (e.key === 'Enter') commitRename();
+                    else if (e.key === 'Escape') setRenaming(null);
                   }}
                   onBlur={commitRename}
-                  className="flex-1 truncate bg-transparent px-3 py-2 text-sm text-fg outline-none"
+                  className="text-fg flex-1 truncate bg-transparent px-3 py-2 text-sm outline-none"
                 />
               ) : (
                 <button
                   onClick={() => !isPending && setActiveBoardId(board.id)}
                   onDoubleClick={() => {
-                    if (isPending) return
-                    setRenaming({ id: board.id, draft: board.name, original: board.name })
+                    if (isPending) return;
+                    setRenaming({
+                      id: board.id,
+                      draft: board.name,
+                      original: board.name,
+                    });
                   }}
                   disabled={isPending}
                   title={
@@ -163,10 +177,14 @@ export default function BoardsSidebar() {
                 <>
                   <button
                     onClick={() =>
-                      setRenaming({ id: board.id, draft: board.name, original: board.name })
+                      setRenaming({
+                        id: board.id,
+                        draft: board.name,
+                        original: board.name,
+                      })
                     }
                     aria-label={`Rename ${board.name}`}
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-fg-subtle opacity-0 hover:text-fg group-hover:opacity-100 transition-opacity"
+                    className="text-fg-subtle hover:text-fg flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                       <path
@@ -179,11 +197,18 @@ export default function BoardsSidebar() {
                   </button>
                   {boards.length > 1 && (
                     <button
-                      onClick={() => setPendingDelete({ id: board.id, name: board.name })}
+                      onClick={() =>
+                        setPendingDelete({ id: board.id, name: board.name })
+                      }
                       aria-label={`Delete ${board.name}`}
-                      className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-fg-subtle opacity-0 hover:text-fg group-hover:opacity-100 transition-opacity"
+                      className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 10 10"
+                        fill="none"
+                      >
                         <path
                           d="M2 2l6 6M8 2l-6 6"
                           stroke="currentColor"
@@ -196,7 +221,7 @@ export default function BoardsSidebar() {
                 </>
               )}
             </div>
-          )
+          );
         })}
       </div>
 
@@ -215,5 +240,5 @@ export default function BoardsSidebar() {
         onConfirm={confirmDelete}
       />
     </Rail>
-  )
+  );
 }

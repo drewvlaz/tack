@@ -1,13 +1,16 @@
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { baseColumns } from './base';
+
+export type ItemDetail = { label: string; value: string };
 
 export const items = sqliteTable('items', {
-  id: text('id').primaryKey(),
+  ...baseColumns(),
   sourceUrl: text('source_url').notNull(),
   title: text('title'),
   brand: text('brand'),
   description: text('description'),
   price: real('price'),
   currency: text('currency').notNull().default('USD'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
+  details: text('details', { mode: 'json' }).$type<ItemDetail[]>(),
+  primaryImageId: text('primary_image_id'),
 });

@@ -6,17 +6,17 @@ A personal moodboard web app for assembling and visualizing potential clothing p
 
 ## Tech Stack
 
-| Layer | Choice |
-|---|---|
-| Framework | React + Vite (TypeScript) |
-| Gesture | `@use-gesture/react` |
-| Animation | Framer Motion |
-| Styling | Tailwind CSS v4 |
-| State | Zustand |
-| Backend | Hono on Cloudflare Workers |
-| Image storage | Cloudflare R2 |
-| DB | Cloudflare D1 (SQLite) |
-| AI parsing | Anthropic Claude Haiku (`claude-haiku-4-5`) |
+| Layer         | Choice                                      |
+| ------------- | ------------------------------------------- |
+| Framework     | React + Vite (TypeScript)                   |
+| Gesture       | `@use-gesture/react`                        |
+| Animation     | Framer Motion                               |
+| Styling       | Tailwind CSS v4                             |
+| State         | Zustand                                     |
+| Backend       | Hono on Cloudflare Workers                  |
+| Image storage | Cloudflare R2                               |
+| DB            | Cloudflare D1 (SQLite)                      |
+| AI parsing    | Anthropic Claude Haiku (`claude-haiku-4-5`) |
 
 ## Phase 1 Goal: Canvas Skeleton (frontend only)
 
@@ -34,26 +34,26 @@ Build a canvas with hardcoded items to validate interaction feel before any back
 
 ```ts
 type Item = {
-  id: string
-  x: number
-  y: number
-  width: number
-  height: number
-  zIndex: number
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
   // placeholder fields for later
-  title: string
-  price: number | null
-  imageUrl: string
-  sourceUrl: string
-}
+  title: string;
+  price: number | null;
+  imageUrl: string;
+  sourceUrl: string;
+};
 
 type CanvasStore = {
-  items: Item[]
-  selectedId: string | null
-  setSelected: (id: string | null) => void
-  moveItem: (id: string, x: number, y: number) => void
-  bringToFront: (id: string) => void
-}
+  items: Item[];
+  selectedId: string | null;
+  setSelected: (id: string | null) => void;
+  moveItem: (id: string, x: number, y: number) => void;
+  bringToFront: (id: string) => void;
+};
 ```
 
 ### Interaction feel targets
@@ -66,6 +66,7 @@ type CanvasStore = {
 ### Hardcoded seed data
 
 Use 3–4 placeholder cards with:
+
 - A clothing image (use `https://picsum.photos/300/400` or similar)
 - A fake title and price
 - Spread around the canvas at different positions
@@ -120,6 +121,7 @@ If a field cannot be determined, use null. Return the currently displayed/sale p
 ```
 
 **Token reduction before Claude call:**
+
 - Always try og: tags first — covers ~80% of cases without needing Claude
 - Strip scripts, styles, nav, footer before sending body to Claude
 - Target < 10k tokens per request

@@ -1,7 +1,8 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { baseColumns } from './base';
 
 export const boards = sqliteTable('boards', {
-  id: text('id').primaryKey(),
+  ...baseColumns(),
   name: text('name').notNull(),
-  createdAt: integer('created_at').notNull(),
+  deletedAt: integer('deleted_at'),
 });

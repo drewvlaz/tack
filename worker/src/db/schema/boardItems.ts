@@ -5,13 +5,14 @@ import {
   text,
   unique,
 } from 'drizzle-orm/sqlite-core';
+import { baseColumns } from './base';
 import { boards } from './boards';
 import { items } from './items';
 
 export const boardItems = sqliteTable(
   'board_items',
   {
-    id: text('id').primaryKey(),
+    ...baseColumns(),
     boardId: text('board_id')
       .notNull()
       .references(() => boards.id, { onDelete: 'cascade' }),
@@ -23,8 +24,7 @@ export const boardItems = sqliteTable(
     width: real('width').notNull().default(220),
     height: real('height').notNull().default(400),
     zIndex: integer('z_index').notNull().default(0),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
   },
   (t) => [unique().on(t.boardId, t.itemId)],
 );

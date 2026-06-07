@@ -1,0 +1,1 @@
+ALTER TABLE `items` ADD `primary_image_id` text;

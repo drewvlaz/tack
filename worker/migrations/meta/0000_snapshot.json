@@ -86,10 +86,7 @@
       "indexes": {
         "board_items_board_id_item_id_unique": {
           "name": "board_items_board_id_item_id_unique",
-          "columns": [
-            "board_id",
-            "item_id"
-          ],
+          "columns": ["board_id", "item_id"],
           "isUnique": true
         }
       },
@@ -98,12 +95,8 @@
           "name": "board_items_board_id_boards_id_fk",
           "tableFrom": "board_items",
           "tableTo": "boards",
-          "columnsFrom": [
-            "board_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["board_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -111,12 +104,8 @@
           "name": "board_items_item_id_items_id_fk",
           "tableFrom": "board_items",
           "tableTo": "items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -209,12 +198,8 @@
           "name": "item_images_item_id_items_id_fk",
           "tableFrom": "item_images",
           "tableTo": "items",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

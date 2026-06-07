@@ -13,6 +13,7 @@
     "**/*.{ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "dependencies": {
+    "@fashion-mood/worker": "*",
     "@tanstack/react-query": "^5.101.0",
     "@trpc/client": "^11.17.0",
     "@use-gesture/react": "^10.3.1",

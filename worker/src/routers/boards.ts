@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   AddItemBody,
+  BoardItemSchema,
   CreateBoardBody,
   PatchBoardItemBody,
   RenameBoardBody,
@@ -37,7 +38,11 @@ export const boardsRouter = router({
 
   getItems: publicProcedure
     .input(z.object({ boardId: z.string() }))
-    .query(({ ctx, input }) => listBoardItems(ctx.db, input.boardId)),
+    .query(async ({ ctx, input }) =>
+      z
+        .array(BoardItemSchema)
+        .parse(await listBoardItems(ctx.db, input.boardId)),
+    ),
 
   patchItem: publicProcedure
     .input(z.object({ id: z.string(), patch: PatchBoardItemBody }))
