@@ -1,0 +1,105 @@
+# web/
+
+React 19 + Vite frontend. Renders the canvas, talks to the worker via tRPC, owns interaction state. See root `CLAUDE.md` for product context and stack.
+
+## Directory map
+
+```
+src/
+├── api/           Pure async fns wrapping tRPC client. No React, no hooks.
+│   ├── boards.ts  getItems, patchBoardItem, addItem, deleteItem
+│   └── parse.ts   parseUrl
+├── components/    PascalCase.tsx. View layer.
+│   ├── App.tsx              Root layout (Canvas + AppUI overlay)
+│   ├── AppUI.tsx            Screen-space overlay (SidePanel etc.)
+│   ├── Canvas.tsx           Pan/zoom container; renders Cards + UrlBar + ZoomBar
+│   ├── Card.tsx             Draggable card on the canvas
+│   ├── CardExpanded.tsx     Expanded view (Framer Motion layoutId)
+│   ├── SidePanel.tsx        Screen-space list of board items
+│   ├── UrlBar.tsx           URL input → useAddItem
+│   └── ZoomBar.tsx          Zoom controls bound to canvas zoom MV
+├── hooks/         TanStack Query + gesture hooks
+│   ├── useBoardItems.ts     useQuery — server state: items on a board
+│   ├── useAddItem.ts        useMutation — parseUrl → addItem with optimistic skeleton
+│   ├── useDeleteItem.ts     useMutation — optimistic removal
+│   ├── useSyncPosition.ts   useMutation — PATCH x/y on drag end (fire-and-forget)
+│   ├── useCanvasGesture.ts  Pan + zoom gesture wiring (returns refs + motion values)
+│   ├── useCanvasPan.ts      Pan-only gesture (legacy/decomposed)
+│   └── useCardGesture.ts    Per-card drag gesture
+├── store/         Zustand. INTERACTION STATE ONLY.
+│   ├── canvas.ts  selectedId, zIndices, bringToFront, setSelectedId
+│   └── theme.ts
+├── lib/
+│   ├── trpc.ts    tRPC client + exported types from AppRouter
+│   └── api.ts     resolveImageUrl — rewrites /api/* to absolute URL
+├── api/, config.ts, index.css, main.tsx, App.tsx
+```
+
+## State ownership (do not blur)
+
+| Concern | Owner |
+|---|---|
+| List of items on a board, their persisted position | TanStack Query (`useBoardItems`) |
+| Currently selected card (for expand) | Zustand (`useCanvasStore.selectedId`) |
+| Per-card z-index stack from user clicks | Zustand (`useCanvasStore.zIndices`) |
+| Drag/pan/zoom in-flight values | Framer Motion `MotionValue` (not React state) |
+| Canvas viewport (panX, panY, zoom) | `useCanvasGesture` motion values |
+
+If you find yourself putting items into Zustand or selectedId into the query cache, stop. The split is deliberate — server data invalidates separately from interaction state, and motion values bypass React renders during drag.
+
+## tRPC client
+
+`src/lib/trpc.ts` creates a single `trpc` client and exports inferred types:
+
+```ts
+import { trpc, type BoardItem, type ParseResult } from './lib/trpc'
+```
+
+`BoardItem` and `ParseResult` come from `inferRouterOutputs<AppRouter>` — the source of truth is `worker/src/router.ts`. If you change a procedure's return shape, the frontend types update automatically.
+
+`api/*.ts` wraps every call. **Do not call `trpc.x.y.query()` from components or hooks** — go through `api/`. This keeps the indirection so we could swap transports without touching consumers.
+
+## Mutation patterns
+
+All mutations follow the same shape (see `useAddItem.ts` as the canonical example):
+
+1. `onMutate` — cancel in-flight queries, snapshot previous data, write optimistic value, return rollback context.
+2. `onSuccess` — replace optimistic value with server response (do not invalidate — we already have the data).
+3. `onError` — restore previous snapshot from context.
+
+For position sync (`useSyncPosition`) the mutation is fire-and-forget — Framer Motion is already showing the final position, so we don't even need optimistic update logic; we just persist.
+
+## Skeleton cards
+
+`useAddItem` injects a skeleton item into the query cache while `parseUrl` is running. Skeleton IDs are `__skeleton__${Date.now()}`. Use `isSkeleton(id)` from `hooks/useAddItem.ts` to guard:
+
+- Don't open the expanded view on a skeleton (no real id yet).
+- Don't PATCH position on a skeleton (no row exists).
+
+## Images
+
+Backend returns image URLs like `/api/images/items/{uuid}`. Resolve them with `resolveImageUrl()` from `lib/api.ts` before passing to `<img src>` — it prepends `VITE_API_URL` for dev and leaves absolute URLs alone.
+
+## Canvas coordinate math
+
+Cards live in canvas space; pan/zoom live in screen space. To place a new card at the viewport center:
+
+```ts
+const x = (-panX.get() + window.innerWidth / 2 - cardWidth / 2) / zoom
+const y = (-panY.get() + window.innerHeight / 2 - 200) / zoom
+```
+
+This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "drop at center" affordance.
+
+## Feel targets (don't regress)
+
+- Drag: low stiffness, low damping, slight overshoot on release.
+- Pan: spring-eased, not 1:1 with cursor.
+- Expand/collapse: seamless via Framer Motion `layoutId`.
+- Cards respond visually to every interaction (`whileHover`, `whileTap`).
+
+## Scripts
+
+- `npm run dev` — Vite dev server
+- `npm run build` — `tsc -b && vite build`
+- `npm run lint` — `tsc --noEmit && eslint .`
