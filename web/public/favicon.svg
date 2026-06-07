@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .outer { fill: #171717; }
+    .inner { fill: #f7f7f5; }
+    @media (prefers-color-scheme: dark) {
+      .outer { fill: #edeef2; }
+      .inner { fill: #131417; }
+    }
+  </style>
+  <circle class="outer" cx="16" cy="16" r="11"/>
+  <circle class="inner" cx="16" cy="16" r="3"/>
+</svg>

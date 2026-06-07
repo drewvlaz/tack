@@ -50,5 +50,5 @@ export function useCardGesture({
     { target: ref },
   )
 
-  return { ref, springX, springY }
+  return { ref, x, y, springX, springY }
 }

@@ -1,3 +1,10 @@
+export type StoredImage = {
+  r2Key: string;
+  sourceUrl: string;
+};
+
+import { genId } from '../lib/id';
+
 export async function uploadImageFromUrl(
   images: R2Bucket,
   sourceUrl: string,
@@ -5,13 +12,38 @@ export async function uploadImageFromUrl(
   try {
     const res = await fetch(sourceUrl);
     if (!res.ok || !res.body) return null;
-    const key = `items/${crypto.randomUUID()}`;
+    const key = `items/${genId()}`;
     const contentType = res.headers.get('content-type') ?? 'image/jpeg';
     await images.put(key, res.body, { httpMetadata: { contentType } });
-    return `/api/images/${key}`;
+    return key;
   } catch {
     return null;
   }
+}
+
+export async function storeImage(
+  images: R2Bucket,
+  sourceUrl: string,
+): Promise<StoredImage> {
+  const key = await uploadImageFromUrl(images, sourceUrl);
+  return { r2Key: key ?? sourceUrl, sourceUrl };
+}
+
+export async function deleteStoredImage(
+  images: R2Bucket,
+  r2Key: string,
+): Promise<void> {
+  if (!r2Key.startsWith('items/')) return;
+  try {
+    await images.delete(r2Key);
+  } catch {
+    // best-effort
+  }
+}
+
+export function imageDisplayUrl(r2Key: string): string {
+  if (r2Key.startsWith('items/')) return `/api/images/${r2Key}`;
+  return r2Key;
 }
 
 export async function serveImage(

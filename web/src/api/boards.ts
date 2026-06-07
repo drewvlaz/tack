@@ -1,6 +1,22 @@
-import { trpc, type BoardItem } from '../lib/trpc'
+import { trpc, type Board, type BoardItem } from '../lib/trpc'
 
-export type { BoardItem }
+export type { Board, BoardItem }
+
+export function listBoards(): Promise<Board[]> {
+  return trpc.boards.list.query()
+}
+
+export function createBoard(name: string): Promise<Board> {
+  return trpc.boards.create.mutate({ name })
+}
+
+export function deleteBoard(id: string): Promise<{ ok: true }> {
+  return trpc.boards.delete.mutate({ id })
+}
+
+export function renameBoard(id: string, name: string): Promise<Board> {
+  return trpc.boards.rename.mutate({ id, name })
+}
 
 export function getItems(boardId: string): Promise<BoardItem[]> {
   return trpc.boards.getItems.query({ boardId })
@@ -17,8 +33,9 @@ export type AddItemBody = {
   sourceUrl: string
   title: string | null
   brand: string | null
+  description: string | null
   price: number | null
-  imageUrl: string | null
+  images: Array<{ r2Key: string; sourceUrl: string }>
   x: number
   y: number
 }

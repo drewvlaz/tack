@@ -1,12 +1,47 @@
 import { asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
+import { genId } from '../lib/id';
 import {
   BoardItemSchema,
+  BoardSchema,
   type AddItemInput,
+  type Board,
   type BoardItem,
   type PatchBoardItemInput,
 } from '../schemas/board';
+import { imageDisplayUrl } from './images';
+
+export async function listBoards(db: Db): Promise<Board[]> {
+  const rows = await db.query.boards.findMany({
+    orderBy: asc(schema.boards.createdAt),
+  });
+  return rows.map((b) => BoardSchema.parse(b));
+}
+
+export async function createBoard(db: Db, name: string): Promise<Board> {
+  const now = Math.floor(Date.now() / 1000);
+  const id = genId();
+  await db.insert(schema.boards).values({ id, name, createdAt: now });
+  return BoardSchema.parse({ id, name, createdAt: now });
+}
+
+export async function deleteBoard(db: Db, id: string): Promise<void> {
+  await db.delete(schema.boards).where(eq(schema.boards.id, id));
+}
+
+export async function renameBoard(
+  db: Db,
+  id: string,
+  name: string,
+): Promise<Board> {
+  await db.update(schema.boards).set({ name }).where(eq(schema.boards.id, id));
+  const row = await db.query.boards.findFirst({
+    where: eq(schema.boards.id, id),
+  });
+  if (!row) throw new Error(`board ${id} not found`);
+  return BoardSchema.parse(row);
+}
 
 export async function listBoardItems(
   db: Db,
@@ -17,7 +52,7 @@ export async function listBoardItems(
     with: {
       item: {
         with: {
-          images: { orderBy: asc(schema.itemImages.displayOrder), limit: 1 },
+          images: { orderBy: asc(schema.itemImages.displayOrder) },
         },
       },
     },
@@ -28,9 +63,13 @@ export async function listBoardItems(
       id: bi.id,
       itemId: bi.itemId,
       title: bi.item.title,
+      brand: bi.item.brand,
+      description: bi.item.description,
       price: bi.item.price,
       currency: bi.item.currency,
-      imageUrl: bi.item.images[0]?.sourceUrl ?? null,
+      imageUrls: bi.item.images.map((img) => imageDisplayUrl(img.r2Key)),
+      sourceUrl: bi.item.sourceUrl,
+      updatedAt: bi.item.updatedAt,
       x: bi.x,
       y: bi.y,
       width: bi.width,
@@ -66,26 +105,28 @@ export async function addBoardItem(
   input: AddItemInput,
 ): Promise<BoardItem> {
   const now = Math.floor(Date.now() / 1000);
-  const itemId = crypto.randomUUID();
-  const boardItemId = crypto.randomUUID();
+  const itemId = genId();
+  const boardItemId = genId();
 
   await db.insert(schema.items).values({
     id: itemId,
     sourceUrl: input.sourceUrl,
     title: input.title,
     brand: input.brand,
+    description: input.description,
     price: input.price,
     createdAt: now,
     updatedAt: now,
   });
 
-  if (input.imageUrl) {
+  for (let i = 0; i < input.images.length; i++) {
+    const img = input.images[i];
     await db.insert(schema.itemImages).values({
-      id: crypto.randomUUID(),
+      id: genId(),
       itemId,
-      r2Key: input.imageUrl,
-      sourceUrl: input.imageUrl,
-      displayOrder: 0,
+      r2Key: img.r2Key,
+      sourceUrl: img.sourceUrl,
+      displayOrder: i,
       createdAt: now,
     });
   }
@@ -97,7 +138,7 @@ export async function addBoardItem(
     x: input.x,
     y: input.y,
     width: 220,
-    height: 400,
+    height: 280,
     zIndex: 0,
     createdAt: now,
     updatedAt: now,
@@ -107,13 +148,17 @@ export async function addBoardItem(
     id: boardItemId,
     itemId,
     title: input.title,
+    brand: input.brand,
+    description: input.description,
     price: input.price,
     currency: 'USD',
-    imageUrl: input.imageUrl,
+    imageUrls: input.images.map((img) => imageDisplayUrl(img.r2Key)),
+    sourceUrl: input.sourceUrl,
+    updatedAt: now,
     x: input.x,
     y: input.y,
     width: 220,
-    height: 400,
+    height: 280,
     zIndex: 0,
   });
 }

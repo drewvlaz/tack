@@ -1,9 +1,19 @@
 import type { ParseResult } from '../../schemas/parse';
-import { uploadImageFromUrl } from '../images';
+import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
-import { extractOgTag, extractPrice, stripHtml, type ParsedMeta } from './meta';
+import {
+  extractJsonLdImages,
+  extractOgImages,
+  extractOgTag,
+  extractPrice,
+  resolveAndDedupeUrls,
+  stripHtml,
+  type ParsedMeta,
+} from './meta';
 
-async function fetchAndParseMeta(
+const MAX_IMAGES = 12;
+
+export async function fetchAndParseMeta(
   url: string,
   apiKey: string,
 ): Promise<ParsedMeta> {
@@ -14,20 +24,36 @@ async function fetchAndParseMeta(
   const html = await res.text();
 
   const title = extractOgTag(html, 'title');
-  const primaryImageUrl = extractOgTag(html, 'image');
   const brand = extractOgTag(html, 'site_name');
+  let description = extractOgTag(html, 'description');
   let price = extractPrice(html);
 
-  if (price === null) {
+  const jsonLdImages = extractJsonLdImages(html);
+  let imageUrls = resolveAndDedupeUrls(
+    url,
+    jsonLdImages.length > 0 ? jsonLdImages : extractOgImages(html),
+  );
+
+  if (price === null || description === null || imageUrls.length === 0) {
     try {
       const meta = await extractMetaWithClaude(stripHtml(html), apiKey);
-      price = meta.price;
+      if (price === null) price = meta.price;
+      if (description === null) description = meta.description;
+      if (imageUrls.length === 0) {
+        imageUrls = resolveAndDedupeUrls(url, meta.imageUrls);
+      }
     } catch {
-      // price stays null
+      // fields stay as-is
     }
   }
 
-  return { title, brand, price, primaryImageUrl };
+  return {
+    title,
+    brand,
+    description,
+    price,
+    imageUrls: imageUrls.slice(0, MAX_IMAGES),
+  };
 }
 
 export async function parseProductUrl(
@@ -37,17 +63,15 @@ export async function parseProductUrl(
 ): Promise<ParseResult> {
   const meta = await fetchAndParseMeta(url, anthropicKey);
 
-  let imageUrl: string | null = null;
-  if (meta.primaryImageUrl) {
-    imageUrl =
-      (await uploadImageFromUrl(images, meta.primaryImageUrl)) ??
-      meta.primaryImageUrl;
-  }
+  const stored: StoredImage[] = await Promise.all(
+    meta.imageUrls.map((src) => storeImage(images, src)),
+  );
 
   return {
     title: meta.title,
     brand: meta.brand,
+    description: meta.description,
     price: meta.price,
-    imageUrl,
+    images: stored,
   };
 }

@@ -1,6 +1,8 @@
-import { motion } from 'framer-motion';
-import { card } from '../config';
+import { forwardRef } from 'react';
+import { motion, useMotionValue, useSpring } from 'framer-motion';
+import { spring } from '../config';
 import { useCardGesture } from '../hooks/useCardGesture';
+import { useCardResize } from '../hooks/useCardResize';
 
 type CardProps = {
   id: string;
@@ -9,13 +11,15 @@ type CardProps = {
   imageUrl: string;
   initialX?: number;
   initialY?: number;
+  width: number;
+  height: number;
   zIndex?: number;
   isSkeleton?: boolean;
   getZoom?: () => number;
-  getMaxX?: () => number;
   onTap?: () => void;
   onBringToFront?: () => void;
   onDragEnd?: (x: number, y: number) => void;
+  onResizeEnd?: (next: { x: number; y: number; width: number; height: number }) => void;
 };
 
 export default function Card({
@@ -24,26 +28,52 @@ export default function Card({
   imageUrl,
   initialX,
   initialY,
+  width,
+  height,
   zIndex = 0,
   isSkeleton = false,
   getZoom,
-  getMaxX,
   onTap,
   onBringToFront,
   onDragEnd,
+  onResizeEnd,
 }: CardProps) {
-  const { ref, springX, springY } = useCardGesture({ initialX, initialY, getZoom, getMaxX, onTap, onDragEnd });
+  const w = useMotionValue(width);
+  const h = useMotionValue(height);
+  const springW = useSpring(w, spring.card);
+  const springH = useSpring(h, spring.card);
+
+  const { ref, x, y, springX, springY } = useCardGesture({
+    initialX,
+    initialY,
+    getZoom,
+    onTap,
+    onDragEnd,
+  });
+
+  const { nwRef, neRef, swRef, seRef } = useCardResize({
+    x,
+    y,
+    width: w,
+    height: h,
+    springX,
+    springY,
+    springWidth: springW,
+    springHeight: springH,
+    getZoom,
+    onResizeEnd,
+  });
 
   if (isSkeleton) {
     return (
       <motion.div
         ref={ref}
-        style={{ x: springX, y: springY, width: card.width, zIndex, touchAction: 'none' }}
+        style={{ x: springX, y: springY, width: springW, zIndex, touchAction: 'none' }}
         className="absolute rounded-2xl bg-surface-raised shadow-md select-none overflow-hidden"
         animate={{ opacity: [0.5, 1, 0.5] }}
         transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
       >
-        <div className="bg-surface-muted" style={{ height: card.imageHeight }} />
+        <motion.div className="bg-surface-muted" style={{ height: springH }} />
         <div className="p-3 space-y-2">
           <div className="h-3 rounded bg-surface-muted w-3/4" />
           <div className="h-3 rounded bg-surface-muted w-1/3" />
@@ -56,13 +86,23 @@ export default function Card({
     <motion.div
       ref={ref}
       onPointerDown={onBringToFront}
-      style={{ x: springX, y: springY, width: card.width, zIndex, touchAction: 'none' }}
+      style={{ x: springX, y: springY, width: springW, zIndex, touchAction: 'none' }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      className="absolute cursor-grab rounded-2xl bg-surface-raised shadow-md active:cursor-grabbing select-none"
+      className="group absolute cursor-grab rounded-2xl bg-surface-raised shadow-md active:cursor-grabbing select-none"
     >
-      <div className="overflow-hidden rounded-t-2xl">
-        <img src={imageUrl} alt={title} style={{ height: card.imageHeight }} className="w-full object-cover" draggable={false} />
+      <div className="relative">
+        <motion.img
+          src={imageUrl}
+          alt={title}
+          style={{ height: springH }}
+          className="w-full rounded-t-2xl object-cover"
+          draggable={false}
+        />
+        <ResizeHandle ref={nwRef} corner="nw" />
+        <ResizeHandle ref={neRef} corner="ne" />
+        <ResizeHandle ref={swRef} corner="sw" />
+        <ResizeHandle ref={seRef} corner="se" />
       </div>
       <div className="p-3">
         <p className="truncate text-sm font-medium text-fg">{title}</p>
@@ -71,3 +111,24 @@ export default function Card({
     </motion.div>
   );
 }
+
+const cornerClass: Record<'nw' | 'ne' | 'sw' | 'se', string> = {
+  nw: 'top-0 left-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize',
+  ne: 'top-0 right-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize',
+  sw: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize',
+  se: 'bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize',
+};
+
+const ResizeHandle = forwardRef<HTMLDivElement, { corner: 'nw' | 'ne' | 'sw' | 'se' }>(
+  ({ corner }, ref) => (
+    <div
+      ref={ref}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{ touchAction: 'none' }}
+      className={`absolute z-10 flex h-4 w-4 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 ${cornerClass[corner]}`}
+    >
+      <div className="h-2 w-2 rounded-full bg-fg ring-2 ring-surface-raised" />
+    </div>
+  ),
+);
+ResizeHandle.displayName = 'ResizeHandle';

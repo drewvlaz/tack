@@ -22,14 +22,15 @@ export function useAddItem() {
         sourceUrl: url,
         title: parsed.title,
         brand: parsed.brand,
+        description: parsed.description,
         price: parsed.price,
-        imageUrl: parsed.imageUrl,
+        images: parsed.images,
         x,
         y,
       })
     },
 
-    onMutate: async ({ boardId, x, y }: AddItemArgs) => {
+    onMutate: async ({ url, boardId, x, y }: AddItemArgs) => {
       const queryKey = ['boards', boardId, 'items']
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<BoardItem[]>(queryKey)
@@ -38,13 +39,17 @@ export function useAddItem() {
         id: `${SKELETON_PREFIX}${Date.now()}`,
         itemId: '',
         title: null,
+        brand: null,
+        description: null,
         price: null,
         currency: 'USD',
-        imageUrl: null,
+        imageUrls: [],
+        sourceUrl: url,
+        updatedAt: Math.floor(Date.now() / 1000),
         x,
         y,
         width: 220,
-        height: 400,
+        height: 280,
         zIndex: 0,
       }
 

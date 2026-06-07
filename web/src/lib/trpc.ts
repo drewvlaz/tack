@@ -6,6 +6,7 @@ export const trpc = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
       url: `${import.meta.env.VITE_API_URL ?? 'http://localhost:8787'}/trpc`,
+      methodOverride: 'POST',
     }),
   ],
 })
@@ -13,4 +14,5 @@ export const trpc = createTRPCClient<AppRouter>({
 type RouterOutputs = inferRouterOutputs<AppRouter>
 
 export type BoardItem = RouterOutputs['boards']['getItems'][number]
+export type Board = RouterOutputs['boards']['list'][number]
 export type ParseResult = RouterOutputs['parseUrl']

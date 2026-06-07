@@ -26,7 +26,13 @@ src/
 │   ├── init.ts          initTRPC.context<Context>().create()
 │   └── context.ts       Context = { db, images, anthropicKey }
 ├── db/
-│   ├── schema.ts        Drizzle schema — source of truth for the DB
+│   ├── schema/          Drizzle schema — one file per table, plus relations.ts
+│   │   ├── index.ts     Barrel — drizzle.config.ts and `createDb` import from here
+│   │   ├── boards.ts
+│   │   ├── items.ts
+│   │   ├── itemImages.ts
+│   │   ├── boardItems.ts
+│   │   └── relations.ts All cross-table relations (kept separate to avoid FK cycles)
 │   └── client.ts        createDb(d1) → drizzle instance
 ├── schemas/             Zod schemas for tRPC inputs/outputs
 │   ├── board.ts         BoardItemSchema, AddItemBody, PatchBoardItemBody
@@ -57,7 +63,7 @@ Regenerate Cloudflare types after binding changes: `npm run cf-typegen`.
 
 ## Database (Drizzle + D1)
 
-Schema lives in `src/db/schema.ts`. Tables and relations:
+Schema lives in `src/db/schema/` — one file per table, with `relations.ts` holding all cross-table relations (separated so the table files don't import each other and risk circular FK references). The barrel `index.ts` is what `drizzle.config.ts` and `createDb` point at. Tables and relations:
 
 - `boards` ←(many)— `board_items` —(one)→ `items` —(many)— `item_images`
 - `board_items` is the join table with placement (x, y, width, height, z_index). Unique on `(board_id, item_id)`.

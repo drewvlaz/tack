@@ -13,7 +13,7 @@ export async function extractMetaWithClaude(
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
+      max_tokens: 1024,
       messages: [
         {
           role: 'user',
@@ -22,11 +22,12 @@ export async function extractMetaWithClaude(
 {
   "title": "product name or null",
   "brand": "brand name or null",
+  "description": "1-2 sentence product description or null",
   "price": 99.99,
-  "primary_image_url": "highest res image URL found or null"
+  "image_urls": ["highest-res product image URLs in order, omit thumbnails/swatches/related products"]
 }
 
-Return the sale price if both sale and original prices exist. Use null for any field you cannot determine.
+Return the sale price if both sale and original prices exist. Use null for any unknown field. Keep description concise — strip marketing fluff. Return an empty array if no product images found.
 
 HTML:
 ${html}`,
@@ -52,13 +53,16 @@ ${html}`,
       ? parsed.price
       : null;
 
+  const imageUrls = Array.isArray(parsed.image_urls)
+    ? parsed.image_urls.filter((u): u is string => typeof u === 'string')
+    : [];
+
   return {
     title: typeof parsed.title === 'string' ? parsed.title : null,
     brand: typeof parsed.brand === 'string' ? parsed.brand : null,
+    description:
+      typeof parsed.description === 'string' ? parsed.description : null,
     price,
-    primaryImageUrl:
-      typeof parsed.primary_image_url === 'string'
-        ? parsed.primary_image_url
-        : null,
+    imageUrls,
   };
 }

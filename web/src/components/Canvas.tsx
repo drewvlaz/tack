@@ -9,13 +9,12 @@ import { useBoardItems } from '../hooks/useBoardItems';
 import { useSyncPosition } from '../hooks/useSyncPosition';
 import { useAddItem, isSkeleton } from '../hooks/useAddItem';
 import { useCanvasStore } from '../store/canvas';
-
-const BOARD_ID = 'board-1';
-
-export const CANVAS_BOARD_ID = BOARD_ID;
+import { useBoardsStore } from '../store/boards';
+import { resolveImageUrl } from '../lib/api';
 
 export default function Canvas() {
-  const { items, isLoading } = useBoardItems(BOARD_ID);
+  const activeBoardId = useBoardsStore((s) => s.activeBoardId);
+  const { items, isLoading } = useBoardItems(activeBoardId);
   const { zIndices, setSelectedId, bringToFront } = useCanvasStore();
 
   const { canvasRef, zoomMV, panX, panY, zoomTo } = useCanvasGesture();
@@ -41,9 +40,10 @@ export default function Canvas() {
   useMotionValueEvent(panY, 'change', syncDots);
 
   function handleAddUrl(url: string) {
+    if (!activeBoardId) return;
     const x = (-panX.get() + window.innerWidth / 2 - cardConfig.width / 2) / zoomMV.get();
     const y = (-panY.get() + window.innerHeight / 2 - 200) / zoomMV.get();
-    addItem.mutate({ url, boardId: BOARD_ID, x, y });
+    addItem.mutate({ url, boardId: activeBoardId, x, y });
   }
 
   return (
@@ -60,16 +60,18 @@ export default function Canvas() {
       }}
     >
       <motion.div style={{ x: panX, y: panY, scale: zoomMV, transformOrigin: '0 0' }}>
-        {!isLoading &&
+        {activeBoardId && !isLoading &&
           items.map((item) => (
             <Card
               key={item.id}
               id={item.id}
               title={item.title ?? ''}
               price={item.price}
-              imageUrl={item.imageUrl ?? ''}
+              imageUrl={resolveImageUrl(item.imageUrls[0]) ?? ''}
               initialX={item.x}
               initialY={item.y}
+              width={item.width}
+              height={item.height}
               zIndex={zIndices[item.id] ?? item.zIndex}
               getZoom={() => zoomMV.get()}
               isSkeleton={isSkeleton(item.id)}
@@ -80,9 +82,18 @@ export default function Canvas() {
               onDragEnd={(x, y) => {
                 if (!isSkeleton(item.id)) syncPosition.mutate({ id: item.id, x, y });
               }}
+              onResizeEnd={(next) => {
+                if (!isSkeleton(item.id)) syncPosition.mutate({ id: item.id, ...next });
+              }}
             />
           ))}
       </motion.div>
+
+      {!activeBoardId && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <p className="text-sm text-fg-subtle">Select or create a board</p>
+        </div>
+      )}
 
       <ZoomBar
         zoomMV={zoomMV}
@@ -91,7 +102,9 @@ export default function Canvas() {
         onReset={() => zoomTo(zoomConfig.initial)}
       />
 
-      <UrlBar onAdd={handleAddUrl} isPending={addItem.isPending} />
+      {activeBoardId && (
+        <UrlBar onAdd={handleAddUrl} isPending={addItem.isPending} />
+      )}
     </div>
   );
 }

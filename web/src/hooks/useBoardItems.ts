@@ -4,10 +4,11 @@ import type { BoardItem } from '../lib/trpc';
 
 export type { BoardItem };
 
-export function useBoardItems(boardId: string) {
+export function useBoardItems(boardId: string | null) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['boards', boardId, 'items'],
-    queryFn: () => getItems(boardId),
+    queryFn: () => getItems(boardId!),
+    enabled: boardId !== null,
     staleTime: Infinity,
   });
 

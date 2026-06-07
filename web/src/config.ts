@@ -1,8 +1,8 @@
 export const spring = {
-  card: { stiffness: 400, damping: 30 },
+  card: { stiffness: 300, damping: 30 },
   panel: { stiffness: 350, damping: 35 },
   zoom: { stiffness: 300, damping: 30 },
-} as const
+} as const;
 
 export const zoom = {
   min: 0.2,
@@ -10,20 +10,16 @@ export const zoom = {
   initial: 1,
   sensitivity: 0.001,
   step: 0.25,
-} as const
-
-export const panel = {
-  width: 380,
-} as const
+} as const;
 
 export const card = {
   width: 220,
   imageHeight: 280,
-} as const
+} as const;
 
 export const canvas = {
   dotSize: 1,
   dotSpacing: 24,
   dotColor: 'var(--canvas-dot)',
   background: 'var(--surface)',
-} as const
+} as const;

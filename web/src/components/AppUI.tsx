@@ -1,18 +1,24 @@
 import { AnimatePresence } from 'framer-motion';
+import BoardsSidebar from './BoardsSidebar';
 import SidePanel from './SidePanel';
 import { useCanvasStore } from '../store/canvas';
 import { useThemeStore } from '../store/theme';
 import { useBoardItems } from '../hooks/useBoardItems';
-import { CANVAS_BOARD_ID } from './Canvas';
+import { useBoardsStore } from '../store/boards';
 
 export default function AppUI() {
   const { selectedId, setSelectedId } = useCanvasStore();
   const { isDark, toggle } = useThemeStore();
-  const { items } = useBoardItems(CANVAS_BOARD_ID);
-  const selectedItem = items.find((i) => i.id === selectedId) ?? null;
+  const activeBoardId = useBoardsStore((s) => s.activeBoardId);
+  const { items } = useBoardItems(activeBoardId ?? '');
+  const selectedItem = activeBoardId
+    ? (items.find((i) => i.id === selectedId) ?? null)
+    : null;
 
   return (
     <div className="absolute inset-0 z-10 pointer-events-none">
+      <BoardsSidebar />
+
       <button
         onClick={toggle}
         aria-label="Toggle dark mode"
@@ -22,11 +28,11 @@ export default function AppUI() {
       </button>
 
       <AnimatePresence>
-        {selectedItem && (
+        {selectedItem && activeBoardId && (
           <SidePanel
             key={selectedItem.id}
             item={selectedItem}
-            boardId={CANVAS_BOARD_ID}
+            boardId={activeBoardId}
             onClose={() => setSelectedId(null)}
           />
         )}

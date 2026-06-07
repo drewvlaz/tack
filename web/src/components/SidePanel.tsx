@@ -1,7 +1,12 @@
-import { motion } from 'framer-motion';
-import { panel, spring } from '../config';
+import { spring } from '../config';
+import { resolveImageUrl } from '../lib/api';
 import type { BoardItem } from '../lib/trpc';
-import { useDeleteItem } from '../hooks/useDeleteItem';
+import { useRailsStore } from '../store/rails';
+import Rail from './Rail';
+import SidePanelDetails from './SidePanelDetails';
+import SidePanelHero from './SidePanelHero';
+import SidePanelRemoveButton from './SidePanelRemoveButton';
+import SidePanelTopBar from './SidePanelTopBar';
 
 type SidePanelProps = {
   item: BoardItem;
@@ -10,64 +15,36 @@ type SidePanelProps = {
 };
 
 export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
-  const deleteItem = useDeleteItem(boardId);
-
-  function handleDelete() {
-    deleteItem.mutate(item.id, { onSuccess: onClose });
-  }
+  const rightWidth = useRailsStore((s) => s.rightWidth);
+  const setRightWidth = useRailsStore((s) => s.setRightWidth);
+  const imageUrls = item.imageUrls
+    .map((u) => resolveImageUrl(u))
+    .filter((u): u is string => u !== null);
 
   return (
-    <motion.aside
-      className="absolute right-0 top-0 z-20 pointer-events-auto h-full overflow-y-auto bg-surface-raised shadow-2xl"
-      style={{ width: panel.width }}
-      initial={{ x: panel.width }}
+    <Rail
+      side="right"
+      width={rightWidth}
+      onResize={setRightWidth}
+      initial={{ x: rightWidth }}
       animate={{ x: 0 }}
-      exit={{ x: panel.width }}
+      exit={{ x: rightWidth }}
       transition={spring.panel}
     >
-      <div className="relative">
-        {item.imageUrl && (
-          <img
-            src={item.imageUrl}
-            alt={item.title ?? ''}
-            className="w-full object-cover"
-            style={{ height: 420 }}
+      <SidePanelTopBar itemId={item.itemId} boardId={boardId} onClose={onClose} />
+
+      <div className="flex-1 overflow-y-auto">
+        <SidePanelHero imageUrls={imageUrls} alt={item.title ?? ''} />
+        <SidePanelDetails item={item} />
+        <div className="border-t border-border px-7 py-4">
+          <SidePanelRemoveButton
+            itemId={item.id}
+            boardId={boardId}
+            title={item.title}
+            onRemoved={onClose}
           />
-        )}
-        <button
-          onClick={onClose}
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-surface-raised/80 text-fg-muted backdrop-blur-sm hover:bg-surface-raised"
-        >
-          ✕
-        </button>
+        </div>
       </div>
-
-      <div className="p-6">
-        {item.title && <h2 className="text-lg font-semibold text-fg">{item.title}</h2>}
-        {item.price !== null && (
-          <p className="mt-1 text-base text-fg-muted">
-            {item.currency} {item.price.toFixed(2)}
-          </p>
-        )}
-        {item.imageUrl && (
-          <a
-            href={item.imageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 block text-sm text-blue-500 hover:underline truncate"
-          >
-            View source
-          </a>
-        )}
-
-        <button
-          onClick={handleDelete}
-          disabled={deleteItem.isPending}
-          className="mt-8 w-full rounded-xl border border-red-200 py-2 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950 disabled:opacity-50 transition-colors"
-        >
-          {deleteItem.isPending ? 'Removing…' : 'Remove from board'}
-        </button>
-      </div>
-    </motion.aside>
+    </Rail>
   );
 }

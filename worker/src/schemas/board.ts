@@ -1,12 +1,36 @@
 import { z } from 'zod';
+import { StoredImageSchema } from './parse';
+
+export const BoardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.number(),
+});
+
+export const CreateBoardBody = z.object({
+  name: z.string().min(1).max(80),
+});
+
+export const RenameBoardBody = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(80),
+});
+
+export type Board = z.infer<typeof BoardSchema>;
+export type CreateBoardInput = z.infer<typeof CreateBoardBody>;
+export type RenameBoardInput = z.infer<typeof RenameBoardBody>;
 
 export const BoardItemSchema = z.object({
   id: z.string(),
   itemId: z.string(),
   title: z.string().nullable(),
+  brand: z.string().nullable(),
+  description: z.string().nullable(),
   price: z.number().nullable(),
   currency: z.string(),
-  imageUrl: z.string().nullable(),
+  imageUrls: z.array(z.string()),
+  sourceUrl: z.string(),
+  updatedAt: z.number(),
   x: z.number(),
   y: z.number(),
   width: z.number(),
@@ -26,8 +50,9 @@ export const AddItemBody = z.object({
   sourceUrl: z.string(),
   title: z.string().nullable(),
   brand: z.string().nullable(),
+  description: z.string().nullable(),
   price: z.number().nullable(),
-  imageUrl: z.string().nullable(),
+  images: z.array(StoredImageSchema),
   x: z.number(),
   y: z.number(),
 });
