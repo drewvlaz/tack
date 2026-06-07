@@ -8,6 +8,11 @@ const R2_KEY_PREFIX = 'items/';
 const ONE_YEAR_SECONDS = 31_536_000;
 const DEFAULT_IMAGE_CONTENT_TYPE = 'image/jpeg';
 
+// Drops icons / thumbnails / placeholder assets — well below any real product
+// shot, even heavily compressed. Content-Length is advisory: we trust it when
+// present and skip the byte sniff when absent.
+const MIN_IMAGE_BYTES = 10_000;
+
 export function fromR2Key(r2Key: string, sourceUrl: string): StoredImage {
   return r2Key.startsWith(R2_KEY_PREFIX)
     ? { kind: 'r2', key: r2Key, sourceUrl }
@@ -21,11 +26,15 @@ export function toR2Key(img: StoredImage): string {
 export async function storeImage(
   images: R2Bucket,
   sourceUrl: string,
-): Promise<StoredImage> {
+): Promise<StoredImage | null> {
   try {
     const res = await fetch(sourceUrl);
     if (!res.ok || !res.body) {
       return { kind: 'external', url: sourceUrl, sourceUrl };
+    }
+    const contentLength = res.headers.get('content-length');
+    if (contentLength !== null && Number(contentLength) < MIN_IMAGE_BYTES) {
+      return null;
     }
     const key = `${R2_KEY_PREFIX}${genId()}`;
     const contentType =

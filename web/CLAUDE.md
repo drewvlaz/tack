@@ -113,7 +113,7 @@ This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "d
 
 ## Scripts
 
-All scripts work from the repo root (mirrored as `npm run <name>` or `<name>:web`) or from `web/`. See the root `CLAUDE.md` for the full table.
+All scripts work from the repo root (mirrored as `pnpm <name>` or `<name>:web`) or from `web/`. See the root `CLAUDE.md` for the full table.
 
 - `dev` — Vite dev server
 - `build` — `tsc -b && vite build`

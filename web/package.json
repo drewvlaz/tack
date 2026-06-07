@@ -13,7 +13,7 @@
     "**/*.{ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "dependencies": {
-    "@fashion-mood/worker": "*",
+    "@fashion-mood/worker": "workspace:*",
     "@tanstack/react-query": "^5.101.0",
     "@trpc/client": "^11.17.0",
     "@use-gesture/react": "^10.3.1",
@@ -26,7 +26,9 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260607.1",
     "@tailwindcss/vite": "^4.3.0",
+    "@trpc/server": "^11.17.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

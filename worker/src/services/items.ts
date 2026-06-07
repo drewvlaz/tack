@@ -116,9 +116,9 @@ export async function reparseItem(
 
   // R2 writes before SQL so a crash leaves orphaned blobs (GC-able) rather
   // than a row pointing at images that were just deleted.
-  const stored = await Promise.all(
-    meta.imageUrls.map((src) => storeImage(imagesR2, src)),
-  );
+  const stored = (
+    await Promise.all(meta.imageUrls.map((src) => storeImage(imagesR2, src)))
+  ).filter((s) => s !== null);
   const newIds = stored.map(() => genId());
 
   // Preserve primary across reparse when the same source URL is still present.

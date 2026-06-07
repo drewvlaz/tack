@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractPrice,
+  extractTemplateImageUrls,
+  normalizeImageUrl,
   parseHtml,
+  rebuildFromReference,
   resolveAndDedupeUrls,
   stripHtml,
 } from '../../src/services/parser/meta';
@@ -78,6 +81,22 @@ describe('parseHtml', () => {
       <img src="https://cdn.test/hero.jpg" alt="x">
     `);
     expect(result.imgTagImages).toEqual(['https://cdn.test/hero.jpg']);
+  });
+
+  it('treats <img srcSet> (camelCase, as Next.js renders) the same as srcset', async () => {
+    const result = await parseHtml(`
+      <img srcSet="https://cdn.test/a-256.jpg 256w, https://cdn.test/a-1920.jpg 1920w">
+    `);
+    expect(result.imgTagImages).toEqual(['https://cdn.test/a-1920.jpg']);
+  });
+
+  it('handles srcset URLs that contain commas (e.g. Cloudinary transforms)', async () => {
+    const result = await parseHtml(`
+      <img srcset="https://cdn.test/images/f_auto,c_limit,w_256/SKU/p.jpg 256w, https://cdn.test/images/f_auto,c_limit,w_1920/SKU/p.jpg 1920w">
+    `);
+    expect(result.imgTagImages).toEqual([
+      'https://cdn.test/images/f_auto,c_limit,w_1920/SKU/p.jpg',
+    ]);
   });
 
   it('picks the largest URL from each <img srcset>', async () => {
@@ -203,6 +222,17 @@ describe('resolveAndDedupeUrls', () => {
     expect(out).toHaveLength(1);
   });
 
+  it('collapses Shopify size-suffix variants of the same image', () => {
+    const out = resolveAndDedupeUrls(base, [
+      'https://cdn.shopify.com/files/PRODUCT_01_300x300.jpg?v=1',
+      'https://cdn.shopify.com/files/PRODUCT_01_1024x.jpg?v=1',
+      'https://cdn.shopify.com/files/PRODUCT_01_{width}x.jpg?v=1',
+    ]);
+    expect(out).toEqual([
+      'https://cdn.shopify.com/files/PRODUCT_01_2048x.jpg?v=1',
+    ]);
+  });
+
   it('keeps distinct shots of the same product (different SKU suffix)', () => {
     const out = resolveAndDedupeUrls(base, [
       'https://cdn.test/images/w_1920/SKU_1/shot.jpg',
@@ -220,6 +250,102 @@ describe('resolveAndDedupeUrls', () => {
 
   it('returns empty array when all inputs are empty', () => {
     expect(resolveAndDedupeUrls(base, ['', '', ''])).toEqual([]);
+  });
+});
+
+describe('normalizeImageUrl', () => {
+  it('swaps Shopify-style _NNNxNNN filename suffix for _2048x', () => {
+    expect(
+      normalizeImageUrl(
+        'https://cdn.shopify.com/files/PRODUCT_01_300x300.jpg?v=1',
+      ),
+    ).toBe('https://cdn.shopify.com/files/PRODUCT_01_2048x.jpg?v=1');
+  });
+
+  it('swaps Shopify-style _NNNx filename suffix for _2048x', () => {
+    expect(
+      normalizeImageUrl('https://cdn.shopify.com/files/PRODUCT_01_1024x.jpg'),
+    ).toBe('https://cdn.shopify.com/files/PRODUCT_01_2048x.jpg');
+  });
+
+  it('swaps Shopify-style _NNNx@2x suffix for _2048x', () => {
+    expect(
+      normalizeImageUrl('https://cdn.shopify.com/files/LOGO_220x@2x.png?v=2'),
+    ).toBe('https://cdn.shopify.com/files/LOGO_2048x.png?v=2');
+  });
+
+  it('substitutes {width} placeholder with 2048', () => {
+    expect(
+      normalizeImageUrl(
+        'https://cdn.shopify.com/files/PRODUCT_01_{width}x.jpg?v=3',
+      ),
+    ).toBe('https://cdn.shopify.com/files/PRODUCT_01_2048x.jpg?v=3');
+  });
+
+  it('substitutes {height} and {size} placeholders too', () => {
+    expect(
+      normalizeImageUrl('https://cdn.example.com/img/x_{height}_{size}.jpg'),
+    ).toBe('https://cdn.example.com/img/x_2048_2048.jpg');
+  });
+
+  it('is a no-op for URLs without size hints or placeholders', () => {
+    const url =
+      'https://res.cloudinary.com/x/image/upload/c_scale,h_480/v550/SKU_1.jpg';
+    expect(normalizeImageUrl(url)).toBe(url);
+  });
+});
+
+describe('extractTemplateImageUrls', () => {
+  it('finds placeholder URLs in raw HTML', () => {
+    const out = extractTemplateImageUrls(
+      `<script>{"img":"https://cdn.test/upload/__IMAGE_PARAMS__/SKU_2.jpg"}</script>`,
+    );
+    expect(out).toEqual(['https://cdn.test/upload/__IMAGE_PARAMS__/SKU_2.jpg']);
+  });
+
+  it('finds placeholder URLs embedded with JSON-escaped slashes', () => {
+    const out = extractTemplateImageUrls(
+      `<script>"https:\\u002F\\u002Fcdn.test\\u002Fupload\\u002F__IMAGE_PARAMS__\\u002FSKU_3.jpg"</script>`,
+    );
+    expect(out).toContain('https://cdn.test/upload/__IMAGE_PARAMS__/SKU_3.jpg');
+  });
+
+  it('ignores URLs without a placeholder', () => {
+    const out = extractTemplateImageUrls(
+      `<script>{"img":"https://cdn.test/upload/c_scale,h_480/SKU_1.jpg"}</script>`,
+    );
+    expect(out).toEqual([]);
+  });
+});
+
+describe('rebuildFromReference', () => {
+  const og = 'https://cdn.test/upload/c_scale,h_480/v550/SKU_1.jpg';
+
+  it('swaps the reference filename for the template filename', () => {
+    expect(
+      rebuildFromReference(
+        'https://cdn.test/upload/__IMAGE_PARAMS__/SKU_2.jpg',
+        og,
+      ),
+    ).toBe('https://cdn.test/upload/c_scale,h_480/v550/SKU_2.jpg');
+  });
+
+  it('returns null when hosts differ', () => {
+    expect(
+      rebuildFromReference(
+        'https://other-cdn.test/upload/__IMAGE_PARAMS__/SKU_2.jpg',
+        og,
+      ),
+    ).toBeNull();
+  });
+
+  it('returns null when the template filename equals the reference filename', () => {
+    expect(
+      rebuildFromReference(
+        'https://cdn.test/upload/__IMAGE_PARAMS__/SKU_1.jpg',
+        og,
+      ),
+    ).toBeNull();
   });
 });
 

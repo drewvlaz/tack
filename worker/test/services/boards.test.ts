@@ -53,7 +53,7 @@ describe('boards service', () => {
     expect(boards.map((b) => b.name)).toEqual(['First', 'Second']);
   });
 
-  it('deleteBoard removes the board (cascading board_items)', async () => {
+  it('deleteBoard soft-deletes the board and its placements', async () => {
     const board = await createBoard(db(), 'To delete');
     await addBoardItem(db(), board.id, {
       sourceUrl: 'https://example.com/p',
@@ -71,11 +71,13 @@ describe('boards service', () => {
     await deleteBoard(db(), board.id);
 
     expect(await listBoards(db())).toEqual([]);
-    // The board_items cascade should have wiped the placement.
+    expect(await listBoardItems(db(), board.id)).toEqual([]);
+    // Soft-delete: rows remain but are marked with deletedAt.
     const placements = await db().query.boardItems.findMany({
       where: (bi, { eq }) => eq(bi.boardId, board.id),
     });
-    expect(placements).toEqual([]);
+    expect(placements).toHaveLength(1);
+    expect(placements[0].deletedAt).not.toBeNull();
   });
 });
 

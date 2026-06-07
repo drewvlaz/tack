@@ -3,7 +3,9 @@ import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
 import {
   extractPrice,
+  extractTemplateImageUrls,
   parseHtml,
+  rebuildFromReference,
   resolveAndDedupeUrls,
   stripHtml,
   type ParsedDetail,
@@ -42,29 +44,29 @@ export async function fetchAndParseMeta(
 
   const parsed = await parseHtml(html);
   const { title, brand, ogImages, jsonLdImages, imgTagImages } = parsed;
-  console.log('[parser counts]', {
-    htmlLen: html.length,
-    og: ogImages.length,
-    jsonLd: jsonLdImages.length,
-    imgTag: imgTagImages.length,
-    imgTagSample: imgTagImages.slice(0, 5),
-  });
   let description = parsed.description;
   let price = extractPrice(html);
   let details: ParsedDetail[] = [];
 
   // Combine sources. Retailers vary: some put the full gallery in JSON-LD,
-  // some only in og:image, and many (e.g. SSENSE) only expose secondary
-  // shots in <img srcset> markup. Order: jsonLd → og → <img>; dedupe collapses
-  // overlap and size variants.
+  // some only in og:image, and many (e.g. SSENSE) embed it in Next.js JSON
+  // blobs with literal __IMAGE_PARAMS__ placeholders that we rebuild using
+  // og:image as a transform reference.
   const ogHost = hostnameOf(ogImages[0], url);
   const filteredImgTagImages = ogHost
     ? imgTagImages.filter((u) => hostnameOf(u, url) === ogHost)
     : imgTagImages;
+  const ogReference = ogImages[0];
+  const rebuiltFromTemplates = ogReference
+    ? extractTemplateImageUrls(html)
+        .map((t) => rebuildFromReference(t, ogReference))
+        .filter((u): u is string => u !== null)
+    : [];
   let imageUrls = resolveAndDedupeUrls(url, [
     ...jsonLdImages,
     ...ogImages,
     ...filteredImgTagImages,
+    ...rebuiltFromTemplates,
   ]).filter((u) => !hasPlaceholderSegment(u));
 
   // Details (size/care/materials) live in page body, never og tags — so we
@@ -98,9 +100,9 @@ export async function parseProductUrl(
 ): Promise<ParseResult> {
   const meta = await fetchAndParseMeta(url, anthropicKey);
 
-  const stored: StoredImage[] = await Promise.all(
-    meta.imageUrls.map((src) => storeImage(images, src)),
-  );
+  const stored = (
+    await Promise.all(meta.imageUrls.map((src) => storeImage(images, src)))
+  ).filter((s): s is StoredImage => s !== null);
 
   return {
     title: meta.title,

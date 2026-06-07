@@ -30,16 +30,4 @@ app.all('/trpc/*', (c) =>
 
 app.get('/api/images/*', handleImageRequest);
 
-app.get('/_debug/fetch', async (c) => {
-  const url = c.req.query('url');
-  if (!url) return c.text('missing ?url=', 400);
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Moodboard/1.0)' },
-  });
-  return new Response(await res.text(), {
-    status: res.status,
-    headers: { 'content-type': 'text/plain; charset=utf-8' },
-  });
-});
-
 export default app;

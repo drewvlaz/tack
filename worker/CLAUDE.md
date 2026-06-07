@@ -62,7 +62,7 @@ src/
 - `IMAGES` — R2 bucket `fashion-mood-images`.
 - `ANTHROPIC_API_KEY` — set as a worker secret (or in `.dev.vars` locally, which is gitignored).
 
-Regenerate Cloudflare types after binding changes: `npm run cf-typegen`.
+Regenerate Cloudflare types after binding changes: `pnpm cf-typegen`.
 
 ## Database (Drizzle + D1)
 
@@ -77,11 +77,11 @@ Use Drizzle's relational query API (`db.query.boardItems.findMany({ with: { item
 **Migrations** (run from root or `worker/` — both work):
 
 ```bash
-npm run db:generate -- --name describe_change   # write a new migration from schema diff
-npm run db:migrate:local                        # apply to local D1
-npm run db:migrate                              # apply to remote D1
-npm run db:seed:local                           # apply seed.sql (board-1 + 3 items)
-npm run db:studio                               # drizzle-kit studio UI
+pnpm db:generate --name describe_change   # write a new migration from schema diff
+pnpm db:migrate:local                     # apply to local D1
+pnpm db:migrate                           # apply to remote D1
+pnpm db:seed:local                        # apply seed.sql (board-1 + 3 items)
+pnpm db:studio                            # drizzle-kit studio UI
 ```
 
 Always pass `--name <snake_case_description>` to `db:generate` so the file is named after what changes (e.g. `0002_base_timestamps.sql`, not drizzle's random `0006_calm_vulcan.sql`). The name is the only at-a-glance record of intent in the migrations folder.
@@ -111,7 +111,7 @@ Zod 4 for everything crossing the wire. Input schemas (`AddItemBody`, `PatchBoar
 
 ## Scripts
 
-All scripts work from the repo root (mirrored as `npm run <name>`) or from `worker/`. See the root `CLAUDE.md` for the full table.
+All scripts work from the repo root (mirrored as `pnpm <name>`) or from `worker/`. See the root `CLAUDE.md` for the full table.
 
 - `dev` — `wrangler dev` (port 8787)
 - `deploy` — `wrangler deploy`

@@ -6,18 +6,25 @@ See also: `moodboard-spec.md` (original product brief), `web/CLAUDE.md`, `worker
 
 ## Layout
 
-npm workspaces monorepo.
+pnpm workspaces monorepo. Workspaces listed in `pnpm-workspace.yaml`.
 
 ```
 web/      React 19 + Vite frontend
 worker/   Hono + tRPC on Cloudflare Workers (D1, R2, Anthropic API)
 ```
 
+## Package manager
+
+pnpm, activated via corepack (`packageManager` field pins the version). `.npmrc` sets:
+
+- `minimum-release-age=4320` — never install a package version <3 days old. Supply-chain guard against compromised-then-yanked publishes. `pnpm-workspace.yaml` carries a `minimumReleaseAgeExclude` list for versions that were already locked when the policy was introduced (e.g. `@cloudflare/workers-types@4.20260607.1`).
+- `pnpm-workspace.yaml` `allowBuilds` allowlists postinstall scripts that are actually needed (`esbuild`, `sharp`, `workerd`). pnpm blocks all build scripts by default; add new entries here when adding a dep that legitimately needs install-time native compilation.
+
 ## Scripts
 
-Every command runs from the repo root **or** from inside a workspace — the root mirrors each workspace script as `-w` passthrough. From root, bare names hit the natural target (web for `build`, both for `dev`/`lint`/`test`); `:web` / `:worker` suffixes pin a workspace.
+Every command runs from the repo root **or** from inside a workspace — the root mirrors each workspace script via `pnpm --filter`. From root, bare names hit the natural target (web for `build`, both for `dev`/`lint`/`test`); `:web` / `:worker` suffixes pin a workspace.
 
-| Script                      | Root (`npm run …`)                               | Web (`web/`) | Worker (`worker/`) |
+| Script                      | Root (`pnpm <name>`)                             | Web (`web/`) | Worker (`worker/`) |
 | --------------------------- | ------------------------------------------------ | ------------ | ------------------ |
 | `dev`                       | both, concurrently (`concurrently`)              | Vite         | `wrangler dev`     |
 | `dev:web`                   | web only                                         | —            | —                  |
@@ -33,7 +40,7 @@ Every command runs from the repo root **or** from inside a workspace — the roo
 | `db:seed:local`             | apply `seed.sql` to local D1                     | —            | ✓                  |
 | `db:studio`                 | drizzle-kit studio UI                            | —            | ✓                  |
 
-**Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "npm run <name> -w <workspace> --"` (trailing `--` lets users pass args via `npm run <name> -- <args>`). Cross-workspace scripts that should fan out (lint/test) use `npm run <name> --workspaces --if-present`.
+**Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "pnpm --filter @fashion-mood/<workspace> run <name>"`. Cross-workspace scripts that should fan out (lint/test) use `pnpm -r --if-present run <name>`. Pass args directly: `pnpm <name> <args>`.
 
 Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:8787'}/trpc`. Images are served via the worker's `/api/images/*` proxy (not tRPC).
 
@@ -89,12 +96,12 @@ These are load-bearing — break them and the layering collapses.
 
 ```bash
 # Put ANTHROPIC_API_KEY in worker/.dev.vars (gitignored), then from the repo root:
-npm run db:migrate:local   # apply migrations to local D1
-npm run db:seed:local      # seed board-1 with 3 placeholder items
-npm run dev                # web (5173/5174) + worker (8787) concurrently
+pnpm db:migrate:local   # apply migrations to local D1
+pnpm db:seed:local      # seed board-1 with 3 placeholder items
+pnpm dev                # web (5173/5174) + worker (8787) concurrently
 ```
 
-Run `npm run dev:web` or `npm run dev:worker` to start only one. Anything that works at root also works inside `web/` or `worker/`.
+Run `pnpm dev:web` or `pnpm dev:worker` to start only one. Anything that works at root also works inside `web/` or `worker/`.
 
 The frontend reads the active board from `localStorage` via `useBoardsStore` (key `activeBoardId`). The seed creates `board-1`, which the boards sidebar will list and the user can select.
 
@@ -107,11 +114,11 @@ Defined in `worker/src/db/schema.ts`. Tables:
 - `item_images` — N images per item, ordered by `display_order`. `r2_key` points into R2.
 - `board_items` — placement of an item on a board (x, y, width, height, z_index). Unique on `(board_id, item_id)`.
 
-Generate migrations: `npm run db:generate -- --name <description>`. Apply locally: `npm run db:migrate:local`. Apply to prod: `npm run db:migrate`. All work from root or `worker/`.
+Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pnpm db:migrate:local`. Apply to prod: `pnpm db:migrate`. All work from root or `worker/`.
 
 ## Testing
 
-`check-app.spec.ts` at the repo root is a Playwright smoke check (loads the canvas, dumps console errors, screenshots, counts cards). Run with `npx playwright test`. There is no broader test suite yet.
+`check-app.spec.ts` at the repo root is a Playwright smoke check (loads the canvas, dumps console errors, screenshots, counts cards). Run with `pnpm exec playwright test`. There is no broader test suite yet.
 
 ## What's done vs. what's not
 
