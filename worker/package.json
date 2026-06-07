@@ -1,0 +1,25 @@
+{
+  "name": "@fashion-mood/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply fashion-mood --local",
+    "db:migrate": "wrangler d1 migrations apply fashion-mood",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.23"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260607.1",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "~5.8.0",
+    "wrangler": "^4.98.0"
+  }
+}
