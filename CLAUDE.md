@@ -1,4 +1,4 @@
-# fashion-mood
+# Tack
 
 Personal moodboard web app for assembling clothing purchases on a free-form canvas. Paste a product URL → AI extracts metadata + images → draggable card appears on a pannable/zoomable canvas. Interaction feel (spring physics, expand-to-focus, low-latency drag) is a first-class goal, not a polish item.
 
