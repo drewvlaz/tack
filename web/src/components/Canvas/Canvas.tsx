@@ -9,6 +9,7 @@ import { useSyncPosition } from '../../hooks/server/useSyncPosition';
 import { useHotkey } from '../../hooks/useHotkey';
 import { resolveImageUrl } from '../../lib/api';
 import { screenToCanvas } from '../../lib/canvasMath';
+import { describeAddItemError } from '../../lib/errors';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
 import { useRailsStore } from '../../store/rails';
@@ -157,7 +158,14 @@ export default function Canvas() {
       />
 
       {activeBoardId && (
-        <UrlBar onAdd={handleAddUrl} isPending={addItem.isPending} />
+        <UrlBar
+          onAdd={handleAddUrl}
+          isPending={addItem.isPending}
+          errorMessage={
+            addItem.error ? describeAddItemError(addItem.error) : null
+          }
+          onClearError={addItem.reset}
+        />
       )}
 
       <AddUrlModal
@@ -165,6 +173,10 @@ export default function Canvas() {
         isPending={addItem.isPending}
         onClose={() => setAddOpen(false)}
         onSubmit={handleAddUrl}
+        errorMessage={
+          addItem.error ? describeAddItemError(addItem.error) : null
+        }
+        onClearError={addItem.reset}
       />
     </div>
   );

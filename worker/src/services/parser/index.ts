@@ -38,8 +38,17 @@ export async function fetchAndParseMeta(
   apiKey: string,
 ): Promise<{ meta: ParsedMeta; warnings: ParseWarning[] }> {
   const warnings: ParseWarning[] = [];
+  // Mimic a real browser. Beats casual UA-string checks (most plain Shopify
+  // stores, mid-tier retailers). Won't beat real anti-bot (Cloudflare bot mode,
+  // DataDome, PerimeterX) — those need a headless browser or proxy.
   const res = await safeFetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Moodboard/1.0)' },
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
   });
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   const html = await res.text();
