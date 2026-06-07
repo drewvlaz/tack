@@ -11,7 +11,7 @@ export default function ZoomBar({ zoomMV, onZoomIn, onZoomOut, onReset }: ZoomBa
   const label = useTransform(zoomMV, (z) => `${Math.round(z * 100)}%`)
 
   return (
-    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-white px-2 py-1.5 shadow-lg ring-1 ring-neutral-200">
+    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1 rounded-full bg-white px-2 py-1.5 shadow-lg ring-1 ring-neutral-200">
       <ZoomButton onClick={onZoomOut} disabled={false} aria-label="Zoom out">
         −
       </ZoomButton>

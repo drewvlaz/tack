@@ -1,26 +1,22 @@
-import { useRef, useState } from 'react'
-import { AnimatePresence, motion, useMotionValueEvent } from 'framer-motion'
+import { useEffect, useState } from 'react'
+import { motion, useMotionValueEvent } from 'framer-motion'
 import Card from './Card'
-import SidePanel from './SidePanel'
 import ZoomBar from './ZoomBar'
 import { canvas, zoom as zoomConfig } from '../config'
 import { apiPatch } from '../api/client'
 import { useCanvasGesture } from '../hooks/useCanvasGesture'
 import { useBoardItems } from '../hooks/useBoardItems'
+import { useCanvasStore } from '../store/canvas'
 
 const BOARD_ID = 'board-1'
 
 export default function Canvas() {
-  const { items, loading } = useBoardItems(BOARD_ID)
+  const { items: fetchedItems, loading } = useBoardItems(BOARD_ID)
+  const { items, zIndices, setItems, setSelectedId, bringToFront } = useCanvasStore()
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selectedItem = items.find((i) => i.id === selectedId) ?? null
-
-  const [zIndices, setZIndices] = useState<Record<string, number>>({})
-  const nextZ = useRef(1)
-  function bringToFront(id: string) {
-    setZIndices((prev) => ({ ...prev, [id]: nextZ.current++ }))
-  }
+  useEffect(() => {
+    if (!loading) setItems(fetchedItems)
+  }, [fetchedItems, loading, setItems])
 
   const { canvasRef, zoomMV, panX, panY, zoomTo } = useCanvasGesture()
 
@@ -32,11 +28,9 @@ export default function Canvas() {
   function syncDots() {
     const z = zoomMV.get()
     const spacing = canvas.dotSpacing * z
-    const ox = panX.get() % spacing
-    const oy = panY.get() % spacing
     setBgStyle({
       backgroundSize: `${spacing}px ${spacing}px`,
-      backgroundPosition: `${ox}px ${oy}px`,
+      backgroundPosition: `${panX.get() % spacing}px ${panY.get() % spacing}px`,
     })
   }
 
@@ -47,7 +41,7 @@ export default function Canvas() {
   return (
     <div
       ref={canvasRef}
-      className="relative w-screen h-screen overflow-hidden cursor-grab"
+      className="absolute inset-0 z-0 cursor-grab overflow-hidden"
       onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null) }}
       style={{
         background: canvas.background,
@@ -80,16 +74,6 @@ export default function Canvas() {
         onZoomOut={() => zoomTo(zoomMV.get() - zoomConfig.step)}
         onReset={() => zoomTo(zoomConfig.initial)}
       />
-
-      <AnimatePresence>
-        {selectedItem && (
-          <SidePanel
-            key={selectedItem.id}
-            item={selectedItem}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   )
 }

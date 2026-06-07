@@ -10,7 +10,7 @@ type SidePanelProps = {
 export default function SidePanel({ item, onClose }: SidePanelProps) {
   return (
     <motion.aside
-      className="absolute right-0 top-0 z-20 h-full overflow-y-auto bg-white shadow-2xl"
+      className="absolute right-0 top-0 z-20 pointer-events-auto h-full overflow-y-auto bg-white shadow-2xl"
       style={{ width: panel.width }}
       initial={{ x: panel.width }}
       animate={{ x: 0 }}
