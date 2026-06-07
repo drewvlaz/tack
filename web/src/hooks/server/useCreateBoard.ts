@@ -27,7 +27,9 @@ export function useCreateBoard() {
     },
 
     onSuccess: (newBoard, _name, ctx) => {
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
       queryClient.setQueryData<Board[]>(BOARDS_QUERY_KEY, (old = []) =>
         old.map((b) => (b.id === ctx.optimisticId ? newBoard : b)),
       );

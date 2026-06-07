@@ -40,13 +40,17 @@ export function usePanForPanel({
       const selected = items.find(
         (i) => i.kind === 'real' && i.id === selectedId,
       );
-      if (!selected) return;
+      if (!selected) {
+        return;
+      }
 
       const z = zoom.get();
       const itemRightScreen = panX.get() + (selected.x + selected.width) * z;
       const panelLeftScreen = window.innerWidth - rightWidth;
       const overlap = itemRightScreen - (panelLeftScreen - PANEL_EDGE_MARGIN);
-      if (overlap <= 0) return;
+      if (overlap <= 0) {
+        return;
+      }
 
       const delta = -overlap;
       panelOffsetRef.current = delta;

@@ -19,8 +19,11 @@ export const useBoardsStore = create<BoardsStore>((set) => ({
   activeBoardId: readInitial(),
   setActiveBoardId(activeBoardId) {
     try {
-      if (activeBoardId) localStorage.setItem(STORAGE_KEY, activeBoardId);
-      else localStorage.removeItem(STORAGE_KEY);
+      if (activeBoardId) {
+        localStorage.setItem(STORAGE_KEY, activeBoardId);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
     } catch {
       // ignore storage failures
     }

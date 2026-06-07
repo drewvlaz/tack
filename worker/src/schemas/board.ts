@@ -21,12 +21,11 @@ export type Board = z.infer<typeof BoardSchema>;
 export type CreateBoardInput = z.infer<typeof CreateBoardBody>;
 export type RenameBoardInput = z.infer<typeof RenameBoardBody>;
 
-export const BoardImageSchema = z.object({
-  id: z.string(),
-  url: z.string(),
-});
-
-export const BoardItemSchema = z.object({
+// Fields shared between the domain row (what services emit) and the wire shape
+// (what the router returns over tRPC). The two diverge only in how images are
+// represented: rows carry a `StoredImage` (R2 key or external URL); the wire
+// carries a resolved display URL that the frontend can hit directly.
+const BoardItemBaseSchema = z.object({
   id: z.string(),
   itemId: z.string(),
   title: z.string().nullable(),
@@ -35,7 +34,6 @@ export const BoardItemSchema = z.object({
   price: z.number().nullable(),
   currency: z.string(),
   details: z.array(ItemDetailSchema),
-  images: z.array(BoardImageSchema),
   sourceUrl: z.string(),
   addedAt: z.number(),
   updatedAt: z.number(),
@@ -44,6 +42,27 @@ export const BoardItemSchema = z.object({
   width: z.number(),
   height: z.number(),
   zIndex: z.number(),
+});
+
+// Domain — services emit this. No transport knowledge.
+export const BoardItemRowImageSchema = z.object({
+  id: z.string(),
+  image: StoredImageSchema,
+});
+
+export const BoardItemRowSchema = BoardItemBaseSchema.extend({
+  images: z.array(BoardItemRowImageSchema),
+});
+
+// Wire — what the router returns. The `url` is constructed at the router
+// boundary via `lib/imageRoute.ts:imageDisplayUrl`.
+export const BoardImageSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+});
+
+export const BoardItemSchema = BoardItemBaseSchema.extend({
+  images: z.array(BoardImageSchema),
 });
 
 export const PatchBoardItemBody = z.object({
@@ -68,5 +87,7 @@ export const AddItemBody = z.object({
 
 export type BoardItem = z.infer<typeof BoardItemSchema>;
 export type BoardImage = z.infer<typeof BoardImageSchema>;
+export type BoardItemRow = z.infer<typeof BoardItemRowSchema>;
+export type BoardItemRowImage = z.infer<typeof BoardItemRowImageSchema>;
 export type PatchBoardItemInput = z.infer<typeof PatchBoardItemBody>;
 export type AddItemInput = z.infer<typeof AddItemBody>;

@@ -31,15 +31,23 @@ function parseJsonResponse(text: string): Record<string, unknown> {
 }
 
 function normalizeDetails(raw: unknown): ParsedDetail[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const out: ParsedDetail[] = [];
   for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') continue;
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
     const { label, value } = entry as Record<string, unknown>;
-    if (typeof label !== 'string' || typeof value !== 'string') continue;
+    if (typeof label !== 'string' || typeof value !== 'string') {
+      continue;
+    }
     const l = label.trim();
     const v = value.trim();
-    if (!l || !v) continue;
+    if (!l || !v) {
+      continue;
+    }
     out.push({ label: l, value: v });
   }
   return out;

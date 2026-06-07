@@ -46,6 +46,9 @@ export async function renameBoard(
     .set({ name, updatedAt: nowSec() })
     .where(eq(schema.boards.id, id))
     .returning();
-  if (!row) throw new Error(`board ${id} not found`);
+  if (!row) {
+    throw new Error(`board ${id} not found`);
+  }
+
   return BoardSchema.parse(row);
 }

@@ -111,9 +111,11 @@ describe('addBoardItem', () => {
       { label: 'Materials', value: '100% lambskin' },
       { label: 'Care', value: 'Specialist leather clean' },
     ]);
-    expect(item.images.map((img) => img.url)).toEqual([
-      '/api/images/items/abc',
-      '/api/images/items/def',
+    // Service emits the domain shape (StoredImage refs); the router-side
+    // conversion to `/api/images/...` URLs is exercised elsewhere.
+    expect(item.images.map((img) => img.image)).toEqual([
+      { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
+      { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
     ]);
     expect(item.images[0].id).toMatch(/^[A-Za-z0-9]{21}$/);
     expect(item.images[1].id).toMatch(/^[A-Za-z0-9]{21}$/);

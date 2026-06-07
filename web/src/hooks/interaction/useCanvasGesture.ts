@@ -12,7 +12,9 @@ function readInitialView(): View {
   const fallback: View = { z: zoomConfig.initial, x: 0, y: 0 };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
+    if (!raw) {
+      return fallback;
+    }
     const parsed = JSON.parse(raw);
     if (
       parsed &&
@@ -53,7 +55,9 @@ export function useCanvasGesture() {
       }
     }
     function schedule() {
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       timer = setTimeout(save, SAVE_DEBOUNCE_MS);
     }
     const unsubs = [
@@ -103,11 +107,15 @@ export function useCanvasGesture() {
           canvasRef.current.style.cursor = 'grabbing';
         }
       }
-      if (!isPanningRef.current) return;
+      if (!isPanningRef.current) {
+        return;
+      }
       panX.set(panX.get() + dx);
       panY.set(panY.get() + dy);
       if (last) {
-        if (canvasRef.current) canvasRef.current.style.cursor = '';
+        if (canvasRef.current) {
+          canvasRef.current.style.cursor = '';
+        }
         isPanningRef.current = false;
       }
     },
@@ -116,7 +124,9 @@ export function useCanvasGesture() {
 
   function zoomTo(target: number) {
     const el = canvasRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const oldZoom = zoomMV.get();
     const newZoom = Math.min(zoomConfig.max, Math.max(zoomConfig.min, target));
     const ratio = newZoom / oldZoom;

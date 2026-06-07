@@ -27,25 +27,35 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 function isPrivateIPv4(host: string): boolean {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
+  if (!m) {
+    return false;
+  }
+
   const octets = m.slice(1).map(Number);
-  if (octets.some((o) => o > 255)) return false;
+  if (octets.some((o) => o > 255)) {
+    return false;
+  }
+
   const [a, b] = octets;
-  if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 127) return true;
-  if (a === 0) return true;
-  return false;
+  return (
+    a === 10 || // 10.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    (a === 169 && b === 254) || // 169.254.0.0/16 (link-local + metadata)
+    a === 127 || // 127.0.0.0/8 (loopback)
+    a === 0 // 0.0.0.0/8
+  );
 }
 
+// URL.hostname for an IPv6 literal returns the address lowercase, brackets stripped.
 function isPrivateIPv6(host: string): boolean {
-  // URL.hostname for an IPv6 literal returns the address lowercase without brackets.
-  if (host === '::1' || host === '::') return true;
-  if (host.startsWith('fc') || host.startsWith('fd')) return true; // ULA fc00::/7
-  if (host.startsWith('fe80:')) return true; // link-local
-  return false;
+  return (
+    host === '::1' ||
+    host === '::' ||
+    host.startsWith('fc') || // ULA fc00::/7
+    host.startsWith('fd') || // ULA fc00::/7
+    host.startsWith('fe80:') // link-local
+  );
 }
 
 type SafeUrlCheck = { ok: true; url: URL } | { ok: false; reason: string };
@@ -57,17 +67,26 @@ export function checkSafeUrl(raw: string): SafeUrlCheck {
   } catch {
     return { ok: false, reason: 'malformed url' };
   }
+
   if (!ALLOWED_SCHEMES.has(url.protocol)) {
     return { ok: false, reason: `scheme ${url.protocol} not allowed` };
   }
+
   // URL.hostname keeps IPv6 brackets ('[::1]'); strip them for matching.
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host) return { ok: false, reason: 'empty host' };
+  if (!host) {
+    return { ok: false, reason: 'empty host' };
+  }
   if (BLOCKED_HOSTNAMES.has(host)) {
     return { ok: false, reason: `host ${host} blocked` };
   }
-  if (isPrivateIPv4(host)) return { ok: false, reason: `private ipv4 ${host}` };
-  if (isPrivateIPv6(host)) return { ok: false, reason: `private ipv6 ${host}` };
+  if (isPrivateIPv4(host)) {
+    return { ok: false, reason: `private ipv4 ${host}` };
+  }
+  if (isPrivateIPv6(host)) {
+    return { ok: false, reason: `private ipv6 ${host}` };
+  }
+
   return { ok: true, url };
 }
 
@@ -80,7 +99,9 @@ export async function safeFetch(
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
   const check = checkSafeUrl(raw);
-  if (!check.ok) throw new UnsafeUrlError(check.reason, raw);
+  if (!check.ok) {
+    throw new UnsafeUrlError(check.reason, raw);
+  }
 
   const {
     timeoutMs = DEFAULT_TIMEOUT_MS,

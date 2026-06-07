@@ -38,7 +38,9 @@ export default function AppUI() {
   });
 
   function handleConfirmDelete() {
-    if (!selectedItem) return;
+    if (!selectedItem) {
+      return;
+    }
     deleteItem.mutate(selectedItem.id, {
       onSuccess: () => {
         setConfirmDeleteOpen(false);

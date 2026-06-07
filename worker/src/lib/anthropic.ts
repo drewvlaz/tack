@@ -28,7 +28,9 @@ export async function callClaude(
     }),
   });
 
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`Claude API error: ${res.status}`);
+  }
 
   const data = await res.json<ClaudeResponse>();
   return data.content[0]?.text ?? '';

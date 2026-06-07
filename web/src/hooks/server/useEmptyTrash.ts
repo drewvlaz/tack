@@ -17,7 +17,9 @@ export function useEmptyTrash(boardId: string) {
     },
 
     onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(trashKey, ctx.previous);
+      if (ctx?.previous) {
+        queryClient.setQueryData(trashKey, ctx.previous);
+      }
     },
   });
 }

@@ -33,7 +33,9 @@ export default function Rail({
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (draft === null) return;
+    if (draft === null) {
+      return;
+    }
     const delta = e.clientX - startX.current;
     const signed = side === 'left' ? delta : -delta;
     const next = Math.max(
@@ -44,7 +46,9 @@ export default function Rail({
   }
 
   function endDrag(e: React.PointerEvent<HTMLDivElement>) {
-    if (draft === null) return;
+    if (draft === null) {
+      return;
+    }
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }

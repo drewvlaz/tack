@@ -9,7 +9,6 @@ import { useSyncPosition } from '../../hooks/server/useSyncPosition';
 import { useHotkey } from '../../hooks/useHotkey';
 import { resolveImageUrl } from '../../lib/api';
 import { screenToCanvas } from '../../lib/canvasMath';
-import { describeAddItemError } from '../../lib/errors';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
 import { useRailsStore } from '../../store/rails';
@@ -61,7 +60,9 @@ export default function Canvas() {
 
   const handleAddUrl = useCallback(
     (url: string) => {
-      if (!activeBoardId) return;
+      if (!activeBoardId) {
+        return;
+      }
       const { x, y } = screenToCanvas(
         window.innerWidth / 2 - cardConfig.width / 2,
         window.innerHeight / 2 - ADD_CARD_Y_BIAS,
@@ -85,7 +86,9 @@ export default function Canvas() {
       ref={canvasRef}
       className="absolute inset-0 z-0 cursor-grab overflow-hidden"
       onClick={(e) => {
-        if (e.target === e.currentTarget) setSelectedId(null);
+        if (e.target === e.currentTarget) {
+          setSelectedId(null);
+        }
       }}
       style={{
         background: canvas.background,
@@ -132,8 +135,9 @@ export default function Canvas() {
                     (i): i is typeof item => i.kind === 'real',
                   );
                   const newZ = bringToFront(item.id, realItems);
-                  if (newZ !== null)
+                  if (newZ !== null) {
                     syncPosition.mutate({ id: item.id, zIndex: newZ });
+                  }
                 }}
                 onDragEnd={(x, y) => syncPosition.mutate({ id: item.id, x, y })}
                 onResizeEnd={(next) =>
@@ -158,14 +162,7 @@ export default function Canvas() {
       />
 
       {activeBoardId && (
-        <UrlBar
-          onAdd={handleAddUrl}
-          isPending={addItem.isPending}
-          errorMessage={
-            addItem.error ? describeAddItemError(addItem.error) : null
-          }
-          onClearError={addItem.reset}
-        />
+        <UrlBar onAdd={handleAddUrl} isPending={addItem.isPending} />
       )}
 
       <AddUrlModal
@@ -173,10 +170,6 @@ export default function Canvas() {
         isPending={addItem.isPending}
         onClose={() => setAddOpen(false)}
         onSubmit={handleAddUrl}
-        errorMessage={
-          addItem.error ? describeAddItemError(addItem.error) : null
-        }
-        onClearError={addItem.reset}
       />
     </div>
   );

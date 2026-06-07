@@ -6,7 +6,9 @@ import { createConsola, type ConsolaInstance, type LogLevel } from 'consola';
 function resolveLevel(): LogLevel {
   const explicit = import.meta.env.VITE_LOG_LEVEL;
   const parsed = explicit ? Number(explicit) : NaN;
-  if (Number.isFinite(parsed)) return parsed as LogLevel;
+  if (Number.isFinite(parsed)) {
+    return parsed as LogLevel;
+  }
   return (import.meta.env.DEV ? 4 : 3) as LogLevel;
 }
 

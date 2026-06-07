@@ -12,12 +12,12 @@ import * as schema from '../db/schema';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import {
-  BoardItemSchema,
+  BoardItemRowSchema,
   type AddItemInput,
-  type BoardItem,
+  type BoardItemRow,
   type PatchBoardItemInput,
 } from '../schemas/board';
-import { fromR2Key, imageDisplayUrl, toR2Key } from './images';
+import { fromR2Key, toR2Key } from './images';
 import { commitWithBlobCleanup } from './itemImages';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -27,7 +27,7 @@ const INITIAL_Z_INDEX = 0;
 export async function listBoardItems(
   db: Db,
   boardId: string,
-): Promise<BoardItem[]> {
+): Promise<BoardItemRow[]> {
   return queryBoardItems(
     db,
     and(
@@ -40,7 +40,7 @@ export async function listBoardItems(
 export async function listTrashedBoardItems(
   db: Db,
   boardId: string,
-): Promise<BoardItem[]> {
+): Promise<BoardItemRow[]> {
   return queryBoardItems(
     db,
     and(
@@ -50,12 +50,14 @@ export async function listTrashedBoardItems(
   );
 }
 
-// Single source of truth for the BoardItem shape. Callers compose their own
-// where clause; the join + row→domain mapping lives here only.
+// Single source of truth for the BoardItemRow shape. Callers compose their own
+// where clause; the join + row→domain mapping lives here only. Images are
+// returned as `StoredImage` refs — URL construction is a transport concern
+// owned by `routers/boards.ts`.
 async function queryBoardItems(
   db: Db,
   where: SQL | undefined,
-): Promise<BoardItem[]> {
+): Promise<BoardItemRow[]> {
   const results = await db.query.boardItems.findMany({
     where,
     with: {
@@ -72,7 +74,7 @@ async function queryBoardItems(
 
   return results
     .filter((bi) => bi.item.deletedAt === null)
-    .map((bi): BoardItem => {
+    .map((bi): BoardItemRow => {
       const sortedImages = sortImagesPrimaryFirst(
         bi.item.images,
         bi.item.primaryImageId,
@@ -88,7 +90,7 @@ async function queryBoardItems(
         details: bi.item.details ?? [],
         images: sortedImages.map((img) => ({
           id: img.id,
-          url: imageDisplayUrl(fromR2Key(img.r2Key, img.sourceUrl ?? '')),
+          image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
         })),
         sourceUrl: bi.item.sourceUrl,
         addedAt: bi.createdAt,
@@ -106,9 +108,15 @@ function sortImagesPrimaryFirst<T extends { id: string }>(
   images: T[],
   primaryId: string | null,
 ): T[] {
-  if (!primaryId) return images;
+  if (!primaryId) {
+    return images;
+  }
+
   const idx = images.findIndex((img) => img.id === primaryId);
-  if (idx <= 0) return images;
+  if (idx <= 0) {
+    return images;
+  }
+
   return [images[idx], ...images.slice(0, idx), ...images.slice(idx + 1)];
 }
 
@@ -118,11 +126,21 @@ export async function patchBoardItem(
   patch: PatchBoardItemInput,
 ): Promise<void> {
   const update: Record<string, number> = { updatedAt: nowSec() };
-  if (patch.x !== undefined) update.x = patch.x;
-  if (patch.y !== undefined) update.y = patch.y;
-  if (patch.zIndex !== undefined) update.zIndex = patch.zIndex;
-  if (patch.width !== undefined) update.width = patch.width;
-  if (patch.height !== undefined) update.height = patch.height;
+  if (patch.x !== undefined) {
+    update.x = patch.x;
+  }
+  if (patch.y !== undefined) {
+    update.y = patch.y;
+  }
+  if (patch.zIndex !== undefined) {
+    update.zIndex = patch.zIndex;
+  }
+  if (patch.width !== undefined) {
+    update.width = patch.width;
+  }
+  if (patch.height !== undefined) {
+    update.height = patch.height;
+  }
 
   await db
     .update(schema.boardItems)
@@ -134,7 +152,7 @@ export async function addBoardItem(
   db: Db,
   boardId: string,
   input: AddItemInput,
-): Promise<BoardItem> {
+): Promise<BoardItemRow> {
   const now = nowSec();
   const itemId = genId();
   const boardItemId = genId();
@@ -188,9 +206,11 @@ export async function addBoardItem(
     db,
     eq(schema.boardItems.id, boardItemId),
   );
-  if (!created)
+  if (!created) {
     throw new Error(`Failed to load just-inserted board item ${boardItemId}`);
-  return BoardItemSchema.parse(created);
+  }
+
+  return BoardItemRowSchema.parse(created);
 }
 
 export async function deleteBoardItem(db: Db, id: string): Promise<void> {
@@ -216,7 +236,10 @@ export async function purgeBoardItem(
   const placement = await db.query.boardItems.findFirst({
     where: eq(schema.boardItems.id, id),
   });
-  if (!placement) return;
+  if (!placement) {
+    return;
+  }
+
   await purgeBoardItemsByIds(db, imagesR2, [placement.id], [placement.itemId]);
 }
 
@@ -231,7 +254,10 @@ export async function emptyBoardTrash(
       isNotNull(schema.boardItems.deletedAt),
     ),
   });
-  if (trashed.length === 0) return;
+  if (trashed.length === 0) {
+    return;
+  }
+
   await purgeBoardItemsByIds(
     db,
     imagesR2,

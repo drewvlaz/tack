@@ -40,11 +40,18 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
       element(el) {
         const prop = el.getAttribute('property') ?? el.getAttribute('name');
         const content = el.getAttribute('content');
-        if (!prop || !content) return;
-        if (prop === 'og:title') title ??= content;
-        else if (prop === 'og:site_name') brand ??= content;
-        else if (prop === 'og:description') description ??= content;
-        else if (OG_IMAGE_PROPS.has(prop)) ogImages.push(content);
+        if (!prop || !content) {
+          return;
+        }
+        if (prop === 'og:title') {
+          title ??= content;
+        } else if (prop === 'og:site_name') {
+          brand ??= content;
+        } else if (prop === 'og:description') {
+          description ??= content;
+        } else if (OG_IMAGE_PROPS.has(prop)) {
+          ogImages.push(content);
+        }
       },
     })
     .on('script[type="application/ld+json"]', {
@@ -52,7 +59,9 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
         currentScript = '';
       },
       text(chunk) {
-        if (currentScript === null) return;
+        if (currentScript === null) {
+          return;
+        }
         currentScript += chunk.text;
         if (chunk.lastInTextNode) {
           jsonLdScripts.push(currentScript);
@@ -66,7 +75,9 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
         const picked = srcset
           ? largestFromSrcset(srcset)
           : (el.getAttribute('src') ?? null);
-        if (picked) imgTagImages.push(picked);
+        if (picked) {
+          imgTagImages.push(picked);
+        }
       },
     });
 
@@ -75,7 +86,9 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
   const jsonLdImages: string[] = [];
   for (const raw of jsonLdScripts) {
     const trimmed = raw.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      continue;
+    }
     let data: unknown;
     try {
       data = JSON.parse(trimmed);
@@ -97,9 +110,13 @@ export function largestFromSrcset(srcset: string): string | null {
   let bestWidth = -1;
   for (const candidate of srcset.split(/,\s+/)) {
     const trimmed = candidate.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      continue;
+    }
     const [url, descriptor] = trimmed.split(/\s+/, 2);
-    if (!url) continue;
+    if (!url) {
+      continue;
+    }
     const m = descriptor?.match(/^(\d+)w$/);
     const width = m ? parseInt(m[1], 10) : 0;
     if (bestUrl === null || width > bestWidth) {
@@ -111,42 +128,61 @@ export function largestFromSrcset(srcset: string): string | null {
 }
 
 function walkForImages(node: unknown, out: string[]): void {
-  if (node === null || node === undefined) return;
-  if (typeof node === 'string') return;
-  if (Array.isArray(node)) {
-    for (const child of node) walkForImages(child, out);
+  if (node === null || node === undefined) {
     return;
   }
-  if (typeof node !== 'object') return;
+  if (typeof node === 'string') {
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      walkForImages(child, out);
+    }
+    return;
+  }
+  if (typeof node !== 'object') {
+    return;
+  }
   const obj = node as Record<string, unknown>;
   const img = obj.image;
   if (typeof img === 'string') {
     out.push(img);
   } else if (Array.isArray(img)) {
     for (const entry of img) {
-      if (typeof entry === 'string') out.push(entry);
-      else if (entry && typeof entry === 'object') {
+      if (typeof entry === 'string') {
+        out.push(entry);
+      } else if (entry && typeof entry === 'object') {
         const u = (entry as Record<string, unknown>).url;
-        if (typeof u === 'string') out.push(u);
+        if (typeof u === 'string') {
+          out.push(u);
+        }
       }
     }
   } else if (img && typeof img === 'object') {
     const u = (img as Record<string, unknown>).url;
-    if (typeof u === 'string') out.push(u);
+    if (typeof u === 'string') {
+      out.push(u);
+    }
   }
-  for (const v of Object.values(obj)) walkForImages(v, out);
+  for (const v of Object.values(obj)) {
+    walkForImages(v, out);
+  }
 }
 
 export function extractPrice(html: string): number | null {
   const sdMatch = html.match(/"price"\s*:\s*"?(\d+(?:\.\d{1,2})?)"?/);
   if (sdMatch) {
     const n = parseFloat(sdMatch[1]);
-    if (!isNaN(n)) return n;
+    if (!isNaN(n)) {
+      return n;
+    }
   }
   const priceMatch = html.match(/price[^$]*\$\s*(\d+(?:\.\d{1,2})?)/);
   if (priceMatch) {
     const n = parseFloat(priceMatch[1]);
-    if (!isNaN(n)) return n;
+    if (!isNaN(n)) {
+      return n;
+    }
   }
   return null;
 }
@@ -197,7 +233,9 @@ export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of urls) {
-    if (!raw) continue;
+    if (!raw) {
+      continue;
+    }
     let parsed: URL;
     try {
       parsed = new URL(normalizeImageUrl(raw), base);
@@ -206,12 +244,18 @@ export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
     }
     // Reject malformed URLs whose hostname has no dot (e.g. `https:files/...`
     // mis-typed by a merchant — resolves to hostname=`files`).
-    if (!parsed.hostname.includes('.')) continue;
+    if (!parsed.hostname.includes('.')) {
+      continue;
+    }
     // Upgrade http→https opportunistically; the original http origin almost
     // always also serves https, and forcing https collapses scheme-only dupes.
-    if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+    if (parsed.protocol === 'http:') {
+      parsed.protocol = 'https:';
+    }
     const key = dedupeKey(parsed);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      continue;
+    }
     seen.add(key);
     out.push(parsed.toString());
   }
@@ -249,13 +293,19 @@ export function rebuildFromReference(
   } catch {
     return null;
   }
-  if (tmpl.hostname !== ref.hostname) return null;
+  if (tmpl.hostname !== ref.hostname) {
+    return null;
+  }
   const tSegs = tmpl.pathname.split('/');
   const tFilename = tSegs[tSegs.length - 1];
   const rSegs = ref.pathname.split('/');
   const rFilename = rSegs[rSegs.length - 1];
-  if (!tFilename || !rFilename) return null;
-  if (tFilename === rFilename) return null;
+  if (!tFilename || !rFilename) {
+    return null;
+  }
+  if (tFilename === rFilename) {
+    return null;
+  }
   const built = new URL(ref.toString());
   built.pathname = [...rSegs.slice(0, -1), tFilename].join('/');
   built.search = '';

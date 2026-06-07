@@ -9,8 +9,6 @@ type AddUrlModalProps = {
   isPending: boolean;
   onClose: () => void;
   onSubmit: (url: string) => void;
-  errorMessage: string | null;
-  onClearError: () => void;
 };
 
 export default function AddUrlModal({
@@ -18,8 +16,6 @@ export default function AddUrlModal({
   isPending,
   onClose,
   onSubmit,
-  errorMessage,
-  onClearError,
 }: AddUrlModalProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -27,11 +23,6 @@ export default function AddUrlModal({
   function close() {
     setValue('');
     onClose();
-  }
-
-  function handleChange(v: string) {
-    if (errorMessage) onClearError();
-    setValue(v);
   }
 
   useHotkey('Escape', close, {
@@ -50,12 +41,10 @@ export default function AddUrlModal({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const url = value.trim();
-    if (!url || isPending) return;
+    if (!url || isPending) {
+      return;
+    }
     onSubmit(url);
-    // Leave the modal open if the mutation might fail; close only on success.
-    // We can't await mutate() here without changing the contract, so the
-    // existing close-on-submit is preserved for now and the error surfaces
-    // in UrlBar instead.
     close();
   }
 
@@ -82,7 +71,7 @@ export default function AddUrlModal({
                 close();
               }
             }}
-            className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] flex-col gap-2 rounded-xl px-4 py-3 shadow-2xl ring-1"
+            className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] items-center gap-2 rounded-xl px-4 py-3 shadow-2xl ring-1"
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{
@@ -93,22 +82,12 @@ export default function AddUrlModal({
             }}
             transition={{ type: 'spring', ...spring.panel }}
           >
-            <div className="flex items-center gap-2">
-              <UrlInputRow
-                value={value}
-                onChange={handleChange}
-                isPending={isPending}
-                inputRef={inputRef}
-              />
-            </div>
-            {errorMessage && (
-              <p
-                role="alert"
-                className="text-xs text-red-600 dark:text-red-400"
-              >
-                {errorMessage}
-              </p>
-            )}
+            <UrlInputRow
+              value={value}
+              onChange={setValue}
+              isPending={isPending}
+              inputRef={inputRef}
+            />
           </motion.form>
         </motion.div>
       )}

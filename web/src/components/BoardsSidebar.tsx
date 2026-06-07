@@ -44,9 +44,13 @@ export default function BoardsSidebar() {
 
   // Reconcile active id once boards have loaded.
   useEffect(() => {
-    if (boardsLoading) return;
+    if (boardsLoading) {
+      return;
+    }
     if (boards.length === 0) {
-      if (activeBoardId !== null) setActiveBoardId(null);
+      if (activeBoardId !== null) {
+        setActiveBoardId(null);
+      }
       return;
     }
     if (!activeBoardId || !boards.some((b) => b.id === activeBoardId)) {
@@ -55,24 +59,32 @@ export default function BoardsSidebar() {
   }, [boardsLoading, boards, activeBoardId, setActiveBoardId]);
 
   useEffect(() => {
-    if (draftName !== null) inputRef.current?.focus();
+    if (draftName !== null) {
+      inputRef.current?.focus();
+    }
   }, [draftName]);
 
   function commitDraft() {
     const name = draftName?.trim();
     setDraftName(null);
-    if (name) createBoard.mutate(name);
+    if (name) {
+      createBoard.mutate(name);
+    }
   }
 
   function confirmDelete() {
-    if (!pendingDelete) return;
+    if (!pendingDelete) {
+      return;
+    }
     deleteBoard.mutate(pendingDelete.id, {
       onSuccess: () => setPendingDelete(null),
     });
   }
 
   function commitRename() {
-    if (!renaming) return;
+    if (!renaming) {
+      return;
+    }
     const next = renaming.draft.trim();
     if (next && next !== renaming.original) {
       renameBoard.mutate({ id: renaming.id, name: next });
@@ -109,8 +121,11 @@ export default function BoardsSidebar() {
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitDraft();
-              else if (e.key === 'Escape') setDraftName(null);
+              if (e.key === 'Enter') {
+                commitDraft();
+              } else if (e.key === 'Escape') {
+                setDraftName(null);
+              }
             }}
             onBlur={commitDraft}
             placeholder="New board name…"
@@ -145,8 +160,11 @@ export default function BoardsSidebar() {
                     setRenaming({ ...renaming, draft: e.target.value })
                   }
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename();
-                    else if (e.key === 'Escape') setRenaming(null);
+                    if (e.key === 'Enter') {
+                      commitRename();
+                    } else if (e.key === 'Escape') {
+                      setRenaming(null);
+                    }
                   }}
                   onBlur={commitRename}
                   className="text-fg flex-1 truncate bg-transparent px-3 py-2 text-sm outline-none"
@@ -155,7 +173,9 @@ export default function BoardsSidebar() {
                 <button
                   onClick={() => !isPending && setActiveBoardId(board.id)}
                   onDoubleClick={() => {
-                    if (isPending) return;
+                    if (isPending) {
+                      return;
+                    }
                     setRenaming({
                       id: board.id,
                       draft: board.name,

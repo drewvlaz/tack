@@ -8,8 +8,7 @@ export function useSetPrimaryImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ itemId, imageId }: Args) =>
-      setPrimaryImage(itemId, imageId),
+    mutationFn: ({ itemId, imageId }: Args) => setPrimaryImage(itemId, imageId),
 
     onMutate: async ({ itemId, imageId, boardId }) => {
       const queryKey = ['boards', boardId, 'items'];
@@ -18,9 +17,13 @@ export function useSetPrimaryImage() {
 
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) => {
-          if (item.kind !== 'real' || item.itemId !== itemId) return item;
+          if (item.kind !== 'real' || item.itemId !== itemId) {
+            return item;
+          }
           const idx = item.images.findIndex((img) => img.id === imageId);
-          if (idx <= 0) return item;
+          if (idx <= 0) {
+            return item;
+          }
           const reordered = [
             item.images[idx],
             ...item.images.slice(0, idx),
@@ -34,7 +37,9 @@ export function useSetPrimaryImage() {
     },
 
     onError: (_err, _vars, ctx) => {
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
       queryClient.setQueryData(['boards', ctx.boardId, 'items'], ctx.previous);
     },
   });

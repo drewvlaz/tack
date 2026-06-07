@@ -20,7 +20,9 @@ export function useDeleteItem(boardId: string) {
     },
 
     onError: (_err, _id, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(queryKey, ctx.previous);
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKey, ctx.previous);
+      }
     },
 
     onSettled: () => {

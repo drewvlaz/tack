@@ -10,9 +10,13 @@ export const railLimits = { min: 200, max: 600 } as const;
 function read(key: string, fallback: number): number {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
+    if (!raw) {
+      return fallback;
+    }
     const n = parseInt(raw, 10);
-    if (!Number.isFinite(n)) return fallback;
+    if (!Number.isFinite(n)) {
+      return fallback;
+    }
     return Math.max(railLimits.min, Math.min(railLimits.max, n));
   } catch {
     return fallback;

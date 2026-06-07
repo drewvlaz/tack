@@ -7,6 +7,7 @@ export default tseslint.config([
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.ts'],
     rules: {
+      curly: ['error', 'all'],
       '@typescript-eslint/no-unused-vars': [
         'error',
         {

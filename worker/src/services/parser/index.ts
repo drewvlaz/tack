@@ -25,7 +25,9 @@ function hasPlaceholderSegment(url: string): boolean {
 }
 
 function hostnameOf(raw: string | undefined, base: string): string | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     return new URL(raw, base).hostname;
   } catch {
@@ -50,7 +52,10 @@ export async function fetchAndParseMeta(
       'Accept-Language': 'en-US,en;q=0.9',
     },
   });
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`Fetch failed: ${res.status}`);
+  }
+
   const html = await res.text();
 
   const parsed = await parseHtml(html);
@@ -84,8 +89,12 @@ export async function fetchAndParseMeta(
   // always need Claude for them. Also covers price/description/images fallback.
   try {
     const meta = await extractMetaWithClaude(stripHtml(html), apiKey);
-    if (price === null) price = meta.price;
-    if (description === null) description = meta.description;
+    if (price === null) {
+      price = meta.price;
+    }
+    if (description === null) {
+      description = meta.description;
+    }
     if (imageUrls.length === 0) {
       imageUrls = resolveAndDedupeUrls(url, meta.imageUrls);
     }
@@ -117,10 +126,12 @@ export async function parseProductUrl(
   const stored = (
     await Promise.all(meta.imageUrls.map((src) => storeImage(images, src)))
   ).filter((s): s is StoredImage => s !== null);
-
-  if (stored.length < meta.imageUrls.length)
+  if (stored.length < meta.imageUrls.length) {
     warnings.push('image_fetch_failed');
-  if (stored.length === 0) warnings.push('no_images');
+  }
+  if (stored.length === 0) {
+    warnings.push('no_images');
+  }
 
   return {
     title: meta.title,

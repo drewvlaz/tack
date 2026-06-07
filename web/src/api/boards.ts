@@ -1,5 +1,5 @@
-import type { inferRouterInputs } from '@trpc/server';
 import type { AppRouter } from '@fashion-mood/worker/router';
+import type { inferRouterInputs } from '@trpc/server';
 import { trpc, type Board, type BoardItem } from '../lib/trpc';
 
 export type { Board, BoardItem };

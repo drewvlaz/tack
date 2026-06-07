@@ -30,8 +30,9 @@ export function useRestoreItem(boardId: string) {
     },
 
     onError: (_err, _id, ctx) => {
-      if (ctx?.previousTrash)
+      if (ctx?.previousTrash) {
         queryClient.setQueryData(trashKey, ctx.previousTrash);
+      }
       queryClient.invalidateQueries({ queryKey: itemsKey });
     },
   });

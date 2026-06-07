@@ -2,7 +2,9 @@ import { create } from 'zustand';
 
 function resolveInitialTheme(): boolean {
   const stored = localStorage.getItem('theme');
-  if (stored) return stored === 'dark';
+  if (stored) {
+    return stored === 'dark';
+  }
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 

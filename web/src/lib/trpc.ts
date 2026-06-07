@@ -1,6 +1,6 @@
+import type { AppRouter } from '@fashion-mood/worker/router';
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { inferRouterOutputs } from '@trpc/server';
-import type { AppRouter } from '@fashion-mood/worker/router';
 
 export const trpc = createTRPCClient<AppRouter>({
   links: [

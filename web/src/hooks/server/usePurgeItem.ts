@@ -19,7 +19,9 @@ export function usePurgeItem(boardId: string) {
     },
 
     onError: (_err, _id, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(trashKey, ctx.previous);
+      if (ctx?.previous) {
+        queryClient.setQueryData(trashKey, ctx.previous);
+      }
     },
   });
 }

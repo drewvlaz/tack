@@ -1,5 +1,5 @@
-import { AnimatePresence, motion } from 'framer-motion';
 import { format, formatDistanceToNow } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
 import type { BoardItem } from '../../lib/trpc';
 
@@ -23,9 +23,7 @@ export default function Details({ item }: DetailsProps) {
   const sourceHost = hostname(item.sourceUrl);
   const wasRefreshed = item.updatedAt - item.addedAt > REFRESH_THRESHOLD_SEC;
   const stampLabel = wasRefreshed ? 'Refreshed' : 'Added';
-  const stamp = new Date(
-    (wasRefreshed ? item.updatedAt : item.addedAt) * 1000,
-  );
+  const stamp = new Date((wasRefreshed ? item.updatedAt : item.addedAt) * 1000);
   const hasDetails = item.details.length > 0;
   const [expanded, setExpanded] = useState(false);
 

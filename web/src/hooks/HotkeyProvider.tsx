@@ -37,9 +37,15 @@ export function HotkeyProvider({ children }: { children: ReactNode }) {
       let bestPriority = Number.POSITIVE_INFINITY;
 
       for (const entry of registryRef.current.values()) {
-        if (!entry.enabled) continue;
-        if (inInput && !hasMod && !entry.allowInInputs) continue;
-        if (!entry.combos.some((c) => comboMatches(c, e))) continue;
+        if (!entry.enabled) {
+          continue;
+        }
+        if (inInput && !hasMod && !entry.allowInInputs) {
+          continue;
+        }
+        if (!entry.combos.some((c) => comboMatches(c, e))) {
+          continue;
+        }
 
         const priority = SCOPE_ORDER[entry.scope];
         if (priority < bestPriority) {
@@ -48,8 +54,12 @@ export function HotkeyProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      if (!best) return;
-      if (best.preventDefault) e.preventDefault();
+      if (!best) {
+        return;
+      }
+      if (best.preventDefault) {
+        e.preventDefault();
+      }
       best.handler(e);
     }
 
@@ -64,12 +74,22 @@ export function HotkeyProvider({ children }: { children: ReactNode }) {
 
 function comboMatches(combo: ParsedCombo, e: KeyboardEvent): boolean {
   const eventMod = IS_MAC ? e.metaKey : e.ctrlKey;
-  if (combo.mod !== eventMod) return false;
-  if (combo.shift !== e.shiftKey) return false;
-  if (combo.alt !== e.altKey) return false;
+  if (combo.mod !== eventMod) {
+    return false;
+  }
+  if (combo.shift !== e.shiftKey) {
+    return false;
+  }
+  if (combo.alt !== e.altKey) {
+    return false;
+  }
 
   const eventKey = e.key.toLowerCase();
-  if (eventKey === combo.key) return true;
-  if (combo.code && e.code === combo.code) return true;
+  if (eventKey === combo.key) {
+    return true;
+  }
+  if (combo.code && e.code === combo.code) {
+    return true;
+  }
   return false;
 }

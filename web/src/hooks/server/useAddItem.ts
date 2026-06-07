@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { addItem } from '../../api/boards';
 import { parseUrl } from '../../api/parse';
+import { describeAddItemError } from '../../lib/errors';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
+import { useToastsStore } from '../../store/toasts';
 
 type AddItemArgs = {
   url: string;
@@ -19,6 +21,7 @@ export function useAddItem() {
       if (parsed.warnings.length > 0) {
         console.warn('parseUrl warnings:', parsed.warnings, 'for', url);
       }
+
       return addItem(boardId, {
         sourceUrl: url,
         title: parsed.title,
@@ -56,7 +59,10 @@ export function useAddItem() {
     },
 
     onSuccess: (newItem, _vars, ctx) => {
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
+
       const queryKey = ['boards', ctx.boardId, 'items'];
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) =>
@@ -67,9 +73,18 @@ export function useAddItem() {
       );
     },
 
-    onError: (_err, _vars, ctx) => {
-      if (!ctx) return;
-      queryClient.setQueryData(['boards', ctx.boardId, 'items'], ctx.previous);
+    onError: (err, _vars, ctx) => {
+      if (ctx) {
+        queryClient.setQueryData(
+          ['boards', ctx.boardId, 'items'],
+          ctx.previous,
+        );
+      }
+
+      useToastsStore.getState().show({
+        kind: 'error',
+        message: describeAddItemError(err),
+      });
     },
   });
 }

@@ -20,9 +20,11 @@ export async function setPrimaryImage(
         isNull(schema.itemImages.deletedAt),
       ),
     });
-    if (!owned)
+    if (!owned) {
       throw new Error(`Image ${imageId} does not belong to ${itemId}`);
+    }
   }
+
   await db
     .update(schema.items)
     .set({ primaryImageId: imageId, updatedAt: nowSec() })
@@ -47,7 +49,9 @@ function detailsEqual(
 ): boolean {
   const left = a ?? [];
   const right = b ?? [];
-  if (left.length !== right.length) return false;
+  if (left.length !== right.length) {
+    return false;
+  }
   return left.every(
     (d, i) => d.label === right[i].label && d.value === right[i].value,
   );
@@ -62,7 +66,9 @@ export async function reparseItem(
   const item = await db.query.items.findFirst({
     where: and(eq(schema.items.id, itemId), isNull(schema.items.deletedAt)),
   });
-  if (!item) throw new Error(`Item not found: ${itemId}`);
+  if (!item) {
+    throw new Error(`Item not found: ${itemId}`);
+  }
 
   const { meta } = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
 
@@ -88,7 +94,9 @@ export async function reparseItem(
       details: nextDetails ?? item!.details,
       updatedAt: now,
     };
-    if (primaryImageId !== undefined) set.primaryImageId = primaryImageId;
+    if (primaryImageId !== undefined) {
+      set.primaryImageId = primaryImageId;
+    }
     return db.update(schema.items).set(set).where(eq(schema.items.id, itemId));
   }
 

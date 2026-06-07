@@ -7,7 +7,9 @@ export type LoggerEnv = {
 
 function resolveLevel(env: LoggerEnv): LogLevel {
   const explicit = env.LOG_LEVEL ? Number(env.LOG_LEVEL) : NaN;
-  if (Number.isFinite(explicit)) return explicit as LogLevel;
+  if (Number.isFinite(explicit)) {
+    return explicit as LogLevel;
+  }
   return (env.ENVIRONMENT === 'development' ? 4 : 3) as LogLevel;
 }
 
