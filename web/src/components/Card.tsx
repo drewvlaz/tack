@@ -1,20 +1,22 @@
-import { motion } from 'framer-motion'
-import { card } from '../config'
-import { useCardGesture } from '../hooks/useCardGesture'
+import { motion } from 'framer-motion';
+import { card } from '../config';
+import { useCardGesture } from '../hooks/useCardGesture';
 
 type CardProps = {
-  id: string
-  title: string
-  price: number | null
-  imageUrl: string
-  initialX?: number
-  initialY?: number
-  zIndex?: number
-  getZoom?: () => number
-  onTap?: () => void
-  onBringToFront?: () => void
-  onDragEnd?: (x: number, y: number) => void
-}
+  id: string;
+  title: string;
+  price: number | null;
+  imageUrl: string;
+  initialX?: number;
+  initialY?: number;
+  zIndex?: number;
+  isSkeleton?: boolean;
+  getZoom?: () => number;
+  getMaxX?: () => number;
+  onTap?: () => void;
+  onBringToFront?: () => void;
+  onDragEnd?: (x: number, y: number) => void;
+};
 
 export default function Card({
   title,
@@ -23,12 +25,32 @@ export default function Card({
   initialX,
   initialY,
   zIndex = 0,
+  isSkeleton = false,
   getZoom,
+  getMaxX,
   onTap,
   onBringToFront,
   onDragEnd,
 }: CardProps) {
-  const { ref, springX, springY } = useCardGesture({ initialX, initialY, getZoom, onTap, onDragEnd })
+  const { ref, springX, springY } = useCardGesture({ initialX, initialY, getZoom, getMaxX, onTap, onDragEnd });
+
+  if (isSkeleton) {
+    return (
+      <motion.div
+        ref={ref}
+        style={{ x: springX, y: springY, width: card.width, zIndex, touchAction: 'none' }}
+        className="absolute rounded-2xl bg-white shadow-md select-none overflow-hidden"
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <div className="bg-neutral-100" style={{ height: card.imageHeight }} />
+        <div className="p-3 space-y-2">
+          <div className="h-3 rounded bg-neutral-100 w-3/4" />
+          <div className="h-3 rounded bg-neutral-100 w-1/3" />
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -44,10 +66,8 @@ export default function Card({
       </div>
       <div className="p-3">
         <p className="truncate text-sm font-medium text-neutral-800">{title}</p>
-        {price !== null && (
-          <p className="mt-0.5 text-sm text-neutral-500">${price.toFixed(2)}</p>
-        )}
+        {price !== null && <p className="mt-0.5 text-sm text-neutral-500">${price.toFixed(2)}</p>}
       </div>
     </motion.div>
-  )
+  );
 }

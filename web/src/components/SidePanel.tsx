@@ -1,13 +1,21 @@
-import { motion } from 'framer-motion'
-import { panel, spring } from '../config'
-import { type CanvasItem } from '../hooks/useBoardItems'
+import { motion } from 'framer-motion';
+import { panel, spring } from '../config';
+import { type BoardItem } from '../api/types';
+import { useDeleteItem } from '../hooks/useDeleteItem';
 
 type SidePanelProps = {
-  item: CanvasItem
-  onClose: () => void
-}
+  item: BoardItem;
+  boardId: string;
+  onClose: () => void;
+};
 
-export default function SidePanel({ item, onClose }: SidePanelProps) {
+export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
+  const deleteItem = useDeleteItem(boardId);
+
+  function handleDelete() {
+    deleteItem.mutate(item.id, { onSuccess: onClose });
+  }
+
   return (
     <motion.aside
       className="absolute right-0 top-0 z-20 pointer-events-auto h-full overflow-y-auto bg-white shadow-2xl"
@@ -41,7 +49,25 @@ export default function SidePanel({ item, onClose }: SidePanelProps) {
             {item.currency} {item.price.toFixed(2)}
           </p>
         )}
+        {item.imageUrl && (
+          <a
+            href={item.imageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 block text-sm text-blue-500 hover:underline truncate"
+          >
+            View source
+          </a>
+        )}
+
+        <button
+          onClick={handleDelete}
+          disabled={deleteItem.isPending}
+          className="mt-8 w-full rounded-xl border border-red-200 py-2 text-sm text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
+        >
+          {deleteItem.isPending ? 'Removing…' : 'Remove from board'}
+        </button>
       </div>
     </motion.aside>
-  )
+  );
 }

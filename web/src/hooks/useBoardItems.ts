@@ -1,29 +1,15 @@
-import { useEffect, useState } from 'react'
-import { apiFetch } from '../api/client'
+import { useQuery } from '@tanstack/react-query';
+import { getItems } from '../api/boards';
+import type { BoardItem } from '../api/types';
 
-export type CanvasItem = {
-  id: string
-  itemId: string
-  title: string | null
-  price: number | null
-  currency: string
-  imageUrl: string | null
-  x: number
-  y: number
-  width: number
-  height: number
-  zIndex: number
-}
+export type { BoardItem };
 
 export function useBoardItems(boardId: string) {
-  const [items, setItems] = useState<CanvasItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['boards', boardId, 'items'],
+    queryFn: () => getItems(boardId),
+    staleTime: Infinity,
+  });
 
-  useEffect(() => {
-    apiFetch<CanvasItem[]>(`/api/boards/${boardId}/items`)
-      .then(setItems)
-      .finally(() => setLoading(false))
-  }, [boardId])
-
-  return { items, loading }
+  return { items: data ?? [], isLoading, error };
 }

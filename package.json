@@ -9,16 +9,15 @@
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",
     "dev:worker": "npm run dev -w worker",
+    "lint": "npm run lint --workspaces --if-present",
     "prepare": "husky"
   },
-  "lint": {
-    "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write"
-  }
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
     "eslint": "^10.4.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
