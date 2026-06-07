@@ -8,7 +8,12 @@
   "scripts": {
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",
-    "dev:worker": "npm run dev -w worker"
+    "dev:worker": "npm run dev -w worker",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx,js,jsx,css,json,md}": "prettier --write",
+    "web/**/*.{ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
