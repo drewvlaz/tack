@@ -233,6 +233,22 @@ describe('resolveAndDedupeUrls', () => {
     ]);
   });
 
+  it('normalizes protocol-relative URLs (resolves against base, then dedupes)', () => {
+    const out = resolveAndDedupeUrls(base, [
+      '//cdn.shopify.com/files/X_300x300.jpg',
+      '//cdn.shopify.com/files/X_{width}x.jpg',
+    ]);
+    expect(out).toEqual(['https://cdn.shopify.com/files/X_2048x.jpg']);
+  });
+
+  it('upgrades http origins to https for cross-scheme dedupe', () => {
+    const out = resolveAndDedupeUrls(base, [
+      'http://cdn.shopify.com/files/X_1024x.jpg',
+      'https://cdn.shopify.com/files/X_300x300.jpg',
+    ]);
+    expect(out).toEqual(['https://cdn.shopify.com/files/X_2048x.jpg']);
+  });
+
   it('keeps distinct shots of the same product (different SKU suffix)', () => {
     const out = resolveAndDedupeUrls(base, [
       'https://cdn.test/images/w_1920/SKU_1/shot.jpg',

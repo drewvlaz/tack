@@ -157,10 +157,10 @@ export function extractPrice(html: string): number | null {
 const TRANSFORM_SEGMENT = /^(?:[a-z]{1,4}_[\w.-]+)(?:,[a-z]{1,4}_[\w.-]+)*$/;
 
 // Shopify-style image variants encode size as a filename suffix before the
-// extension: `_300x300.jpg`, `_1024x.jpg`, `_800x@2x.jpg`. Capture group 1 is
+// extension: `_300x300.jpg`, `_1024x.jpg`, `_800x@2x.jpg`. The `x` is
+// mandatory; `_1.jpg` (a plain SKU index) must not match. Capture group 1 is
 // the file extension we preserve.
-const SHOPIFY_SIZE_SUFFIX =
-  /_\d+(?:x\d*)?(?:@\d+x)?(\.(?:jpg|jpeg|png|webp))$/i;
+const SHOPIFY_SIZE_SUFFIX = /_\d+x\d*(?:@\d+x)?(\.(?:jpg|jpeg|png|webp))$/i;
 
 // Single-brace placeholders used by templating layers (Shopify Liquid renders
 // `_{width}x.jpg` and substitutes client-side from a srcset of widths).
@@ -173,18 +173,17 @@ const SUBSTITUTED_DIMENSION = '2048';
 //  1. Filename size suffix → `_2048x` (e.g. `_300x300.jpg` → `_2048x.jpg`)
 //  2. `{width}` / `{height}` / `{size}` placeholders → `2048`
 // On URLs with neither pattern this is a no-op, so it's safe to apply blindly.
+// Works on raw strings (protocol-relative and relative URLs both pass through).
 export function normalizeImageUrl(rawUrl: string): string {
   const substituted = rawUrl.replace(
     DIMENSION_PLACEHOLDER,
     SUBSTITUTED_DIMENSION,
   );
-  try {
-    const u = new URL(substituted);
-    u.pathname = u.pathname.replace(SHOPIFY_SIZE_SUFFIX, `${CANONICAL_SIZE}$1`);
-    return u.toString();
-  } catch {
-    return substituted;
-  }
+  const queryIdx = substituted.search(/[?#]/);
+  const pathPart =
+    queryIdx === -1 ? substituted : substituted.slice(0, queryIdx);
+  const rest = queryIdx === -1 ? '' : substituted.slice(queryIdx);
+  return pathPart.replace(SHOPIFY_SIZE_SUFFIX, `${CANONICAL_SIZE}$1`) + rest;
 }
 
 function dedupeKey(parsed: URL): string {
@@ -205,6 +204,12 @@ export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
     } catch {
       continue;
     }
+    // Reject malformed URLs whose hostname has no dot (e.g. `https:files/...`
+    // mis-typed by a merchant — resolves to hostname=`files`).
+    if (!parsed.hostname.includes('.')) continue;
+    // Upgrade http→https opportunistically; the original http origin almost
+    // always also serves https, and forcing https collapses scheme-only dupes.
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:';
     const key = dedupeKey(parsed);
     if (seen.has(key)) continue;
     seen.add(key);
