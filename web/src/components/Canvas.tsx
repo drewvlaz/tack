@@ -4,12 +4,17 @@ import Card from './Card'
 import SidePanel from './SidePanel'
 import ZoomBar from './ZoomBar'
 import { canvas, zoom as zoomConfig } from '../config'
+import { apiPatch } from '../api/client'
 import { useCanvasGesture } from '../hooks/useCanvasGesture'
-import { SEED_ITEMS } from '../data/seedItems'
+import { useBoardItems } from '../hooks/useBoardItems'
+
+const BOARD_ID = 'board-1'
 
 export default function Canvas() {
+  const { items, loading } = useBoardItems(BOARD_ID)
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selectedItem = SEED_ITEMS.find((i) => i.id === selectedId) ?? null
+  const selectedItem = items.find((i) => i.id === selectedId) ?? null
 
   const [zIndices, setZIndices] = useState<Record<string, number>>({})
   const nextZ = useRef(1)
@@ -51,14 +56,20 @@ export default function Canvas() {
       }}
     >
       <motion.div style={{ x: panX, y: panY, scale: zoomMV, transformOrigin: '0 0' }}>
-        {SEED_ITEMS.map((item) => (
+        {!loading && items.map((item) => (
           <Card
             key={item.id}
-            {...item}
-            zIndex={zIndices[item.id] ?? 0}
+            id={item.id}
+            title={item.title ?? ''}
+            price={item.price}
+            imageUrl={item.imageUrl ?? ''}
+            initialX={item.x}
+            initialY={item.y}
+            zIndex={zIndices[item.id] ?? item.zIndex}
             getZoom={() => zoomMV.get()}
             onTap={() => setSelectedId(item.id)}
             onBringToFront={() => bringToFront(item.id)}
+            onDragEnd={(x, y) => apiPatch(`/api/board-items/${item.id}`, { x, y }).catch(console.error)}
           />
         ))}
       </motion.div>
