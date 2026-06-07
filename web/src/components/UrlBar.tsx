@@ -19,7 +19,7 @@ export default function UrlBar({ onAdd, isPending }: UrlBarProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white px-3 py-2 shadow-lg ring-1 ring-black/8"
+      className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full bg-surface-raised px-3 py-2 shadow-lg ring-1 ring-border"
     >
       <input
         type="url"
@@ -27,15 +27,15 @@ export default function UrlBar({ onAdd, isPending }: UrlBarProps) {
         onChange={(e) => setValue(e.target.value)}
         placeholder="Paste product URL…"
         disabled={isPending}
-        className="w-72 bg-transparent text-sm text-neutral-800 placeholder:text-neutral-400 outline-none disabled:opacity-50"
+        className="w-[32rem] bg-transparent text-sm text-fg placeholder:text-fg-subtle outline-none disabled:opacity-50"
       />
       <button
         type="submit"
         disabled={!value.trim() || isPending}
-        className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-900 text-white transition-opacity disabled:opacity-30"
+        className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-surface transition-opacity disabled:opacity-30"
       >
         {isPending ? (
-          <span className="block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          <span className="block h-3 w-3 animate-spin rounded-full border-2 border-surface border-t-transparent" />
         ) : (
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

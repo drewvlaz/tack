@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getItems } from '../api/boards';
-import type { BoardItem } from '../api/types';
+import type { BoardItem } from '../lib/trpc';
 
 export type { BoardItem };
 

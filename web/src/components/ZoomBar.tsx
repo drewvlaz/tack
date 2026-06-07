@@ -11,14 +11,14 @@ export default function ZoomBar({ zoomMV, onZoomIn, onZoomOut, onReset }: ZoomBa
   const label = useTransform(zoomMV, (z) => `${Math.round(z * 100)}%`)
 
   return (
-    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1 rounded-full bg-white px-2 py-1.5 shadow-lg ring-1 ring-neutral-200">
-      <ZoomButton onClick={onZoomOut} disabled={false} aria-label="Zoom out">
+    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1 rounded-full bg-surface-raised px-2 py-1.5 shadow-lg ring-1 ring-border">
+      <ZoomButton onClick={onZoomOut} aria-label="Zoom out">
         −
       </ZoomButton>
 
       <button
         onClick={onReset}
-        className="min-w-[52px] text-center text-xs font-medium tabular-nums text-neutral-600 hover:text-neutral-900 transition-colors"
+        className="min-w-[52px] text-center text-xs font-medium tabular-nums text-fg-muted hover:text-fg transition-colors"
       >
         <motion.span>{label}</motion.span>
       </button>
@@ -38,7 +38,7 @@ function ZoomButton({
   return (
     <button
       onClick={onClick}
-      className="flex h-6 w-6 items-center justify-center rounded-full text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 transition-colors"
+      className="flex h-6 w-6 items-center justify-center rounded-full text-sm text-fg-muted hover:bg-surface-muted hover:text-fg transition-colors"
       {...props}
     >
       {children}

@@ -12,11 +12,14 @@
     "db:migrate": "wrangler d1 migrations apply fashion-mood",
     "db:seed:local": "wrangler d1 execute fashion-mood --local --file=seed.sql",
     "db:studio": "drizzle-kit studio",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.8.0",
+    "@trpc/server": "^11.17.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.23"
+    "hono": "^4.12.23",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260607.1",

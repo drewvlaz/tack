@@ -9,7 +9,7 @@
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",
     "dev:worker": "npm run dev -w worker",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "npm run lint --prefix web && npm run lint --prefix worker",
     "prepare": "husky"
   },
   "lint-staged": {

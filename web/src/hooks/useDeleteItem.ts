@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { deleteItem } from '../api/boards'
-import type { BoardItem } from '../api/types'
+import type { BoardItem } from '../lib/trpc'
 
 export function useDeleteItem(boardId: string) {
   const queryClient = useQueryClient()

@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Light tokens ─────────────────────────────────────── */
+:root {
+  --surface:        #f7f7f5;
+  --surface-raised: #ffffff;
+  --surface-muted:  #f0f0ee;
+  --border:         #e5e5e3;
+  --fg:             #171717;
+  --fg-muted:       #737373;
+  --fg-subtle:      #a3a3a3;
+  --canvas-dot:     #c9c9c4;
+}
+
+/* ── Dark tokens ──────────────────────────────────────── */
+.dark {
+  --surface:        #131417;
+  --surface-raised: #1e2026;
+  --surface-muted:  #272a32;
+  --border:         #32353f;
+  --fg:             #edeef2;
+  --fg-muted:       #9397a8;
+  --fg-subtle:      #606270;
+  --canvas-dot:     #1c1e24;
+}
+
+/* ── Tailwind theme registration ──────────────────────── */
+@theme inline {
+  --color-surface:        var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-muted:  var(--surface-muted);
+  --color-border:         var(--border);
+  --color-fg:             var(--fg);
+  --color-fg-muted:       var(--fg-muted);
+  --color-fg-subtle:      var(--fg-subtle);
+}
+
 * {
   box-sizing: border-box;
 }

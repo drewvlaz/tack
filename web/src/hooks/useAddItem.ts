@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { parseUrl } from '../api/parse'
 import { addItem } from '../api/boards'
-import type { BoardItem } from '../api/types'
+import { parseUrl } from '../api/parse'
+import type { BoardItem } from '../lib/trpc'
 
 const SKELETON_PREFIX = '__skeleton__'
 
@@ -29,7 +29,7 @@ export function useAddItem() {
       })
     },
 
-    onMutate: async ({ boardId, url, x, y }: AddItemArgs) => {
+    onMutate: async ({ boardId, x, y }: AddItemArgs) => {
       const queryKey = ['boards', boardId, 'items']
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<BoardItem[]>(queryKey)

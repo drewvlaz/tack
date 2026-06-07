@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { panel, spring } from '../config';
-import { type BoardItem } from '../api/types';
+import type { BoardItem } from '../lib/trpc';
 import { useDeleteItem } from '../hooks/useDeleteItem';
 
 type SidePanelProps = {
@@ -18,7 +18,7 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
 
   return (
     <motion.aside
-      className="absolute right-0 top-0 z-20 pointer-events-auto h-full overflow-y-auto bg-white shadow-2xl"
+      className="absolute right-0 top-0 z-20 pointer-events-auto h-full overflow-y-auto bg-surface-raised shadow-2xl"
       style={{ width: panel.width }}
       initial={{ x: panel.width }}
       animate={{ x: 0 }}
@@ -36,16 +36,16 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
         )}
         <button
           onClick={onClose}
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-neutral-600 backdrop-blur-sm hover:bg-white"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-surface-raised/80 text-fg-muted backdrop-blur-sm hover:bg-surface-raised"
         >
           ✕
         </button>
       </div>
 
       <div className="p-6">
-        {item.title && <h2 className="text-lg font-semibold text-neutral-900">{item.title}</h2>}
+        {item.title && <h2 className="text-lg font-semibold text-fg">{item.title}</h2>}
         {item.price !== null && (
-          <p className="mt-1 text-base text-neutral-500">
+          <p className="mt-1 text-base text-fg-muted">
             {item.currency} {item.price.toFixed(2)}
           </p>
         )}
@@ -63,7 +63,7 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
         <button
           onClick={handleDelete}
           disabled={deleteItem.isPending}
-          className="mt-8 w-full rounded-xl border border-red-200 py-2 text-sm text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
+          className="mt-8 w-full rounded-xl border border-red-200 py-2 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950 disabled:opacity-50 transition-colors"
         >
           {deleteItem.isPending ? 'Removing…' : 'Remove from board'}
         </button>

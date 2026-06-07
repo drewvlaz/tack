@@ -24,6 +24,6 @@ export const card = {
 export const canvas = {
   dotSize: 1,
   dotSpacing: 24,
-  dotColor: '#c9c9c4',
-  background: '#f7f7f5',
+  dotColor: 'var(--canvas-dot)',
+  background: 'var(--surface)',
 } as const

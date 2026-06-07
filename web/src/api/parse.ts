@@ -1,6 +1,7 @@
-import { api } from './client'
-import type { ParseResult } from './types'
+import { trpc, type ParseResult } from '../lib/trpc'
+
+export type { ParseResult }
 
 export function parseUrl(url: string): Promise<ParseResult> {
-  return api.post('api/parse-url', { json: { url } }).json<ParseResult>()
+  return trpc.parseUrl.mutate({ url })
 }

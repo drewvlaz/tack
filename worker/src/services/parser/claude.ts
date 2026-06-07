@@ -1,6 +1,9 @@
-import type { ParsedMeta } from './parser'
+import type { ParsedMeta } from './meta';
 
-export async function extractMetaWithClaude(html: string, apiKey: string): Promise<ParsedMeta> {
+export async function extractMetaWithClaude(
+  html: string,
+  apiKey: string,
+): Promise<ParsedMeta> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -30,26 +33,32 @@ ${html}`,
         },
       ],
     }),
-  })
+  });
 
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`)
+  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
 
-  const data = await res.json<{ content: Array<{ text: string }> }>()
-  const text = data.content[0]?.text ?? ''
+  const data = await res.json<{ content: Array<{ text: string }> }>();
+  const text = data.content[0]?.text ?? '';
 
-  let parsed: Record<string, unknown>
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(text)
+    parsed = JSON.parse(text);
   } catch {
-    throw new Error('Claude returned invalid JSON')
+    throw new Error('Claude returned invalid JSON');
   }
 
-  const price = typeof parsed.price === 'number' && !isNaN(parsed.price) ? parsed.price : null
+  const price =
+    typeof parsed.price === 'number' && !isNaN(parsed.price)
+      ? parsed.price
+      : null;
 
   return {
     title: typeof parsed.title === 'string' ? parsed.title : null,
     brand: typeof parsed.brand === 'string' ? parsed.brand : null,
     price,
-    primaryImageUrl: typeof parsed.primary_image_url === 'string' ? parsed.primary_image_url : null,
-  }
+    primaryImageUrl:
+      typeof parsed.primary_image_url === 'string'
+        ? parsed.primary_image_url
+        : null,
+  };
 }

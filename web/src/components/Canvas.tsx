@@ -16,7 +16,7 @@ export const CANVAS_BOARD_ID = BOARD_ID;
 
 export default function Canvas() {
   const { items, isLoading } = useBoardItems(BOARD_ID);
-  const { selectedId, zIndices, setSelectedId, bringToFront } = useCanvasStore();
+  const { zIndices, setSelectedId, bringToFront } = useCanvasStore();
 
   const { canvasRef, zoomMV, panX, panY, zoomTo } = useCanvasGesture();
   const syncPosition = useSyncPosition();

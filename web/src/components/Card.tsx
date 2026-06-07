@@ -39,14 +39,14 @@ export default function Card({
       <motion.div
         ref={ref}
         style={{ x: springX, y: springY, width: card.width, zIndex, touchAction: 'none' }}
-        className="absolute rounded-2xl bg-white shadow-md select-none overflow-hidden"
+        className="absolute rounded-2xl bg-surface-raised shadow-md select-none overflow-hidden"
         animate={{ opacity: [0.5, 1, 0.5] }}
         transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
       >
-        <div className="bg-neutral-100" style={{ height: card.imageHeight }} />
+        <div className="bg-surface-muted" style={{ height: card.imageHeight }} />
         <div className="p-3 space-y-2">
-          <div className="h-3 rounded bg-neutral-100 w-3/4" />
-          <div className="h-3 rounded bg-neutral-100 w-1/3" />
+          <div className="h-3 rounded bg-surface-muted w-3/4" />
+          <div className="h-3 rounded bg-surface-muted w-1/3" />
         </div>
       </motion.div>
     );
@@ -59,14 +59,14 @@ export default function Card({
       style={{ x: springX, y: springY, width: card.width, zIndex, touchAction: 'none' }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      className="absolute cursor-grab rounded-2xl bg-white shadow-md active:cursor-grabbing select-none"
+      className="absolute cursor-grab rounded-2xl bg-surface-raised shadow-md active:cursor-grabbing select-none"
     >
       <div className="overflow-hidden rounded-t-2xl">
         <img src={imageUrl} alt={title} style={{ height: card.imageHeight }} className="w-full object-cover" draggable={false} />
       </div>
       <div className="p-3">
-        <p className="truncate text-sm font-medium text-neutral-800">{title}</p>
-        {price !== null && <p className="mt-0.5 text-sm text-neutral-500">${price.toFixed(2)}</p>}
+        <p className="truncate text-sm font-medium text-fg">{title}</p>
+        {price !== null && <p className="mt-0.5 text-sm text-fg-muted">${price.toFixed(2)}</p>}
       </div>
     </motion.div>
   );

@@ -1,12 +1,16 @@
-import { api } from './client'
-import type { BoardItem } from './types'
+import { trpc, type BoardItem } from '../lib/trpc'
+
+export type { BoardItem }
 
 export function getItems(boardId: string): Promise<BoardItem[]> {
-  return api.get(`api/boards/${boardId}/items`).json<BoardItem[]>()
+  return trpc.boards.getItems.query({ boardId })
 }
 
-export function patchBoardItem(id: string, patch: Partial<Pick<BoardItem, 'x' | 'y' | 'zIndex' | 'width' | 'height'>>): Promise<void> {
-  return api.patch(`api/board-items/${id}`, { json: patch }).json<void>()
+export function patchBoardItem(
+  id: string,
+  patch: Partial<Pick<BoardItem, 'x' | 'y' | 'zIndex' | 'width' | 'height'>>,
+): Promise<{ ok: true }> {
+  return trpc.boards.patchItem.mutate({ id, patch })
 }
 
 export type AddItemBody = {
@@ -19,10 +23,10 @@ export type AddItemBody = {
   y: number
 }
 
-export function addItem(boardId: string, body: AddItemBody): Promise<BoardItem> {
-  return api.post(`api/boards/${boardId}/items`, { json: body }).json<BoardItem>()
+export function addItem(boardId: string, item: AddItemBody): Promise<BoardItem> {
+  return trpc.boards.addItem.mutate({ boardId, item })
 }
 
-export function deleteItem(id: string): Promise<void> {
-  return api.delete(`api/board-items/${id}`).json<void>()
+export function deleteItem(id: string): Promise<{ ok: true }> {
+  return trpc.boards.deleteItem.mutate({ id })
 }
