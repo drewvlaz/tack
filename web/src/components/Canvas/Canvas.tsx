@@ -28,7 +28,8 @@ export default function Canvas() {
     useCanvasStore();
   const rightWidth = useRailsStore((s) => s.rightWidth);
 
-  const { canvasRef, zoomMV, panX, panY, zoomTo } = useCanvasGesture();
+  const { canvasRef, zoomMV, panX, panY, zoomTo } =
+    useCanvasGesture(activeBoardId);
   const syncPosition = useSyncPosition();
   const addItem = useAddItem();
 

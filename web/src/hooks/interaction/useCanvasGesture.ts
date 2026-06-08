@@ -3,17 +3,29 @@ import { useMotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { zoom as zoomConfig } from '../../config';
 
-const STORAGE_KEY = 'canvasView';
+// One localStorage entry per board so each board remembers its own viewport.
+// Switching boards reads the saved view; pan/zoom writes back to that board's
+// slot only. Legacy single-global entry (`canvasView`) is ignored — it'd be
+// ambiguous which board owns it.
+const STORAGE_PREFIX = 'canvasView:';
 const SAVE_DEBOUNCE_MS = 150;
 
 type View = { z: number; x: number; y: number };
 
-function readInitialView(): View {
-  const fallback: View = { z: zoomConfig.initial, x: 0, y: 0 };
+const DEFAULT_VIEW: View = { z: zoomConfig.initial, x: 0, y: 0 };
+
+function storageKey(boardId: string): string {
+  return `${STORAGE_PREFIX}${boardId}`;
+}
+
+function readView(boardId: string | null): View {
+  if (!boardId) {
+    return DEFAULT_VIEW;
+  }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(boardId));
     if (!raw) {
-      return fallback;
+      return DEFAULT_VIEW;
     }
     const parsed = JSON.parse(raw);
     if (
@@ -28,26 +40,53 @@ function readInitialView(): View {
         y: parsed.y,
       };
     }
-    return fallback;
+    return DEFAULT_VIEW;
   } catch {
-    return fallback;
+    return DEFAULT_VIEW;
   }
 }
 
-export function useCanvasGesture() {
+export function useCanvasGesture(boardId: string | null) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [initial] = useState(readInitialView);
+  // Motion values are created ONCE; subsequent board switches mutate them via
+  // an effect. Recreating MVs on each switch would break every consumer that
+  // captured a reference (drag handlers, side panel auto-pan, dot grid).
+  // The lazy initializer reads localStorage exactly once on mount.
+  const [initial] = useState(() => readView(boardId));
   const zoomMV = useMotionValue<number>(initial.z);
   const panX = useMotionValue(initial.x);
   const panY = useMotionValue(initial.y);
 
-  // Persist zoom + pan to localStorage, debounced — avoids hammering during gestures.
+  // Tracks the board whose viewport we're currently driving. The snap effect
+  // uses this to skip the no-op case where boardId hasn't actually changed
+  // (e.g. parent re-render).
+  const boardRef = useRef(boardId);
+
+  // Snap to the saved viewport whenever the active board changes. Skip the
+  // first run for the same board — the motion values are already correct.
   useEffect(() => {
+    if (boardRef.current === boardId) {
+      return;
+    }
+    boardRef.current = boardId;
+    const view = readView(boardId);
+    zoomMV.set(view.z);
+    panX.set(view.x);
+    panY.set(view.y);
+  }, [boardId, zoomMV, panX, panY]);
+
+  // Persist viewport per-board, debounced. Unsubscribe + flush whenever the
+  // active board changes so in-flight changes can't land in the next board's
+  // slot.
+  useEffect(() => {
+    if (!boardId) {
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | null = null;
     function save() {
       try {
         localStorage.setItem(
-          STORAGE_KEY,
+          storageKey(boardId!),
           JSON.stringify({ z: zoomMV.get(), x: panX.get(), y: panY.get() }),
         );
       } catch {
@@ -72,7 +111,7 @@ export function useCanvasGesture() {
         save();
       }
     };
-  }, [zoomMV, panX, panY]);
+  }, [boardId, zoomMV, panX, panY]);
 
   useWheel(
     ({ delta: [, dy], event }) => {

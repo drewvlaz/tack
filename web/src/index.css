@@ -2,6 +2,15 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Design tokens — single source of truth for color, radius, focus.
+ *
+ * Add a new variable here BEFORE reaching for a magic number in a class.
+ * Color tokens must be defined in BOTH :root and .dark so dark mode keeps
+ * working. Non-color tokens live in :root only.
+ *
+ * See web/CLAUDE.md ("Design system") and the frontend-design skill for
+ * usage rules and a11y requirements (contrast, focus-visible, etc.). */
+
 /* ── Light tokens ─────────────────────────────────────── */
 :root {
   --surface: #f7f7f5;
@@ -12,6 +21,24 @@
   --fg-muted: #737373;
   --fg-subtle: #a3a3a3;
   --canvas-dot: #c9c9c4;
+
+  /* Semantic state colors. Defined as full color (not just an accent hue) so
+   * future components can pull `bg`, `fg`, and `ring` variants off the same
+   * token family without bespoke values. */
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+
+  /* Radius scale. Use these instead of `rounded-[Npx]`.
+   * sm: chips, tight pills · md: inputs/buttons · lg: cards · xl: dialogs · pill: round */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Focus ring — applied via `focus-visible:ring-2 focus-visible:ring-focus`
+   * on every interactive primitive (Button, IconButton, TextField). Don't
+   * remove outlines without replacing them with a visible ring. */
+  --focus: #1d4ed8;
 }
 
 /* ── Dark tokens ──────────────────────────────────────── */
@@ -24,6 +51,11 @@
   --fg-muted: #9397a8;
   --fg-subtle: #606270;
   --canvas-dot: #2a2d35;
+
+  --danger: #f87171;
+  --danger-soft: #7f1d1d;
+
+  --focus: #60a5fa;
 }
 
 /* ── Tailwind theme registration ──────────────────────── */
@@ -35,6 +67,14 @@
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
   --color-fg-subtle: var(--fg-subtle);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-focus: var(--focus);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
 * {
@@ -44,4 +84,17 @@
 body {
   margin: 0;
   overflow: hidden;
+}
+
+/* Respect prefers-reduced-motion. Framer Motion reads this automatically,
+ * but CSS-only transitions/animations need an opt-out too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
