@@ -12,10 +12,12 @@ src/
 │   ├── boards.ts        getItems, patchItem, addItem, deleteItem
 │   ├── items.ts
 │   └── parser.ts        parseUrl procedure
-├── services/            All real logic. Take Db / R2Bucket as params.
-│   ├── boards.ts        listBoardItems, patchBoardItem, addBoardItem, deleteBoardItem
-│   ├── items.ts
-│   ├── images.ts        storeImage, imageDisplayUrl
+├── services/            All real logic. Mutations take `tx: Tx`, reads take `db`.
+│   ├── boards.ts        listBoards, createBoard, deleteBoard, renameBoard
+│   ├── boardItems.ts    listBoardItems, addBoardItem, patchBoardItem, deleteBoardItem, restoreBoardItem, purgeBoardItem, emptyBoardTrash, stagePurge
+│   ├── items.ts         setPrimaryImage, reparseItem
+│   ├── images.ts        storeImage, deleteStoredImage, loadImage, content-type clamp
+│   ├── gc.ts            sweepOrphanR2Blobs (called from the scheduled handler)
 │   └── parser/
 │       ├── index.ts     fetchAndParseMeta, parseProductUrl
 │       ├── meta.ts      og tag / json-ld / price regex extractors
@@ -24,16 +26,17 @@ src/
 │   └── images.ts        Hono handler for GET /api/images/* (R2 stream)
 ├── trpc/
 │   ├── init.ts          initTRPC.context<Context>().create()
-│   └── context.ts       Context = { db, images, anthropicKey }
+│   └── context.ts       Context = { db, images, anthropicKey, parseLimiter, clientIp }
 ├── db/
-│   ├── schema/          Drizzle schema — one file per table, plus relations.ts
-│   │   ├── index.ts     Barrel — drizzle.config.ts and `createDb` import from here
-│   │   ├── boards.ts
-│   │   ├── items.ts
-│   │   ├── itemImages.ts
-│   │   ├── boardItems.ts
-│   │   └── relations.ts All cross-table relations (kept separate to avoid FK cycles)
-│   └── client.ts        createDb(d1) → drizzle instance
+│   ├── client.ts        createDb(d1) → drizzle instance
+│   ├── tx.ts            `Tx` + `withTransaction` — staged-writes accumulator that commits as one batch
+│   └── schema/          Drizzle schema — one file per table, plus relations.ts
+│       ├── index.ts     Barrel — drizzle.config.ts and `createDb` import from here
+│       ├── boards.ts
+│       ├── items.ts
+│       ├── itemImages.ts
+│       ├── boardItems.ts
+│       └── relations.ts All cross-table relations (kept separate to avoid FK cycles)
 ├── schemas/             Zod schemas for tRPC inputs/outputs
 │   ├── board.ts         BoardItemSchema, AddItemBody, PatchBoardItemBody
 │   └── parse.ts         ParseResult
@@ -48,14 +51,24 @@ src/
 
 **Services take dependencies as parameters.** `services/boards.ts:listBoardItems(db, boardId)` — `db` is passed in, not pulled from context. This makes services testable without spinning up a request and makes the dependency surface explicit.
 
-**Atomicity is at the DB, scoped to the procedure's commit (view).** For mutations that touch multiple rows in a single observable change, commit in one `db.batch([...])` — D1's batch is transactional. Routers stay thin and don't compose multiple batches.
+**Mutations go through `Tx`, committed at the router boundary by `withTransaction`.** Service signature is `(tx: Tx, ...args)` — reads happen eagerly via `tx.query`, writes are STAGED via `tx.stage(...)` and the actual `db.batch([...])` runs once when `withTransaction` returns. Errors thrown inside the callback skip the commit entirely. Cross-service composition is automatic: any number of services can stage into the same Tx, all commit (or none do).
 
-For procedures involving R2 (`reparseItem`, `purgeBoardItem`, `emptyTrash`, `deleteBoard`), the SQL batch is the atomicity boundary — R2 uploads precede it (orphan-safe; failure leaves GC-able bytes, never dangling rows), R2 deletes follow it via `commitWithBlobCleanup` (orphan-safe; failure leaves GC-able bytes).
+R2 cleanup is scheduled on the Tx via `tx.scheduleBlobCleanup(blobs)` and runs AFTER the SQL batch commits — orphan-safe: if the batch fails, blobs remain in R2 and the GC sweeper reclaims them eventually (never rows pointing at missing bytes).
 
-**Where the invariant intentionally relaxes:**
+R2 uploads (in `reparseItem`, `parseProductUrl`) happen BEFORE staging — SQL needs the new keys, and a failure after upload leaves orphans (also GC-reclaimed).
 
-- `setPrimaryImage` does a SELECT for ownership then an UPDATE — a TOCTOU window exists where the image could be soft-deleted between the two. Acceptable because the worst case is setting a primary to a just-deleted image, which the list-time filter resolves on next read.
-- `reparseItem` interleaves a Claude call and R2 uploads outside the final batch. Concurrent reparses for the same item are last-write-wins on `items` columns; image batches may also interleave. Don't fire concurrent reparses for the same item.
+Read-only services keep the `Db` signature — there's nothing to stage.
+
+**Why a Tx-and-commit shim instead of `db.transaction()`?** D1 doesn't support interactive transactions; raw `BEGIN` is rejected at the engine. `db.batch([...])` is the only atomic primitive, but it requires pre-composed statement lists, which doesn't compose across services. `Tx` is the accumulator that makes service composition feel transactional on D1.
+
+**Forward path to collab (Durable Objects).** When per-board write logic moves into a `BoardDO`, the same `Tx` shape will wrap `state.storage.transaction(cb)` instead of a deferred batch — services keep the `(tx, ...)` signature. The migration is at the `withTransaction` implementation, not at the service surface.
+
+**Resource scoping (future).** When auth lands, `Tx` will carry a `scope` field (`{ userId, kind }`) populated by the router from the authenticated context. Services will read `tx.scope` and apply it to their reads/writes (e.g. `eq(boards.ownerId, tx.scope.userId)`). Read-only services that don't take Tx today will need a parallel `Ctx` shape carrying scope. Leave this slot open; don't pretend it's already there.
+
+**Read-then-write stale-check windows** (not partial commits — the write itself is still atomic):
+
+- `setPrimaryImage` SELECTs for ownership before staging the UPDATE. The image could be soft-deleted between the SELECT and the eventual commit. Worst case: primary points at a just-deleted image; the list-time filter resolves it on next read.
+- `reparseItem` interleaves a Claude call and R2 uploads between its reads and stages. Concurrent reparses for the same item are last-write-wins on `items` columns; image batches may also interleave. Don't fire concurrent reparses for the same item.
 
 **Context shape:** `{ db, images, anthropicKey }`. Built in `index.ts` per request from `c.env`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
 

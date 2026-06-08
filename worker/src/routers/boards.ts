@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { withTransaction } from '../db/tx';
 import { imageDisplayUrl } from '../lib/imageRoute';
 import {
   AddItemBody,
@@ -29,11 +30,6 @@ import { publicProcedure, router } from '../trpc/init';
 // Domain → wire. Resolves each StoredImage ref to a `/api/images/...` URL
 // (or external URL) the frontend can fetch directly. This is the ONE place
 // transport URLs are constructed from service output.
-//
-// No Zod re-parse: services already validate with BoardItemRowSchema, and the
-// transformation here is total (every field on BoardItem comes from a typed
-// row field). A second parse at the router was double work that couldn't
-// catch anything the first parse missed.
 function toBoardItemWire(row: BoardItemRow): BoardItem {
   return {
     ...row,
@@ -49,18 +45,28 @@ export const boardsRouter = router({
 
   create: publicProcedure
     .input(CreateBoardBody)
-    .mutation(({ ctx, input }) => createBoard(ctx.db, input.name)),
+    .mutation(({ ctx, input }) =>
+      withTransaction(ctx.db, ctx.images, async (tx) =>
+        createBoard(tx, input.name),
+      ),
+    ),
 
   delete: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await deleteBoard(ctx.db, ctx.images, input.id);
+      await withTransaction(ctx.db, ctx.images, (tx) =>
+        deleteBoard(tx, input.id),
+      );
       return { ok: true as const };
     }),
 
   rename: publicProcedure
     .input(RenameBoardBody)
-    .mutation(({ ctx, input }) => renameBoard(ctx.db, input.id, input.name)),
+    .mutation(({ ctx, input }) =>
+      withTransaction(ctx.db, ctx.images, (tx) =>
+        renameBoard(tx, input.id, input.name),
+      ),
+    ),
 
   getItems: publicProcedure
     .input(z.object({ boardId: z.string() }))
@@ -72,21 +78,27 @@ export const boardsRouter = router({
   patchItem: publicProcedure
     .input(z.object({ id: z.string(), patch: PatchBoardItemBody }))
     .mutation(async ({ ctx, input }) => {
-      await patchBoardItem(ctx.db, input.id, input.patch);
+      await withTransaction(ctx.db, ctx.images, async (tx) =>
+        patchBoardItem(tx, input.id, input.patch),
+      );
       return { ok: true as const };
     }),
 
   addItem: publicProcedure
     .input(z.object({ boardId: z.string(), item: AddItemBody }))
     .mutation(async ({ ctx, input }) => {
-      const row = await addBoardItem(ctx.db, input.boardId, input.item);
+      const row = await withTransaction(ctx.db, ctx.images, async (tx) =>
+        addBoardItem(tx, input.boardId, input.item),
+      );
       return toBoardItemWire(row);
     }),
 
   deleteItem: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await deleteBoardItem(ctx.db, input.id);
+      await withTransaction(ctx.db, ctx.images, async (tx) =>
+        deleteBoardItem(tx, input.id),
+      );
       return { ok: true as const };
     }),
 
@@ -100,21 +112,27 @@ export const boardsRouter = router({
   restoreItem: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await restoreBoardItem(ctx.db, input.id);
+      await withTransaction(ctx.db, ctx.images, async (tx) =>
+        restoreBoardItem(tx, input.id),
+      );
       return { ok: true as const };
     }),
 
   purgeItem: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await purgeBoardItem(ctx.db, ctx.images, input.id);
+      await withTransaction(ctx.db, ctx.images, (tx) =>
+        purgeBoardItem(tx, input.id),
+      );
       return { ok: true as const };
     }),
 
   emptyTrash: publicProcedure
     .input(z.object({ boardId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await emptyBoardTrash(ctx.db, ctx.images, input.boardId);
+      await withTransaction(ctx.db, ctx.images, (tx) =>
+        emptyBoardTrash(tx, input.boardId),
+      );
       return { ok: true as const };
     }),
 });

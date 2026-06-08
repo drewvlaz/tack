@@ -22,8 +22,12 @@ bucket_name = "fashion-mood-images"
 # Rate-limits parseUrl per client IP. The procedure is the only expensive,
 # unauthenticated entry point (HTML fetch + Claude call + image downloads),
 # so cap it independently of the rest of the API.
-[[ratelimits]]
+# `unsafe.bindings` is the format the vitest-pool's pinned wrangler accepts;
+# the newer top-level `[[ratelimits]]` is equivalent in production but emits
+# an "unexpected field" warning from the pinned older wrangler.
+[[unsafe.bindings]]
 name = "PARSE_LIMITER"
+type = "ratelimit"
 namespace_id = "fashion-mood-parse"
 simple = { limit = 30, period = 60 }
 

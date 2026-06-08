@@ -1,21 +1,20 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
-import type { Db } from '../db/client';
 import * as schema from '../db/schema';
+import type { Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import { storeImage, toR2Key } from './images';
-import { commitWithBlobCleanup } from './itemImages';
 import { fetchAndParseMeta, mapLimit } from './parser';
 
 const IMAGE_FETCH_CONCURRENCY = 4;
 
 export async function setPrimaryImage(
-  db: Db,
+  tx: Tx,
   itemId: string,
   imageId: string | null,
 ): Promise<void> {
   if (imageId !== null) {
-    const owned = await db.query.itemImages.findFirst({
+    const owned = await tx.query.itemImages.findFirst({
       where: and(
         eq(schema.itemImages.id, imageId),
         eq(schema.itemImages.itemId, itemId),
@@ -23,14 +22,16 @@ export async function setPrimaryImage(
       ),
     });
     if (!owned) {
+      // Throws before staging — Tx accumulates nothing, commit never runs.
       throw new Error(`Image ${imageId} does not belong to ${itemId}`);
     }
   }
-
-  await db
-    .update(schema.items)
-    .set({ primaryImageId: imageId, updatedAt: nowSec() })
-    .where(eq(schema.items.id, itemId));
+  tx.stage(
+    tx.db
+      .update(schema.items)
+      .set({ primaryImageId: imageId, updatedAt: nowSec() })
+      .where(eq(schema.items.id, itemId)),
+  );
 }
 
 export type ReparseResult = {
@@ -60,12 +61,11 @@ function detailsEqual(
 }
 
 export async function reparseItem(
-  db: Db,
-  imagesR2: R2Bucket,
+  tx: Tx,
   itemId: string,
   anthropicKey: string,
 ): Promise<ReparseResult> {
-  const item = await db.query.items.findFirst({
+  const item = await tx.query.items.findFirst({
     where: and(eq(schema.items.id, itemId), isNull(schema.items.deletedAt)),
   });
   if (!item) {
@@ -87,7 +87,7 @@ export async function reparseItem(
 
   const now = nowSec();
 
-  function buildItemUpdate(primaryImageId: string | null | undefined) {
+  function itemUpdate(primaryImageId: string | null | undefined) {
     const set: Record<string, unknown> = {
       title: meta.title ?? item!.title,
       brand: meta.brand ?? item!.brand,
@@ -100,15 +100,18 @@ export async function reparseItem(
     if (primaryImageId !== undefined) {
       set.primaryImageId = primaryImageId;
     }
-    return db.update(schema.items).set(set).where(eq(schema.items.id, itemId));
+    return tx.db
+      .update(schema.items)
+      .set(set)
+      .where(eq(schema.items.id, itemId));
   }
 
   if (meta.imageUrls.length === 0) {
-    await buildItemUpdate(undefined);
+    tx.stage(itemUpdate(undefined));
     return { id: itemId, updated, imageCount: 0 };
   }
 
-  const existing = await db.query.itemImages.findMany({
+  const existing = await tx.query.itemImages.findMany({
     where: and(
       eq(schema.itemImages.itemId, itemId),
       isNull(schema.itemImages.deletedAt),
@@ -122,7 +125,7 @@ export async function reparseItem(
     existingSrcs.every((s, i) => s === meta.imageUrls[i]);
 
   if (sourceUrlsMatch) {
-    await buildItemUpdate(undefined);
+    tx.stage(itemUpdate(undefined));
     return { id: itemId, updated, imageCount: existing.length };
   }
 
@@ -130,7 +133,7 @@ export async function reparseItem(
   // leaves orphan blobs (GC-able) rather than rows pointing at missing bytes.
   const stored = (
     await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
-      storeImage(imagesR2, src),
+      storeImage(tx.r2, src),
     )
   ).filter((s) => s !== null);
   const newIds = stored.map(() => genId());
@@ -144,28 +147,22 @@ export async function reparseItem(
       null)
     : null;
 
-  await commitWithBlobCleanup(
-    imagesR2,
-    () =>
-      db.batch([
-        buildItemUpdate(reboundPrimaryId),
-        db
-          .delete(schema.itemImages)
-          .where(eq(schema.itemImages.itemId, itemId)),
-        db.insert(schema.itemImages).values(
-          stored.map((s, i) => ({
-            id: newIds[i],
-            itemId,
-            r2Key: toR2Key(s),
-            sourceUrl: s.sourceUrl,
-            displayOrder: i,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        ),
-      ]),
-    existing,
+  tx.stage(
+    itemUpdate(reboundPrimaryId),
+    tx.db.delete(schema.itemImages).where(eq(schema.itemImages.itemId, itemId)),
+    tx.db.insert(schema.itemImages).values(
+      stored.map((s, i) => ({
+        id: newIds[i],
+        itemId,
+        r2Key: toR2Key(s),
+        sourceUrl: s.sourceUrl,
+        displayOrder: i,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ),
   );
+  tx.scheduleBlobCleanup(existing);
 
   return { id: itemId, updated, imageCount: meta.imageUrls.length };
 }

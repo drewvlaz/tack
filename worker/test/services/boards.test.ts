@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDb } from '../../src/db/client';
 import * as schema from '../../src/db/schema';
+import { withTransaction } from '../../src/db/tx';
 import { addBoardItem, listBoardItems } from '../../src/services/boardItems';
 import {
   createBoard,
@@ -31,19 +32,26 @@ describe('boards service', () => {
   });
 
   it('createBoard inserts and returns a Board', async () => {
-    const created = await createBoard(db(), 'My Moodboard');
+    const created = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'My Moodboard')),
+    );
     expect(created.name).toBe('My Moodboard');
-    expect(created.id).toMatch(/^[A-Za-z0-9]{21}$/); // nanoid alphanumeric, length 21
+    expect(created.id).toMatch(/^[A-Za-z0-9]{21}$/);
     expect(typeof created.createdAt).toBe('number');
+    // Verify it actually committed.
+    expect(await listBoards(db())).toHaveLength(1);
   });
 
   it('listBoards returns boards ordered by createdAt ascending', async () => {
-    const first = await createBoard(db(), 'First');
-    // Ensure non-equal timestamps even at second-precision.
+    const first = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'First')),
+    );
     await env.DB.prepare('UPDATE boards SET created_at = 100 WHERE id = ?1')
       .bind(first.id)
       .run();
-    const second = await createBoard(db(), 'Second');
+    const second = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'Second')),
+    );
     await env.DB.prepare('UPDATE boards SET created_at = 200 WHERE id = ?1')
       .bind(second.id)
       .run();
@@ -53,30 +61,34 @@ describe('boards service', () => {
   });
 
   it('deleteBoard hard-purges board, placements, and orphan items+blobs', async () => {
-    const board = await createBoard(db(), 'To delete');
-    await addBoardItem(db(), board.id, {
-      sourceUrl: 'https://example.com/p',
-      title: 'Test',
-      brand: null,
-      description: null,
-      price: null,
-      currency: null,
-      details: [],
-      images: [
-        { kind: 'r2', key: 'items/del-1', sourceUrl: 'https://cdn/a.jpg' },
-      ],
-      x: 0,
-      y: 0,
-    });
+    const board = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'To delete')),
+    );
+    await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(
+        addBoardItem(tx, board.id, {
+          sourceUrl: 'https://example.com/p',
+          title: 'Test',
+          brand: null,
+          description: null,
+          price: null,
+          currency: null,
+          details: [],
+          images: [
+            { kind: 'r2', key: 'items/del-1', sourceUrl: 'https://cdn/a.jpg' },
+          ],
+          x: 0,
+          y: 0,
+        }),
+      ),
+    );
     await env.IMAGES.put('items/del-1', new Uint8Array([1, 2, 3]));
     expect(await listBoardItems(db(), board.id)).toHaveLength(1);
 
-    await deleteBoard(db(), env.IMAGES, board.id);
+    await withTransaction(db(), env.IMAGES, (tx) => deleteBoard(tx, board.id));
 
     expect(await listBoards(db())).toEqual([]);
     expect(await listBoardItems(db(), board.id)).toEqual([]);
-    // Hard purge: the board, its placements, the orphan item, and image rows
-    // are all gone. R2 blob is also dropped.
     expect(
       await db().query.boardItems.findMany({
         where: (bi, { eq }) => eq(bi.boardId, board.id),
@@ -86,6 +98,59 @@ describe('boards service', () => {
     expect(await db().query.itemImages.findMany()).toEqual([]);
     expect(await env.IMAGES.get('items/del-1')).toBeNull();
   });
+
+  it('deleteBoard rolls the entire batch back if any statement fails', async () => {
+    // Atomicity proof: if we slip a guaranteed-to-fail statement into the
+    // same Tx the service uses, NOTHING should commit — the board, its
+    // placement, and the item all survive.
+    const board = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'Will not delete')),
+    );
+    const placement = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(
+        addBoardItem(tx, board.id, {
+          sourceUrl: 'https://example.com/atomic',
+          title: 'Atomic',
+          brand: null,
+          description: null,
+          price: null,
+          currency: null,
+          details: [],
+          images: [],
+          x: 0,
+          y: 0,
+        }),
+      ),
+    );
+
+    await expect(
+      withTransaction(db(), env.IMAGES, async (tx) => {
+        // Stage a duplicate-PK insert FIRST so it runs before the deleteBoard
+        // deletes — guaranteed UNIQUE constraint failure since the board
+        // already exists. D1's batch is transactional, so the deletes that
+        // follow must roll back.
+        tx.stage(
+          tx.db.insert(schema.boards).values({
+            id: board.id,
+            name: 'duplicate',
+            createdAt: 1,
+            updatedAt: 1,
+          }),
+        );
+        await deleteBoard(tx, board.id);
+      }),
+    ).rejects.toThrow();
+
+    expect(await listBoards(db())).toHaveLength(1);
+    expect(await listBoardItems(db(), board.id)).toHaveLength(1);
+    expect(await db().query.items.findMany()).toHaveLength(1);
+    // placement is referenced just to make sure it survived
+    expect(
+      await db().query.boardItems.findMany({
+        where: (bi, { eq }) => eq(bi.id, placement.id),
+      }),
+    ).toHaveLength(1);
+  });
 });
 
 describe('addBoardItem', () => {
@@ -94,25 +159,31 @@ describe('addBoardItem', () => {
   });
 
   it('inserts item, images, and a placement; returns hydrated BoardItem', async () => {
-    const board = await createBoard(db(), 'B');
-    const item = await addBoardItem(db(), board.id, {
-      sourceUrl: 'https://lemaire.fr/x',
-      title: 'Blouson',
-      brand: 'LEMAIRE',
-      description: 'A soft leather blouson.',
-      price: 2450,
-      currency: 'EUR',
-      details: [
-        { label: 'Materials', value: '100% lambskin' },
-        { label: 'Care', value: 'Specialist leather clean' },
-      ],
-      images: [
-        { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
-        { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
-      ],
-      x: 10,
-      y: 20,
-    });
+    const board = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'B')),
+    );
+    const item = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(
+        addBoardItem(tx, board.id, {
+          sourceUrl: 'https://lemaire.fr/x',
+          title: 'Blouson',
+          brand: 'LEMAIRE',
+          description: 'A soft leather blouson.',
+          price: 2450,
+          currency: 'EUR',
+          details: [
+            { label: 'Materials', value: '100% lambskin' },
+            { label: 'Care', value: 'Specialist leather clean' },
+          ],
+          images: [
+            { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
+            { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
+          ],
+          x: 10,
+          y: 20,
+        }),
+      ),
+    );
 
     expect(item.title).toBe('Blouson');
     expect(item.brand).toBe('LEMAIRE');
@@ -120,8 +191,6 @@ describe('addBoardItem', () => {
       { label: 'Materials', value: '100% lambskin' },
       { label: 'Care', value: 'Specialist leather clean' },
     ]);
-    // Service emits the domain shape (StoredImage refs); the router-side
-    // conversion to `/api/images/...` URLs is exercised elsewhere.
     expect(item.images.map((img) => img.image)).toEqual([
       { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
       { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
@@ -139,19 +208,25 @@ describe('addBoardItem', () => {
   });
 
   it('handles an item with zero images without erroring', async () => {
-    const board = await createBoard(db(), 'B');
-    const item = await addBoardItem(db(), board.id, {
-      sourceUrl: 'https://example.com/empty',
-      title: null,
-      brand: null,
-      description: null,
-      price: null,
-      currency: null,
-      details: [],
-      images: [],
-      x: 0,
-      y: 0,
-    });
+    const board = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(createBoard(tx, 'B')),
+    );
+    const item = await withTransaction(db(), env.IMAGES, (tx) =>
+      Promise.resolve(
+        addBoardItem(tx, board.id, {
+          sourceUrl: 'https://example.com/empty',
+          title: null,
+          brand: null,
+          description: null,
+          price: null,
+          currency: null,
+          details: [],
+          images: [],
+          x: 0,
+          y: 0,
+        }),
+      ),
+    );
     expect(item.images).toEqual([]);
     const images = await db().query.itemImages.findMany({
       where: (img, { eq }) => eq(img.itemId, item.itemId),
@@ -160,23 +235,27 @@ describe('addBoardItem', () => {
   });
 
   it('rolls back the entire batch when the board_items insert FK-fails', async () => {
-    // Pass a board_id that does not exist; board_items has FK to boards.
-    // If db.batch is atomic, the items + item_images inserts must roll back.
+    // FK to a non-existent board — D1 batch must roll the items + item_images
+    // inserts back too.
     await expect(
-      addBoardItem(db(), 'no-such-board', {
-        sourceUrl: 'https://example.com/atomic',
-        title: 'Should not persist',
-        brand: null,
-        description: null,
-        price: null,
-        currency: null,
-        details: [],
-        images: [
-          { kind: 'r2', key: 'items/x', sourceUrl: 'https://cdn/x.jpg' },
-        ],
-        x: 0,
-        y: 0,
-      }),
+      withTransaction(db(), env.IMAGES, (tx) =>
+        Promise.resolve(
+          addBoardItem(tx, 'no-such-board', {
+            sourceUrl: 'https://example.com/atomic',
+            title: 'Should not persist',
+            brand: null,
+            description: null,
+            price: null,
+            currency: null,
+            details: [],
+            images: [
+              { kind: 'r2', key: 'items/x', sourceUrl: 'https://cdn/x.jpg' },
+            ],
+            x: 0,
+            y: 0,
+          }),
+        ),
+      ),
     ).rejects.toThrow();
 
     expect(await db().query.items.findMany()).toEqual([]);
@@ -184,7 +263,3 @@ describe('addBoardItem', () => {
     expect(await db().query.boardItems.findMany()).toEqual([]);
   });
 });
-
-// Silence unused-import warning for the schema barrel — Drizzle picks up tables at runtime
-// via the relational query API, but TypeScript flags the import as unused.
-void schema;

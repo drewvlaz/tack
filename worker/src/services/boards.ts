@@ -1,67 +1,74 @@
 import { asc, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
+import type { Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
-import { BoardSchema, type Board } from '../schemas/board';
-import { purgeBoardItemsByIds } from './boardItems';
+import { type Board } from '../schemas/board';
+import { stagePurge } from './boardItems';
+
+// ---------- reads ----------
 
 export async function listBoards(db: Db): Promise<Board[]> {
   const rows = await db.query.boards.findMany({
     where: isNull(schema.boards.deletedAt),
     orderBy: asc(schema.boards.createdAt),
   });
-  return rows.map((b) => BoardSchema.parse(b));
+  return rows.map((b) => ({ id: b.id, name: b.name, createdAt: b.createdAt }));
 }
 
-export async function createBoard(db: Db, name: string): Promise<Board> {
+// ---------- mutations ----------
+
+export function createBoard(tx: Tx, name: string): Board {
   const now = nowSec();
   const id = genId();
-  await db
-    .insert(schema.boards)
-    .values({ id, name, createdAt: now, updatedAt: now });
-  return BoardSchema.parse({ id, name, createdAt: now });
+  tx.stage(
+    tx.db
+      .insert(schema.boards)
+      .values({ id, name, createdAt: now, updatedAt: now }),
+  );
+  return { id, name, createdAt: now };
 }
 
 // Hard purge: drops all placements for the board, items that become orphans
-// (no remaining placements anywhere), their R2 blobs, then the board row.
-// There's no board-restore UI, so soft-deleting the board would just strand
-// the placements and blobs indefinitely.
-export async function deleteBoard(
-  db: Db,
-  imagesR2: R2Bucket,
-  id: string,
-): Promise<void> {
-  const placements = await db.query.boardItems.findMany({
+// (no remaining placements anywhere), their R2 blobs, then the board row —
+// all in a single atomic batch via the Tx. There's no board-restore UI, so
+// soft-deleting the board would just strand placements and blobs indefinitely.
+export async function deleteBoard(tx: Tx, id: string): Promise<void> {
+  const placements = await tx.query.boardItems.findMany({
     where: eq(schema.boardItems.boardId, id),
     columns: { id: true, itemId: true },
   });
 
-  if (placements.length > 0) {
-    await purgeBoardItemsByIds(
-      db,
-      imagesR2,
-      placements.map((p) => p.id),
-      placements.map((p) => p.itemId),
-    );
-  }
+  await stagePurge(
+    tx,
+    placements.map((p) => p.id),
+    placements.map((p) => p.itemId),
+  );
 
-  await db.delete(schema.boards).where(eq(schema.boards.id, id));
+  tx.stage(tx.db.delete(schema.boards).where(eq(schema.boards.id, id)));
 }
 
 export async function renameBoard(
-  db: Db,
+  tx: Tx,
   id: string,
   name: string,
 ): Promise<Board> {
-  const [row] = await db
-    .update(schema.boards)
-    .set({ name, updatedAt: nowSec() })
-    .where(eq(schema.boards.id, id))
-    .returning();
-  if (!row) {
+  // RENAME needs to return the updated row, but the staged UPDATE hasn't run
+  // yet. Read the current row to confirm existence (throw early on 404), then
+  // construct the response from the read + new name. The actual write happens
+  // at commit time.
+  const existing = await tx.query.boards.findFirst({
+    where: eq(schema.boards.id, id),
+  });
+  if (!existing) {
     throw new Error(`board ${id} not found`);
   }
-
-  return BoardSchema.parse(row);
+  tx.stage(
+    tx.db
+      .update(schema.boards)
+      .set({ name, updatedAt: nowSec() })
+      .where(eq(schema.boards.id, id)),
+  );
+  return { id: existing.id, name, createdAt: existing.createdAt };
 }
