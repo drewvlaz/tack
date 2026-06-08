@@ -6,10 +6,13 @@ Hono on Cloudflare Workers. Exposes a tRPC API plus one Hono route for streaming
 
 ```
 src/
-├── index.ts             Hono app — mounts /trpc/* and /api/images/*
+├── index.ts             Hono app — mounts /trpc/*, /api/auth/*, /api/images/*, and the `scheduled` cron entry point. Pure glue; logic lives in the handlers it imports.
+├── scheduled.ts         Entry point for cron triggers — invokes services/gc.sweepOrphanR2Blobs via `ctx.waitUntil`.
 ├── router.ts            Root tRPC AppRouter (boards, items, parseUrl)
-├── routers/             tRPC routers — thin, parse input, delegate to services
-│   ├── boards.ts        getItems, patchItem, addItem, deleteItem
+├── routers/             tRPC routers — thin, parse input, delegate to services. A router file (or its `index.ts`) holds ONLY exposed procedures + the router export; non-procedure helpers (e.g. wire mappers) go in sibling files inside a router directory.
+│   ├── boards/
+│   │   ├── index.ts     boards router — exposed procedures only
+│   │   └── wire.ts      toBoardItemWire (domain → wire mapper)
 │   ├── items.ts
 │   └── parser.ts        parseUrl procedure
 ├── services/            All real logic. Mutations take `tx: Tx`, reads take `db`.
@@ -22,14 +25,24 @@ src/
 │       ├── index.ts     fetchAndParseMeta, parseProductUrl
 │       ├── meta.ts      og tag / json-ld / price regex extractors
 │       └── claude.ts    Product-meta system prompt + JSON normalization. HTTP via `lib/anthropic.ts`.
-├── routes/
+├── routes/             Hono routes — same rule as `routers/`: a route file (or its `index.ts`) holds ONLY the exposed handler/Hono app; non-handler helpers live in sibling files inside a route directory.
+│   ├── auth/
+│   │   ├── index.ts     authRoutes Hono app — exposed routes only
+│   │   ├── cookie.ts    SESSION_COOKIE name/TTL, read/set/clear cookie helpers
+│   │   └── errors.ts    authErrorResponse (AuthError → HTTP status)
 │   └── images.ts        Hono handler for GET /api/images/* (R2 stream)
 ├── trpc/
 │   ├── init.ts          initTRPC.context<Context>().create()
-│   └── context.ts       Context = { db, images, anthropicKey, parseLimiter, clientIp }
+│   ├── context.ts       Context = { db, images, anthropicKey, parseLimiter, clientIp }
+│   └── handler.ts       handleTrpcRequest — builds the Context from a Hono request and runs `fetchRequestHandler`
 ├── db/
 │   ├── client.ts        createDb(d1) → drizzle instance
-│   ├── tx.ts            `Tx` + `withTransaction` — staged-writes accumulator that commits as one batch
+│   ├── tx.ts            `Tx` + `ServiceCtx` classes + `withTransaction` — Tx/ServiceCtx host per-table scoped repos and (for Tx) a staged-writes accumulator
+│   ├── repos/           One scoped repo per owned table — auto-stamps ownerId on insert, auto-ANDs the scope filter on every read/update/delete. Direct-owned (boards, items) use an ownerId column; transitive (placements, itemImages) use an INNER JOIN for reads and an ownership subquery for UPDATE/DELETE.
+│   │   ├── boards.ts    BoardsReadRepo + BoardsTxRepo
+│   │   ├── items.ts     ItemsReadRepo + ItemsTxRepo
+│   │   ├── placements.ts PlacementsReadRepo + PlacementsTxRepo (board_items)
+│   │   └── itemImages.ts ItemImagesReadRepo + ItemImagesTxRepo
 │   └── schema/          Drizzle schema — one file per table, plus relations.ts
 │       ├── index.ts     Barrel — drizzle.config.ts and `createDb` import from here
 │       ├── boards.ts
@@ -63,7 +76,7 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 
 **Forward path to collab (Durable Objects).** When per-board write logic moves into a `BoardDO`, the same `Tx` shape will wrap `state.storage.transaction(cb)` instead of a deferred batch — services keep the `(tx, ...)` signature. The migration is at the `withTransaction` implementation, not at the service surface.
 
-**Resource scoping.** `Tx` carries `scope: { userId }`, populated by the router from the authenticated context. Mutation services read `tx.scope.userId` and apply it to reads/writes (e.g. `eq(boards.ownerId, tx.scope.userId)`). Read-only services take a `ServiceCtx = { db, r2, scope }` (also defined in `db/tx.ts`) — same scope, different transport. Pattern: every read filters by ownerId; every mutation does a SELECT ownership check before staging writes, throwing `TRPCError({ code: 'NOT_FOUND' })` on miss (don't leak existence of other users' rows as FORBIDDEN). See `services/boards.ts:assertBoardOwned` and `services/boardItems.ts:assertPlacementOwned` for the canonical pattern.
+**Resource scoping.** `Tx` and `ServiceCtx` (both in `db/tx.ts`) carry `scope: { userId }`, populated by the router from the authenticated context, and host one _scoped repo_ per owned table (`tx.boards`, `tx.items`, `tx.placements`, `tx.itemImages`). Services touch tables exclusively through these repos — `tx.boards.byIdOrThrow(id)` instead of a hand-written drizzle SELECT, `tx.items.stageInsert(values)` instead of `tx.db.insert(items).values({ ..., ownerId: tx.scope.userId })`. The repo auto-stamps `ownerId` on insert (direct-owned tables) and auto-ANDs the scope filter on every read / UPDATE / DELETE (direct via column, transitive via subquery on parent's `ownerId`). Forgetting to scope is no longer possible from the repo path. `byIdOrThrow` raises `TRPCError NOT_FOUND` on miss (never `FORBIDDEN` — don't leak existence). `tx.db` / `ctx.db` remain accessible as an escape hatch for the few cases the repos don't cover (the `users`/`sessions` tables in `services/auth.ts`); using them on owned tables is a smell.
 
 **Read-then-write stale-check windows** (not partial commits — the write itself is still atomic):
 

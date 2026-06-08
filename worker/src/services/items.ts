@@ -1,6 +1,3 @@
-import { TRPCError } from '@trpc/server';
-import { and, asc, eq, isNull } from 'drizzle-orm';
-import * as schema from '../db/schema';
 import type { Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
@@ -14,26 +11,18 @@ export async function setPrimaryImage(
   itemId: string,
   imageId: string | null,
 ): Promise<void> {
-  await assertItemOwned(tx, itemId);
+  await tx.items.byIdOrThrow(itemId);
   if (imageId !== null) {
-    const owned = await tx.query.itemImages.findFirst({
-      where: and(
-        eq(schema.itemImages.id, imageId),
-        eq(schema.itemImages.itemId, itemId),
-        isNull(schema.itemImages.deletedAt),
-      ),
-    });
+    const owned = await tx.itemImages.findByItemAndId(itemId, imageId);
     if (!owned) {
       // Throws before staging — Tx accumulates nothing, commit never runs.
       throw new Error(`Image ${imageId} does not belong to ${itemId}`);
     }
   }
-  tx.stage(
-    tx.db
-      .update(schema.items)
-      .set({ primaryImageId: imageId, updatedAt: nowSec() })
-      .where(eq(schema.items.id, itemId)),
-  );
+  tx.items.stageUpdate(itemId, {
+    primaryImageId: imageId,
+    updatedAt: nowSec(),
+  });
 }
 
 export type ReparseResult = {
@@ -67,16 +56,7 @@ export async function reparseItem(
   itemId: string,
   anthropicKey: string,
 ): Promise<ReparseResult> {
-  const item = await tx.query.items.findFirst({
-    where: and(
-      eq(schema.items.id, itemId),
-      eq(schema.items.ownerId, tx.scope.userId),
-      isNull(schema.items.deletedAt),
-    ),
-  });
-  if (!item) {
-    throw new TRPCError({ code: 'NOT_FOUND' });
-  }
+  const item = await tx.items.byIdActiveOrThrow(itemId);
 
   const { meta } = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
 
@@ -93,37 +73,22 @@ export async function reparseItem(
 
   const now = nowSec();
 
-  function itemUpdate(primaryImageId: string | null | undefined) {
-    const set: Record<string, unknown> = {
-      title: meta.title ?? item!.title,
-      brand: meta.brand ?? item!.brand,
-      description: meta.description ?? item!.description,
-      price: meta.price ?? item!.price,
-      currency: meta.currency ?? item!.currency,
-      details: nextDetails ?? item!.details,
-      updatedAt: now,
-    };
-    if (primaryImageId !== undefined) {
-      set.primaryImageId = primaryImageId;
-    }
-    return tx.db
-      .update(schema.items)
-      .set(set)
-      .where(eq(schema.items.id, itemId));
-  }
+  const baseUpdate = {
+    title: meta.title ?? item.title,
+    brand: meta.brand ?? item.brand,
+    description: meta.description ?? item.description,
+    price: meta.price ?? item.price,
+    currency: meta.currency ?? item.currency,
+    details: nextDetails ?? item.details,
+    updatedAt: now,
+  };
 
   if (meta.imageUrls.length === 0) {
-    tx.stage(itemUpdate(undefined));
+    tx.items.stageUpdate(itemId, baseUpdate);
     return { id: itemId, updated, imageCount: 0 };
   }
 
-  const existing = await tx.query.itemImages.findMany({
-    where: and(
-      eq(schema.itemImages.itemId, itemId),
-      isNull(schema.itemImages.deletedAt),
-    ),
-    orderBy: asc(schema.itemImages.displayOrder),
-  });
+  const existing = await tx.itemImages.listForItem(itemId);
 
   const existingSrcs = existing.map((img) => img.sourceUrl);
   const sourceUrlsMatch =
@@ -131,7 +96,7 @@ export async function reparseItem(
     existingSrcs.every((s, i) => s === meta.imageUrls[i]);
 
   if (sourceUrlsMatch) {
-    tx.stage(itemUpdate(undefined));
+    tx.items.stageUpdate(itemId, baseUpdate);
     return { id: itemId, updated, imageCount: existing.length };
   }
 
@@ -153,35 +118,23 @@ export async function reparseItem(
       null)
     : null;
 
-  tx.stage(
-    itemUpdate(reboundPrimaryId),
-    tx.db.delete(schema.itemImages).where(eq(schema.itemImages.itemId, itemId)),
-    tx.db.insert(schema.itemImages).values(
-      stored.map((s, i) => ({
-        id: newIds[i],
-        itemId,
-        r2Key: toR2Key(s),
-        sourceUrl: s.sourceUrl,
-        displayOrder: i,
-        createdAt: now,
-        updatedAt: now,
-      })),
-    ),
+  tx.items.stageUpdate(itemId, {
+    ...baseUpdate,
+    primaryImageId: reboundPrimaryId,
+  });
+  tx.itemImages.stageDeleteAllForItem(itemId);
+  tx.itemImages.stageInsertMany(
+    stored.map((s, i) => ({
+      id: newIds[i],
+      itemId,
+      r2Key: toR2Key(s),
+      sourceUrl: s.sourceUrl,
+      displayOrder: i,
+      createdAt: now,
+      updatedAt: now,
+    })),
   );
   tx.scheduleBlobCleanup(existing);
 
   return { id: itemId, updated, imageCount: meta.imageUrls.length };
-}
-
-async function assertItemOwned(tx: Tx, itemId: string): Promise<void> {
-  const row = await tx.query.items.findFirst({
-    where: and(
-      eq(schema.items.id, itemId),
-      eq(schema.items.ownerId, tx.scope.userId),
-    ),
-    columns: { id: true },
-  });
-  if (!row) {
-    throw new TRPCError({ code: 'NOT_FOUND' });
-  }
 }

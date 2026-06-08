@@ -26,15 +26,17 @@ Read this as a one-way arrow: a layer below never imports from a layer above.
 
 Things to grep for as smells:
 
-| Smell                                                                         | What it means                                                                                                                                              |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `import { TRPCError }` outside `services/` and `trpc/`                        | A non-service file is making auth/auth decisions. Move the throw into the service.                                                                         |
-| `ctx.images` / `ctx.db` passed into a service alongside another service       | The router is reaching past the service abstraction. Services take `Tx` or `ServiceCtx`, never raw bindings.                                               |
-| `imageDisplayUrl(...)` called inside `services/`                              | Wire URL construction has leaked into the domain. The service returns `StoredImage` refs; the router (`toBoardItemWire`) is the only place URLs are built. |
-| `userId: string` parameter on a service function                              | Scope must come from `tx.scope` or `ctx.scope`, never as a free arg. Free `userId` args invite "trust the caller" bugs.                                    |
-| `db.batch(...)` outside `db/tx.ts`                                            | Atomic-commit is the Tx's job. Direct `db.batch` calls skip the staging accumulator and break cross-service composition.                                   |
-| `await tx.db.insert/update/delete(...)` (not wrapped in `tx.stage`)           | A mutation that runs immediately, outside the atomic commit. If a later stage throws, this write is already durable.                                       |
-| `eq(table.something, someUserId)` where `someUserId` is not `tx.scope.userId` | Cross-tenant read or write. Every query against an owned table filters by scope.                                                                           |
+| Smell                                                                             | What it means                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `import { TRPCError }` outside `services/`, `trpc/`, and `db/repos/`              | A non-service / non-repo file is making auth/auth decisions. Move the throw into the service or `repo.byIdOrThrow`.                                                                                                      |
+| `ctx.images` / `ctx.db` passed into a service alongside another service           | The router is reaching past the service abstraction. Services take `Tx` or `ServiceCtx`, never raw bindings.                                                                                                             |
+| `imageDisplayUrl(...)` called inside `services/`                                  | Wire URL construction has leaked into the domain. The service returns `StoredImage` refs; the router (`toBoardItemWire`) is the only place URLs are built.                                                               |
+| `userId: string` parameter on a service function                                  | Scope must come from `tx.scope` or `ctx.scope`, never as a free arg. Free `userId` args invite "trust the caller" bugs.                                                                                                  |
+| `db.batch(...)` outside `db/tx.ts`                                                | Atomic-commit is the Tx's job. Direct `db.batch` calls skip the staging accumulator and break cross-service composition.                                                                                                 |
+| `await tx.db.insert/update/delete(...)` (not wrapped in `tx.stage`)               | A mutation that runs immediately, outside the atomic commit. If a later stage throws, this write is already durable.                                                                                                     |
+| `tx.db.query.<owned-table>` / `ctx.db.query.<owned-table>` in `services/`         | Bypassing the scoped repo. Reads on `boards`, `items`, `board_items`, `item_images` go through `tx.boards` / `tx.items` / `tx.placements` / `tx.itemImages`. Direct drizzle on these tables removes the scope guarantee. |
+| `eq(schema.boards.ownerId, ...)` / `eq(schema.items.ownerId, ...)` in `services/` | Hand-rolled ownership filter. The repo already does this; calling it via the repo means future devs can't forget. The exception is `db/repos/*.ts` itself.                                                               |
+| `tx.stage(tx.db.insert/update/delete(schema.<owned-table>)...)` in `services/`    | Hand-rolled mutation against an owned table. Use `tx.<repo>.stageInsert/stageUpdate/stageDelete` so the scope filter / ownerId stamp can't be skipped.                                                                   |
 
 ## The two service shapes
 
@@ -49,9 +51,9 @@ export async function listBoardItems(
 ): Promise<BoardItemRow[]> { ... }
 ```
 
-- `ServiceCtx = { db, r2, scope }` — defined in `db/tx.ts`.
-- No staging, no commit; reads go straight through `ctx.db`.
-- Filters by `ctx.scope.userId` for every owned table touched.
+- `ServiceCtx` is a class (in `db/tx.ts`) carrying `db`, `r2`, `scope` plus one read-only repo per owned table: `ctx.boards`, `ctx.items`, `ctx.placements`, `ctx.itemImages`.
+- Reads go through repos — `ctx.boards.byIdOrThrow(id)`, `ctx.placements.listForBoard(boardId)`. Each repo internally ANDs the scope filter / does the parent join. Forgetting to scope is structurally impossible from the repo path.
+- `ctx.db` remains accessible as an escape hatch for tables the repos don't cover (currently `users`, `sessions` in auth code only). Direct `ctx.db.query.<owned-table>` is a smell.
 - Returns domain rows. **Never** wire shapes.
 
 ### Mutation: `Tx`
@@ -64,9 +66,10 @@ export async function addBoardItem(
 ): Promise<BoardItemRow> { ... }
 ```
 
-- `Tx` carries `db`, `r2`, `scope`, plus the staged-writes accumulator.
-- Reads via `tx.query.<table>.find...` (passes through to drizzle).
-- Writes via `tx.stage(stmt, stmt, ...)` — staged, not executed.
+- `Tx` (in `db/tx.ts`) carries `db`, `r2`, `scope`, the staged-writes accumulator, AND the four write-capable repos: `tx.boards`, `tx.items`, `tx.placements`, `tx.itemImages`.
+- Reads go through repos (same as `ServiceCtx`) — every read is auto-scoped.
+- Writes go through repos — `tx.boards.stageInsert(values)`, `tx.placements.stageUpdate(id, set)`. Inserts on direct-owned tables auto-stamp `ownerId`; UPDATE/DELETE on all owned tables AND in the scope filter (direct column or parent subquery).
+- For tables the repos don't cover (e.g. `sessions` in auth), use `tx.stage(tx.db.insert(...).values(...))` directly. The `tx.stage` primitive remains available; it just isn't the routine path for owned tables.
 - R2 cleanup via `tx.scheduleBlobCleanup(blobs)` — runs only after a successful SQL commit.
 - Caller (the router) wraps the call in `withTransaction(db, r2, scope, tx => ...)`; that's the one place `db.batch` runs.
 
@@ -87,16 +90,20 @@ Multiple services can be staged into the same Tx, and the whole thing commits as
 
 ## Ownership scoping (the security boundary)
 
-Every query against an owned table (`boards`, `items`, `board_items`, `item_images`) filters by `tx.scope.userId` / `ctx.scope.userId`. There are no exceptions.
+Scope enforcement lives in `db/repos/`. Every read, insert, update, and delete on the four owned tables (`boards`, `items`, `board_items`, `item_images`) is routed through a repo, which auto-applies the scope filter. Services don't write ownership predicates by hand — they ask the repo.
 
-Two helpers in this codebase you should imitate:
+The canonical interactions:
 
-- `services/boards.ts:assertBoardOwned(tx, boardId)` — single source of truth for "does this user own this board". Returns the row on hit (so callers don't re-read for trivial fields), throws `TRPCError NOT_FOUND` on miss.
-- `services/boardItems.ts:assertPlacementOwned(tx, placementId)` — same pattern, joins through `boards` to check the parent's owner.
+- `tx.boards.byIdOrThrow(id)` — fetch a board owned by the caller, or throw `NOT_FOUND`. Replaces the old `assertBoardOwned` helper.
+- `tx.placements.byIdOrThrow(id)` — same for placements; the repo joins through `boards` to check the parent's owner.
+- `tx.<repo>.stageInsert(values)` — inserts auto-stamp `ownerId` on direct-owned tables.
+- `tx.<repo>.stageUpdate(id, set)` / `tx.<repo>.stageDelete(id)` — write paths AND the scope filter into the WHERE (direct column for `boards`/`items`; subquery against the parent table for `board_items`/`item_images`).
 
-**Throw `NOT_FOUND`, never `FORBIDDEN`.** A `FORBIDDEN` response confirms the row exists and belongs to someone else; that's an existence-leak. `NOT_FOUND` collapses the two failure modes into one indistinguishable response.
+**Throw `NOT_FOUND`, never `FORBIDDEN`.** A `FORBIDDEN` response confirms the row exists and belongs to someone else; that's an existence-leak. `NOT_FOUND` collapses the two failure modes into one indistinguishable response. The repos already do this; don't second-guess it.
 
-**Trust boundaries within services:** a low-level helper that _only_ runs after the caller has already authorized may skip the ownership check itself — but it must say so in a comment. `stagePurge` is the canonical example: "Caller is responsible for ownership checks. This function trusts every id passed in has already been authorized." Don't make this implicit. Anyone reading the helper needs to know who is supposed to authorize.
+**Trust boundaries within services:** a low-level helper that _only_ runs after the caller has already authorized may skip the ownership-check call itself — but it must say so in a comment. `stagePurge` is the canonical example: it accepts an already-authorized list of placement/item ids and just stages the cascade. The repos it uses internally still enforce scope, so even a forgetful caller can't escape the boundary — this is defense in depth, not the primary guarantee.
+
+**When a query genuinely needs a custom join across owned tables**, add a named method to the appropriate repo (e.g. `placements.listForBoard` does the placement + boards + items + images hydration). Don't reach for `tx.db.select()` in a service. The repo is the only place hand-written joins on owned tables should appear.
 
 ## Service ↔ router contract
 
@@ -105,7 +112,7 @@ The router translates wire ⇄ domain. The service speaks domain only.
 **Router responsibilities (and _only_ these):**
 
 1. Parse the zod input.
-2. Decide whether the procedure is a read or a write. Reads pass `{ db, r2: ctx.images, scope: { userId: ctx.userId } }`. Writes wrap in `withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, tx => ...)`.
+2. Decide whether the procedure is a read or a write. Reads pass `new ServiceCtx(ctx.db, ctx.images, { userId: ctx.userId })`. Writes wrap in `withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, tx => ...)`.
 3. Call exactly one or a small composition of services.
 4. Map the returned domain row(s) to the wire shape (e.g. `toBoardItemWire` resolves `StoredImage` → `/api/images/...` URL). This mapping is **pure and total** — no fallibility, no second `z.parse`.
 
@@ -114,10 +121,10 @@ If a router does anything else (a SQL query, a Claude call, an R2 read), the log
 **Service responsibilities:**
 
 1. Take `Tx` or `ServiceCtx` (never raw bindings, never `userId`).
-2. Run any conditional reads against `tx.query` / `ctx.db.query`.
-3. Stage writes (mutations) or shape the read result (queries).
+2. Run any conditional reads through scoped repos — `tx.boards.byIdOrThrow(id)`, `tx.placements.listForBoard(boardId)`, etc. Reaching to `tx.db.query.<owned-table>` directly removes the scope guarantee.
+3. Stage writes through scoped repos — `tx.<repo>.stageInsert/stageUpdate/stageDelete`. Hand-writing `tx.stage(tx.db.insert(<owned-table>)...)` removes the auto-stamped `ownerId` / scope filter.
 4. Validate the _outbound_ shape with the appropriate zod schema before returning, when the row construction is non-trivial. This is the boundary that catches DB-shape drift; routers cannot catch what services miss.
-5. Throw `TRPCError`s for client-visible failures. Internal invariant violations throw plain `Error`.
+5. Throw `TRPCError`s for client-visible failures (or let `repo.byIdOrThrow` throw `NOT_FOUND` for you). Internal invariant violations throw plain `Error`.
 
 Things services must _not_ do: read `process.env`, touch `ctx.req`, set cookies, build `/api/images/...` URLs, import zod _input_ schemas (input parsing is the router's job; the service may reuse the inferred input type).
 
@@ -167,7 +174,7 @@ This is more than cosmetic — it makes the `Tx` / `ServiceCtx` split visible at
 
 Walk this checklist _before_ writing code:
 
-1. **Is this a read or a mutation?** Reads take `ServiceCtx`. Mutations take `Tx`. If your function does both (read X to decide whether to write Y), it's a mutation — write goes through `Tx`, reads use `tx.query`.
+1. **Is this a read or a mutation?** Reads take `ServiceCtx`. Mutations take `Tx`. If your function does both (read X to decide whether to write Y), it's a mutation — write goes through `Tx`, reads go through the same `Tx` via its repos.
 2. **What other services should this compose with?** If a router would naturally call your new service alongside an existing one, the existing one's reads/writes must end up in _your_ Tx. Don't create a second Tx; accept the one passed in.
 3. **What's the smallest scope this function owns?** A service should do one well-named thing. `addBoardItem` owns the three-table insert-graph for one placement; it doesn't own "syncing a board". Cross-cutting flows belong in a _new_ composing service, not jammed into an existing primitive.
 4. **What does this NOT need to know?** A service handling "delete board item" does not need to know the request IP, the Anthropic key, the cookie, whether the user is on mobile, or what the wire URL of an image looks like. Anything the function doesn't strictly need stays out of the signature.
@@ -189,28 +196,32 @@ Walk this checklist:
 
 What each layer is allowed to import:
 
-| Layer                | May import                                                                                            | Must not import                                                                                 |
-| -------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `routers/*`          | `db/tx` (`withTransaction`), `services/*`, `schemas/*`, `trpc/init`, `lib/imageRoute` (for wire URLs) | drizzle, `db/schema`, raw bindings, `lib/anthropic`, `services/parser/claude`                   |
-| `services/*`         | drizzle, `db/schema`, `db/tx` (types), other `services/*`, `lib/*`                                    | tRPC `init`, Hono, `trpc/context` (except via the typed `ServiceCtx`/`Tx`), zod _input_ schemas |
-| `db/tx`, `db/client` | drizzle, `services/images` (cleanup helper only)                                                      | any specific service, any router                                                                |
-| `lib/*`              | only itself, generic deps (zod, nanoid, native fetch)                                                 | anything from `services/`, `routers/`, `db/schema`                                              |
+| Layer                | May import                                                                                                                                                                                  | Must not import                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `routers/*`          | `db/tx` (`ServiceCtx`, `withTransaction`), `services/*`, `schemas/*`, `trpc/init`, `lib/imageRoute` (for wire URLs)                                                                         | drizzle, `db/schema`, `db/repos/*`, raw bindings, `lib/anthropic`, `services/parser/claude`                              |
+| `services/*`         | `db/tx` (`Tx`, `ServiceCtx` types), `db/repos/*` (joined-row types like `HydratedPlacement`), other `services/*`, `lib/*`. Drizzle/`db/schema` ONLY for tables the repos don't cover (auth) | tRPC `init`, Hono, `trpc/context` (except via the typed `ServiceCtx`/`Tx`), zod _input_ schemas, drizzle on owned tables |
+| `db/repos/*`         | drizzle, `db/schema`, `db/tx` (types), `@trpc/server` for `TRPCError`                                                                                                                       | `services/*`, `routers/*`, anything tRPC-context-shaped, anything domain-shaped (`BoardItemRow`)                         |
+| `db/tx`, `db/client` | drizzle, `db/repos/*`, `services/images` (cleanup helper only)                                                                                                                              | any specific service, any router                                                                                         |
+| `lib/*`              | only itself, generic deps (zod, nanoid, native fetch)                                                                                                                                       | anything from `services/`, `routers/`, `db/schema`, `db/repos`                                                           |
 
 If you find yourself wanting to violate this map, the right answer is almost always to add a new function at the _lower_ layer and call it from the _higher_ one — not to reach across.
 
 ## Anti-patterns (and the right move)
 
-| Tempting shortcut                                                     | The right move                                                                                                                                            |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Adding a `userId` parameter to a service "for testability"            | Tests should construct a `Tx` / `ServiceCtx` with a fake scope. The scope is identity; identity is not an argument.                                       |
-| Doing a Claude call directly in a router                              | Push it into `services/parser/`. Routers don't speak to external APIs.                                                                                    |
-| Building a `/api/images/{key}` URL inside a service                   | Return a `StoredImage` ref. The router calls `imageDisplayUrl`.                                                                                           |
-| Using `db.batch` inside a service to "make this atomic"               | Stage statements on the `Tx`. The whole request commits in one batch already; you don't need a second one.                                                |
-| Calling `r2.delete` from a mutation service                           | Use `tx.scheduleBlobCleanup`. Direct deletes break orphan-safety.                                                                                         |
-| Adding a service that takes `(tx, db, ...)` "to read without staging" | Just `tx.db` and `tx.query` are right there. Two handles is two truths.                                                                                   |
-| Throwing `FORBIDDEN` instead of `NOT_FOUND` for an unowned row        | Existence leak. Always `NOT_FOUND`.                                                                                                                       |
-| Catching errors inside a Tx callback and continuing                   | Errors inside `fn` skip commit entirely (the design). Swallowing them produces partial side-effects (R2 uploads done, SQL never committed). Let it throw. |
-| Re-parsing the service output with zod in the router "for safety"     | The router can't catch what the service didn't. Move output validation into the service. The router does pure, total wire mapping.                        |
+| Tempting shortcut                                                                                   | The right move                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adding a `userId` parameter to a service "for testability"                                          | Tests should construct a `Tx` / `ServiceCtx` with a fake scope. The scope is identity; identity is not an argument.                                       |
+| Doing a Claude call directly in a router                                                            | Push it into `services/parser/`. Routers don't speak to external APIs.                                                                                    |
+| Building a `/api/images/{key}` URL inside a service                                                 | Return a `StoredImage` ref. The router calls `imageDisplayUrl`.                                                                                           |
+| Using `db.batch` inside a service to "make this atomic"                                             | Stage statements on the `Tx`. The whole request commits in one batch already; you don't need a second one.                                                |
+| Calling `r2.delete` from a mutation service                                                         | Use `tx.scheduleBlobCleanup`. Direct deletes break orphan-safety.                                                                                         |
+| Adding a service that takes `(tx, db, ...)` "to read without staging"                               | The repos on `tx` already separate reads from writes per table. Two handles is two truths.                                                                |
+| Writing `tx.db.query.boards.findFirst({ where: eq(boards.ownerId, tx.scope.userId) })` in a service | Use `tx.boards.byId(...)` / `tx.boards.byIdOrThrow(...)`. Hand-rolled scope predicates removes the structural guarantee.                                  |
+| Writing `tx.stage(tx.db.insert(items).values({ ...vals, ownerId: tx.scope.userId }))` in a service  | Use `tx.items.stageInsert(vals)`. The repo auto-stamps `ownerId` so the call site can't ship without it.                                                  |
+| Hand-writing a JOIN across `boards`/`items`/`board_items`/`item_images` in a service                | Add a named method on the appropriate repo (e.g. `placements.listForBoard`). Services shape domain rows from repo output, not from raw drizzle.           |
+| Throwing `FORBIDDEN` instead of `NOT_FOUND` for an unowned row                                      | Existence leak. Always `NOT_FOUND`.                                                                                                                       |
+| Catching errors inside a Tx callback and continuing                                                 | Errors inside `fn` skip commit entirely (the design). Swallowing them produces partial side-effects (R2 uploads done, SQL never committed). Let it throw. |
+| Re-parsing the service output with zod in the router "for safety"                                   | The router can't catch what the service didn't. Move output validation into the service. The router does pure, total wire mapping.                        |
 
 ## Mental model in one paragraph
 
