@@ -211,7 +211,7 @@ export async function signup(
     );
   }
 
-  const existing = await tx.query.users.findFirst({
+  const existing = await tx.db.query.users.findFirst({
     where: eq(schema.users.email, email),
     columns: { id: true },
   });
@@ -242,7 +242,7 @@ export async function login(
   password: string,
 ): Promise<AuthOutcome> {
   const email = normalizeEmail(rawEmail);
-  const row = await tx.query.users.findFirst({
+  const row = await tx.db.query.users.findFirst({
     where: eq(schema.users.email, email),
     columns: { id: true, email: true, passwordHash: true, deletedAt: true },
   });

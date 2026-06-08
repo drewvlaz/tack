@@ -1,14 +1,11 @@
 import { z } from 'zod';
-import { withTransaction } from '../db/tx';
-import { imageDisplayUrl } from '../lib/imageRoute';
+import { ServiceCtx, withTransaction } from '../../db/tx';
 import {
   AddItemBody,
   CreateBoardBody,
   PatchBoardItemBody,
   RenameBoardBody,
-  type BoardItem,
-  type BoardItemRow,
-} from '../schemas/board';
+} from '../../schemas/board';
 import {
   addBoardItem,
   deleteBoardItem,
@@ -18,31 +15,19 @@ import {
   patchBoardItem,
   purgeBoardItem,
   restoreBoardItem,
-} from '../services/boardItems';
+} from '../../services/boardItems';
 import {
   createBoard,
   deleteBoard,
   listBoards,
   renameBoard,
-} from '../services/boards';
-import { protectedProcedure, router } from '../trpc/init';
-
-// Domain → wire. Resolves each StoredImage ref to a `/api/images/...` URL
-// (or external URL) the frontend can fetch directly. This is the ONE place
-// transport URLs are constructed from service output.
-function toBoardItemWire(row: BoardItemRow): BoardItem {
-  return {
-    ...row,
-    images: row.images.map(({ id, image }) => ({
-      id,
-      url: imageDisplayUrl(image),
-    })),
-  };
-}
+} from '../../services/boards';
+import { protectedProcedure, router } from '../../trpc/init';
+import { toBoardItemWire } from './wire';
 
 export const boardsRouter = router({
   list: protectedProcedure.query(({ ctx }) =>
-    listBoards({ db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } }),
+    listBoards(new ServiceCtx(ctx.db, ctx.images, { userId: ctx.userId })),
   ),
 
   create: protectedProcedure
@@ -74,7 +59,7 @@ export const boardsRouter = router({
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rows = await listBoardItems(
-        { db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } },
+        new ServiceCtx(ctx.db, ctx.images, { userId: ctx.userId }),
         input.boardId,
       );
       return rows.map(toBoardItemWire);
@@ -120,7 +105,7 @@ export const boardsRouter = router({
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const rows = await listTrashedBoardItems(
-        { db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } },
+        new ServiceCtx(ctx.db, ctx.images, { userId: ctx.userId }),
         input.boardId,
       );
       return rows.map(toBoardItemWire);

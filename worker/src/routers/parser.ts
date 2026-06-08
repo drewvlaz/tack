@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
+import { UnsafeUrlError } from '../lib/safeFetch';
 import { ParseResultSchema, ParseUrlBody } from '../schemas/parse';
-import { parseProductUrl } from '../services/parser';
+import { ParseFetchError, parseProductUrl } from '../services/parser';
 import { protectedProcedure } from '../trpc/init';
 
 export const parseUrlProcedure = protectedProcedure
@@ -18,10 +19,25 @@ export const parseUrlProcedure = protectedProcedure
       });
     }
 
-    const result = await parseProductUrl(
-      input.url,
-      ctx.anthropicKey,
-      ctx.images,
-    );
-    return ParseResultSchema.parse(result);
+    try {
+      const result = await parseProductUrl(
+        input.url,
+        ctx.anthropicKey,
+        ctx.images,
+      );
+      return ParseResultSchema.parse(result);
+    } catch (err) {
+      // Upstream-site problems are user-fixable (try another URL); surface
+      // them as BAD_REQUEST with a clear message rather than a generic 500.
+      if (err instanceof UnsafeUrlError) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'That URL isn’t allowed.',
+        });
+      }
+      if (err instanceof ParseFetchError) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+      }
+      throw err;
+    }
   });

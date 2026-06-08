@@ -1,15 +1,4 @@
-import { TRPCError } from '@trpc/server';
-import {
-  and,
-  asc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  type SQL,
-} from 'drizzle-orm';
-import type { Db } from '../db/client';
-import * as schema from '../db/schema';
+import type { HydratedPlacement } from '../db/repos/placements';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
@@ -18,7 +7,6 @@ import {
   type BoardItemRow,
   type PatchBoardItemInput,
 } from '../schemas/board';
-import { assertBoardOwned } from './boards';
 import { fromR2Key, toR2Key } from './images';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -31,101 +19,49 @@ export async function listBoardItems(
   ctx: ServiceCtx,
   boardId: string,
 ): Promise<BoardItemRow[]> {
-  return queryBoardItems(
-    ctx.db,
-    and(
-      eq(schema.boardItems.boardId, boardId),
-      eq(schema.boards.ownerId, ctx.scope.userId),
-      isNull(schema.boardItems.deletedAt),
-    ),
-  );
+  const hydrated = await ctx.placements.listForBoard(boardId);
+  return hydrated.map(toBoardItemRow);
 }
 
 export async function listTrashedBoardItems(
   ctx: ServiceCtx,
   boardId: string,
 ): Promise<BoardItemRow[]> {
-  return queryBoardItems(
-    ctx.db,
-    and(
-      eq(schema.boardItems.boardId, boardId),
-      eq(schema.boards.ownerId, ctx.scope.userId),
-      isNotNull(schema.boardItems.deletedAt),
-    ),
-  );
+  const hydrated = await ctx.placements.listTrashForBoard(boardId);
+  return hydrated.map(toBoardItemRow);
 }
 
-// Single source of truth for the BoardItemRow shape. Callers compose their own
-// where clause; the join + row→domain mapping lives here only. Images are
-// returned as `StoredImage` refs — URL construction is a transport concern
-// owned by `routers/boards.ts`.
-async function queryBoardItems(
-  db: Db,
-  where: SQL | undefined,
-): Promise<BoardItemRow[]> {
-  // INNER JOIN to boards so callers can compose `boards.ownerId = ...`
-  // predicates in `where`. Drizzle's relational query API doesn't expose the
-  // joined columns in `where`, so we drop to the core builder for the join
-  // and re-fetch images in a second query.
-  const rows = await db
-    .select({ bi: schema.boardItems, item: schema.items })
-    .from(schema.boardItems)
-    .innerJoin(schema.boards, eq(schema.boards.id, schema.boardItems.boardId))
-    .innerJoin(schema.items, eq(schema.items.id, schema.boardItems.itemId))
-    .where(where);
-
-  if (rows.length === 0) {
-    return [];
-  }
-
-  const itemIds = [...new Set(rows.map((r) => r.item.id))];
-  const images = await db.query.itemImages.findMany({
-    where: and(
-      inArray(schema.itemImages.itemId, itemIds),
-      isNull(schema.itemImages.deletedAt),
-    ),
-    orderBy: asc(schema.itemImages.displayOrder),
-  });
-  const imagesByItem = new Map<string, typeof images>();
-  for (const img of images) {
-    const list = imagesByItem.get(img.itemId);
-    if (list) {
-      list.push(img);
-    } else {
-      imagesByItem.set(img.itemId, [img]);
-    }
-  }
-
-  return rows
-    .filter(({ item }) => item.deletedAt === null)
-    .map(({ bi, item }): BoardItemRow => {
-      const sortedImages = sortImagesPrimaryFirst(
-        imagesByItem.get(item.id) ?? [],
-        item.primaryImageId,
-      );
-      return {
-        id: bi.id,
-        itemId: bi.itemId,
-        title: item.title,
-        brand: item.brand,
-        description: item.description,
-        price: item.price,
-        currency: item.currency,
-        details: item.details ?? [],
-        images: sortedImages.map((img) => ({
-          id: img.id,
-          image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
-        })),
-        sourceUrl: item.sourceUrl,
-        addedAt: bi.createdAt,
-        updatedAt: item.updatedAt,
-        x: bi.x,
-        y: bi.y,
-        width: bi.width,
-        height: bi.height,
-        zIndex: bi.zIndex,
-      };
-    });
+// Maps the repo's raw joined shape to the domain BoardItemRow. The repo
+// returns scoped + joined data; the service handles StoredImage construction
+// (fromR2Key) and primary-image sorting — both are domain concerns.
+function toBoardItemRow({
+  placement,
+  item,
+  images,
+}: HydratedPlacement): BoardItemRow {
+  const sortedImages = sortImagesPrimaryFirst(images, item.primaryImageId);
+  return {
+    id: placement.id,
+    itemId: placement.itemId,
+    title: item.title,
+    brand: item.brand,
+    description: item.description,
+    price: item.price,
+    currency: item.currency,
+    details: item.details ?? [],
+    images: sortedImages.map((img) => ({
+      id: img.id,
+      image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
+    })),
+    sourceUrl: item.sourceUrl,
+    addedAt: placement.createdAt,
+    updatedAt: item.updatedAt,
+    x: placement.x,
+    y: placement.y,
+    width: placement.width,
+    height: placement.height,
+    zIndex: placement.zIndex,
+  };
 }
 
 function sortImagesPrimaryFirst<T extends { id: string }>(
@@ -149,7 +85,7 @@ export async function patchBoardItem(
   id: string,
   patch: PatchBoardItemInput,
 ): Promise<void> {
-  await assertPlacementOwned(tx, id);
+  await tx.placements.byIdOrThrow(id);
   const update = {
     updatedAt: nowSec(),
     ...(patch.x !== undefined && { x: patch.x }),
@@ -158,12 +94,7 @@ export async function patchBoardItem(
     ...(patch.width !== undefined && { width: patch.width }),
     ...(patch.height !== undefined && { height: patch.height }),
   };
-  tx.stage(
-    tx.db
-      .update(schema.boardItems)
-      .set(update)
-      .where(eq(schema.boardItems.id, id)),
-  );
+  tx.placements.stageUpdate(id, update);
 }
 
 export async function addBoardItem(
@@ -171,61 +102,56 @@ export async function addBoardItem(
   boardId: string,
   input: AddItemInput,
 ): Promise<BoardItemRow> {
-  await assertBoardOwned(tx, boardId);
+  // Verify board ownership BEFORE staging — same-tx reads can't see staged
+  // writes on D1, so this is the only chance to fail-fast on a forged boardId.
+  await tx.boards.byIdOrThrow(boardId);
   const now = nowSec();
   const itemId = genId();
   const boardItemId = genId();
   const imageIds = input.images.map(() => genId());
 
-  tx.stage(
-    tx.db.insert(schema.items).values({
-      id: itemId,
-      ownerId: tx.scope.userId,
-      sourceUrl: input.sourceUrl,
-      title: input.title,
-      brand: input.brand,
-      description: input.description,
-      price: input.price,
-      // `currency` defaults to 'USD' at the column level — only override when
-      // the parser actually extracted an ISO code. Missing currency still
-      // looks like USD on the wire; a real £/€ product persists correctly.
-      ...(input.currency ? { currency: input.currency } : {}),
-      details: input.details.length > 0 ? input.details : null,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
+  tx.items.stageInsert({
+    id: itemId,
+    sourceUrl: input.sourceUrl,
+    title: input.title,
+    brand: input.brand,
+    description: input.description,
+    price: input.price,
+    // `currency` defaults to 'USD' at the column level — only override when
+    // the parser actually extracted an ISO code. Missing currency still
+    // looks like USD on the wire; a real £/€ product persists correctly.
+    ...(input.currency ? { currency: input.currency } : {}),
+    details: input.details.length > 0 ? input.details : null,
+    createdAt: now,
+    updatedAt: now,
+  });
 
   if (input.images.length > 0) {
-    tx.stage(
-      tx.db.insert(schema.itemImages).values(
-        input.images.map((img, i) => ({
-          id: imageIds[i],
-          itemId,
-          r2Key: toR2Key(img),
-          sourceUrl: img.sourceUrl,
-          displayOrder: i,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      ),
+    tx.itemImages.stageInsertMany(
+      input.images.map((img, i) => ({
+        id: imageIds[i],
+        itemId,
+        r2Key: toR2Key(img),
+        sourceUrl: img.sourceUrl,
+        displayOrder: i,
+        createdAt: now,
+        updatedAt: now,
+      })),
     );
   }
 
-  tx.stage(
-    tx.db.insert(schema.boardItems).values({
-      id: boardItemId,
-      boardId,
-      itemId,
-      x: input.x,
-      y: input.y,
-      width: DEFAULT_CARD_WIDTH,
-      height: DEFAULT_CARD_HEIGHT,
-      zIndex: INITIAL_Z_INDEX,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
+  tx.placements.stageInsert({
+    id: boardItemId,
+    boardId,
+    itemId,
+    x: input.x,
+    y: input.y,
+    width: DEFAULT_CARD_WIDTH,
+    height: DEFAULT_CARD_HEIGHT,
+    zIndex: INITIAL_Z_INDEX,
+    createdAt: now,
+    updatedAt: now,
+  });
 
   // Construct the response in memory from inputs + generated IDs. No re-read
   // — the writes haven't been committed yet, so a read wouldn't see them on
@@ -255,45 +181,24 @@ export async function addBoardItem(
 }
 
 export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
-  await assertPlacementOwned(tx, id);
+  await tx.placements.byIdOrThrow(id);
   const now = nowSec();
-  tx.stage(
-    tx.db
-      .update(schema.boardItems)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(schema.boardItems.id, id)),
-  );
+  tx.placements.stageUpdate(id, { deletedAt: now, updatedAt: now });
 }
 
 export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {
-  await assertPlacementOwned(tx, id);
-  tx.stage(
-    tx.db
-      .update(schema.boardItems)
-      .set({ deletedAt: null, updatedAt: nowSec() })
-      .where(eq(schema.boardItems.id, id)),
-  );
+  await tx.placements.byIdOrThrow(id);
+  tx.placements.stageUpdate(id, { deletedAt: null, updatedAt: nowSec() });
 }
 
 export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
-  const placement = await tx.query.boardItems.findFirst({
-    where: eq(schema.boardItems.id, id),
-  });
-  if (!placement) {
-    throw new TRPCError({ code: 'NOT_FOUND' });
-  }
-  await assertBoardOwned(tx, placement.boardId);
+  const placement = await tx.placements.byIdOrThrow(id);
   await stagePurge(tx, [placement.id], [placement.itemId]);
 }
 
 export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
-  await assertBoardOwned(tx, boardId);
-  const trashed = await tx.query.boardItems.findMany({
-    where: and(
-      eq(schema.boardItems.boardId, boardId),
-      isNotNull(schema.boardItems.deletedAt),
-    ),
-  });
+  await tx.boards.byIdOrThrow(boardId);
+  const trashed = await tx.placements.listTrashIdsForBoard(boardId);
   if (trashed.length === 0) {
     return;
   }
@@ -304,37 +209,14 @@ export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
   );
 }
 
-// Confirms the placement exists AND its parent board belongs to the current
-// scope. Throws NOT_FOUND otherwise (so we don't leak existence of other
-// users' placements as FORBIDDEN). Mutations call this before staging writes.
-async function assertPlacementOwned(
-  tx: Tx,
-  placementId: string,
-): Promise<void> {
-  const row = await tx.db
-    .select({ id: schema.boardItems.id })
-    .from(schema.boardItems)
-    .innerJoin(schema.boards, eq(schema.boards.id, schema.boardItems.boardId))
-    .where(
-      and(
-        eq(schema.boardItems.id, placementId),
-        eq(schema.boards.ownerId, tx.scope.userId),
-      ),
-    )
-    .limit(1);
-  if (row.length === 0) {
-    throw new TRPCError({ code: 'NOT_FOUND' });
-  }
-}
-
 // Stages the SQL writes for a hard-purge of the given placements + any items
 // that become orphans + their R2 blob cleanup. Reads are done eagerly to
 // compute orphans; writes accumulate in the Tx and commit at the boundary.
 // Callers (e.g. `deleteBoard`) can stage additional statements afterward so
 // the entire procedure still commits in one batch.
 //
-// Caller is responsible for ownership checks. This function trusts every id
-// passed in has already been authorized.
+// Every read and write goes through scoped repos, so even if a caller forgets
+// the parent ownership check, this function can't reach across users.
 export async function stagePurge(
   tx: Tx,
   placementIds: string[],
@@ -347,10 +229,7 @@ export async function stagePurge(
   const uniqueItemIds = [...new Set(itemIds)];
   const placementIdSet = new Set(placementIds);
 
-  const allPlacements = await tx.query.boardItems.findMany({
-    where: inArray(schema.boardItems.itemId, uniqueItemIds),
-    columns: { id: true, itemId: true },
-  });
+  const allPlacements = await tx.placements.findReferencingItems(uniqueItemIds);
   const stillReferenced = new Set(
     allPlacements.filter((p) => !placementIdSet.has(p.id)).map((p) => p.itemId),
   );
@@ -358,22 +237,10 @@ export async function stagePurge(
     (iid) => !stillReferenced.has(iid),
   );
 
-  const orphanImages = orphanItemIds.length
-    ? await tx.query.itemImages.findMany({
-        where: inArray(schema.itemImages.itemId, orphanItemIds),
-      })
-    : [];
+  const orphanImages = await tx.itemImages.findForItems(orphanItemIds);
 
-  tx.stage(
-    tx.db
-      .delete(schema.boardItems)
-      .where(inArray(schema.boardItems.id, placementIds)),
-  );
-  if (orphanItemIds.length) {
-    tx.stage(
-      tx.db.delete(schema.items).where(inArray(schema.items.id, orphanItemIds)),
-    );
-  }
+  tx.placements.stageDeleteMany(placementIds);
+  tx.items.stageDeleteMany(orphanItemIds);
   if (orphanImages.length) {
     tx.scheduleBlobCleanup(orphanImages);
   }

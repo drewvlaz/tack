@@ -1,6 +1,16 @@
 import type { BatchItem } from 'drizzle-orm/batch';
 import { deleteStoredImage, fromR2Key } from '../services/images';
 import type { Db } from './client';
+import {
+  BoardsReadRepo,
+  BoardsTxRepo,
+  ItemImagesReadRepo,
+  ItemImagesTxRepo,
+  ItemsReadRepo,
+  ItemsTxRepo,
+  PlacementsReadRepo,
+  PlacementsTxRepo,
+} from './repos';
 
 // One drizzle statement that can be passed to `db.batch([...])`.
 export type BatchStatement = BatchItem<'sqlite'>;
@@ -8,17 +18,37 @@ export type BatchStatement = BatchItem<'sqlite'>;
 export type BlobRef = { r2Key: string; sourceUrl: string | null };
 
 // Identity of the caller, attached to every Tx and to read-only ServiceCtx.
-// Services read this to filter queries / stamp writes — they never accept a
+// Repos read this to filter queries / stamp writes — services never accept a
 // userId as a free parameter.
 export type Scope = { userId: string };
 
-// Read-only service handle. Carries the same scope as Tx so list/get
-// services can apply ownership filters without taking userId out-of-band.
-export type ServiceCtx = { db: Db; r2: R2Bucket; scope: Scope };
+// Read-only handle. Exposes one scoped repo per owned table; services do
+// list/get through `ctx.boards`, `ctx.items`, etc. instead of constructing
+// drizzle calls directly. Reaching past these accessors to `ctx.db` is a
+// smell — see .claude/skills/service-design.
+export class ServiceCtx {
+  readonly boards: BoardsReadRepo;
+  readonly items: ItemsReadRepo;
+  readonly placements: PlacementsReadRepo;
+  readonly itemImages: ItemImagesReadRepo;
 
-// Logical transaction handle. Services that mutate take `tx: Tx` instead of
-// `db: Db`. Writes are STAGED (recorded in an accumulator) but not executed;
-// reads pass through directly. `withTransaction` commits everything in one
+  constructor(
+    public readonly db: Db,
+    public readonly r2: R2Bucket,
+    public readonly scope: Scope,
+  ) {
+    this.boards = new BoardsReadRepo(db, scope);
+    this.items = new ItemsReadRepo(db, scope);
+    this.placements = new PlacementsReadRepo(db, scope);
+    this.itemImages = new ItemImagesReadRepo(db, scope);
+  }
+}
+
+// Logical transaction handle. Services that mutate take `tx: Tx`; the per-
+// table repos auto-stamp ownerId on insert and auto-AND the scope filter on
+// every read/update/delete, so a forgetful caller can't leak across users.
+// Writes are STAGED (recorded in an accumulator) but not executed; reads
+// pass through directly. `withTransaction` commits everything in one
 // `db.batch([...])` at the boundary — D1's only atomic primitive.
 //
 // On D1 this is a one-batch-at-commit abstraction. On Durable Object SQLite
@@ -28,17 +58,20 @@ export class Tx {
   private readonly statements: BatchStatement[] = [];
   private readonly blobsToDelete: BlobRef[] = [];
 
+  readonly boards: BoardsTxRepo;
+  readonly items: ItemsTxRepo;
+  readonly placements: PlacementsTxRepo;
+  readonly itemImages: ItemImagesTxRepo;
+
   constructor(
     public readonly db: Db,
     public readonly r2: R2Bucket,
     public readonly scope: Scope,
-  ) {}
-
-  // Reads pass through. Reads issued during a Tx do NOT see writes staged
-  // earlier in the same Tx — D1 doesn't commit until `withTransaction` does.
-  // Pattern: do all conditional reads first, then stage writes.
-  get query() {
-    return this.db.query;
+  ) {
+    this.boards = new BoardsTxRepo(this);
+    this.items = new ItemsTxRepo(this);
+    this.placements = new PlacementsTxRepo(this);
+    this.itemImages = new ItemImagesTxRepo(this);
   }
 
   stage(...stmts: BatchStatement[]): void {

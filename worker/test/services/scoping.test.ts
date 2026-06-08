@@ -3,8 +3,8 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDb } from '../../src/db/client';
 import * as schema from '../../src/db/schema';
-import type { Scope, ServiceCtx } from '../../src/db/tx';
-import { withTransaction } from '../../src/db/tx';
+import type { Scope } from '../../src/db/tx';
+import { ServiceCtx, withTransaction } from '../../src/db/tx';
 import {
   addBoardItem,
   deleteBoardItem,
@@ -26,7 +26,7 @@ function db() {
 }
 
 function ctx(scope: Scope): ServiceCtx {
-  return { db: db(), r2: env.IMAGES, scope };
+  return new ServiceCtx(db(), env.IMAGES, scope);
 }
 
 async function wipe() {

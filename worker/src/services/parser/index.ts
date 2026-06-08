@@ -1,4 +1,4 @@
-import { safeFetch } from '../../lib/safeFetch';
+import { safeFetch, UnsafeUrlError } from '../../lib/safeFetch';
 import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
@@ -13,6 +13,22 @@ import {
   type ParsedDetail,
   type ParsedMeta,
 } from './meta';
+
+// Thrown when the upstream HTTP fetch fails — either the connection errored
+// (DNS/TLS/blocked subrequest, surfaced as a runtime Error) or the response
+// status is non-2xx (bot challenge, 404, 5xx). Routers catch this and map to
+// a user-friendly TRPCError; callers downstream of fetch don't see raw runtime
+// strings like "internal error; reference = …".
+export class ParseFetchError extends Error {
+  constructor(
+    message: string,
+    public readonly url: string,
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ParseFetchError';
+  }
+}
 
 const MAX_IMAGES = 12;
 
@@ -113,17 +129,36 @@ export async function fetchAndParseMeta(
   // Mimic a real browser. Beats casual UA-string checks (most plain Shopify
   // stores, mid-tier retailers). Won't beat real anti-bot (Cloudflare bot mode,
   // DataDome, PerimeterX) — those need a headless browser or proxy.
-  const res = await safeFetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
+  let res: Response;
+  try {
+    res = await safeFetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+  } catch (err) {
+    // UnsafeUrlError bubbles up so the router can label it distinctly;
+    // anything else (Workers runtime "internal error; reference = …",
+    // AbortError, DNS/TLS failure) becomes a ParseFetchError so the router
+    // can return a friendly 400 instead of a 500.
+    if (err instanceof UnsafeUrlError) {
+      throw err;
+    }
+    throw new ParseFetchError(
+      `Couldn't reach ${new URL(url).hostname}. The site may be blocking automated requests.`,
+      url,
+    );
+  }
   if (!res.ok) {
-    throw new Error(`Fetch failed: ${res.status}`);
+    throw new ParseFetchError(
+      `${new URL(url).hostname} responded with HTTP ${res.status}. The site may be blocking automated requests.`,
+      url,
+      res.status,
+    );
   }
 
   const html = await readBodyCapped(res, MAX_HTML_BYTES);

@@ -1,6 +1,3 @@
-import { TRPCError } from '@trpc/server';
-import { and, asc, eq, isNull } from 'drizzle-orm';
-import * as schema from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
@@ -10,13 +7,7 @@ import { stagePurge } from './boardItems';
 // ---------- reads ----------
 
 export async function listBoards(ctx: ServiceCtx): Promise<Board[]> {
-  const rows = await ctx.db.query.boards.findMany({
-    where: and(
-      eq(schema.boards.ownerId, ctx.scope.userId),
-      isNull(schema.boards.deletedAt),
-    ),
-    orderBy: asc(schema.boards.createdAt),
-  });
+  const rows = await ctx.boards.listActive();
   return rows.map((b) => ({ id: b.id, name: b.name, createdAt: b.createdAt }));
 }
 
@@ -25,15 +16,7 @@ export async function listBoards(ctx: ServiceCtx): Promise<Board[]> {
 export function createBoard(tx: Tx, name: string): Board {
   const now = nowSec();
   const id = genId();
-  tx.stage(
-    tx.db.insert(schema.boards).values({
-      id,
-      ownerId: tx.scope.userId,
-      name,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
+  tx.boards.stageInsert({ id, name, createdAt: now, updatedAt: now });
   return { id, name, createdAt: now };
 }
 
@@ -42,20 +25,16 @@ export function createBoard(tx: Tx, name: string): Board {
 // all in a single atomic batch via the Tx. There's no board-restore UI, so
 // soft-deleting the board would just strand placements and blobs indefinitely.
 export async function deleteBoard(tx: Tx, id: string): Promise<void> {
-  await assertBoardOwned(tx, id);
+  await tx.boards.byIdOrThrow(id);
 
-  const placements = await tx.query.boardItems.findMany({
-    where: eq(schema.boardItems.boardId, id),
-    columns: { id: true, itemId: true },
-  });
-
+  const placements = await tx.placements.listIdsForBoard(id);
   await stagePurge(
     tx,
     placements.map((p) => p.id),
     placements.map((p) => p.itemId),
   );
 
-  tx.stage(tx.db.delete(schema.boards).where(eq(schema.boards.id, id)));
+  tx.boards.stageDelete(id);
 }
 
 export async function renameBoard(
@@ -67,32 +46,7 @@ export async function renameBoard(
   // yet. Read the current row to confirm existence (throw early on 404), then
   // construct the response from the read + new name. The actual write happens
   // at commit time.
-  const existing = await assertBoardOwned(tx, id);
-  tx.stage(
-    tx.db
-      .update(schema.boards)
-      .set({ name, updatedAt: nowSec() })
-      .where(eq(schema.boards.id, id)),
-  );
+  const existing = await tx.boards.byIdOrThrow(id);
+  tx.boards.stageUpdate(id, { name, updatedAt: nowSec() });
   return { id: existing.id, name, createdAt: existing.createdAt };
-}
-
-// Used by `boardItems` callers too: confirms the board exists AND belongs to
-// the current scope. Throws NOT_FOUND on miss (don't leak existence of
-// other users' boards as FORBIDDEN).
-export async function assertBoardOwned(
-  tx: Tx,
-  boardId: string,
-): Promise<{ id: string; createdAt: number }> {
-  const existing = await tx.query.boards.findFirst({
-    where: and(
-      eq(schema.boards.id, boardId),
-      eq(schema.boards.ownerId, tx.scope.userId),
-    ),
-    columns: { id: true, createdAt: true },
-  });
-  if (!existing) {
-    throw new TRPCError({ code: 'NOT_FOUND' });
-  }
-  return existing;
 }
