@@ -50,6 +50,13 @@
       "when": 1780859881663,
       "tag": "0006_soft_delete_items_images",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1780877074800,
+      "tag": "0007_users_sessions_ownership",
+      "breakpoints": true
     }
   ]
 }

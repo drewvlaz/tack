@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import {
   and,
   asc,
@@ -9,7 +10,7 @@ import {
 } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
-import type { Tx } from '../db/tx';
+import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import {
@@ -17,6 +18,7 @@ import {
   type BoardItemRow,
   type PatchBoardItemInput,
 } from '../schemas/board';
+import { assertBoardOwned } from './boards';
 import { fromR2Key, toR2Key } from './images';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -26,26 +28,28 @@ const INITIAL_Z_INDEX = 0;
 // ---------- reads (no Tx; read-only) ----------
 
 export async function listBoardItems(
-  db: Db,
+  ctx: ServiceCtx,
   boardId: string,
 ): Promise<BoardItemRow[]> {
   return queryBoardItems(
-    db,
+    ctx.db,
     and(
       eq(schema.boardItems.boardId, boardId),
+      eq(schema.boards.ownerId, ctx.scope.userId),
       isNull(schema.boardItems.deletedAt),
     ),
   );
 }
 
 export async function listTrashedBoardItems(
-  db: Db,
+  ctx: ServiceCtx,
   boardId: string,
 ): Promise<BoardItemRow[]> {
   return queryBoardItems(
-    db,
+    ctx.db,
     and(
       eq(schema.boardItems.boardId, boardId),
+      eq(schema.boards.ownerId, ctx.scope.userId),
       isNotNull(schema.boardItems.deletedAt),
     ),
   );
@@ -59,43 +63,62 @@ async function queryBoardItems(
   db: Db,
   where: SQL | undefined,
 ): Promise<BoardItemRow[]> {
-  const results = await db.query.boardItems.findMany({
-    where,
-    with: {
-      item: {
-        with: {
-          images: {
-            where: isNull(schema.itemImages.deletedAt),
-            orderBy: asc(schema.itemImages.displayOrder),
-          },
-        },
-      },
-    },
-  });
+  // INNER JOIN to boards so callers can compose `boards.ownerId = ...`
+  // predicates in `where`. Drizzle's relational query API doesn't expose the
+  // joined columns in `where`, so we drop to the core builder for the join
+  // and re-fetch images in a second query.
+  const rows = await db
+    .select({ bi: schema.boardItems, item: schema.items })
+    .from(schema.boardItems)
+    .innerJoin(schema.boards, eq(schema.boards.id, schema.boardItems.boardId))
+    .innerJoin(schema.items, eq(schema.items.id, schema.boardItems.itemId))
+    .where(where);
 
-  return results
-    .filter((bi) => bi.item.deletedAt === null)
-    .map((bi): BoardItemRow => {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const itemIds = [...new Set(rows.map((r) => r.item.id))];
+  const images = await db.query.itemImages.findMany({
+    where: and(
+      inArray(schema.itemImages.itemId, itemIds),
+      isNull(schema.itemImages.deletedAt),
+    ),
+    orderBy: asc(schema.itemImages.displayOrder),
+  });
+  const imagesByItem = new Map<string, typeof images>();
+  for (const img of images) {
+    const list = imagesByItem.get(img.itemId);
+    if (list) {
+      list.push(img);
+    } else {
+      imagesByItem.set(img.itemId, [img]);
+    }
+  }
+
+  return rows
+    .filter(({ item }) => item.deletedAt === null)
+    .map(({ bi, item }): BoardItemRow => {
       const sortedImages = sortImagesPrimaryFirst(
-        bi.item.images,
-        bi.item.primaryImageId,
+        imagesByItem.get(item.id) ?? [],
+        item.primaryImageId,
       );
       return {
         id: bi.id,
         itemId: bi.itemId,
-        title: bi.item.title,
-        brand: bi.item.brand,
-        description: bi.item.description,
-        price: bi.item.price,
-        currency: bi.item.currency,
-        details: bi.item.details ?? [],
+        title: item.title,
+        brand: item.brand,
+        description: item.description,
+        price: item.price,
+        currency: item.currency,
+        details: item.details ?? [],
         images: sortedImages.map((img) => ({
           id: img.id,
           image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
         })),
-        sourceUrl: bi.item.sourceUrl,
+        sourceUrl: item.sourceUrl,
         addedAt: bi.createdAt,
-        updatedAt: bi.item.updatedAt,
+        updatedAt: item.updatedAt,
         x: bi.x,
         y: bi.y,
         width: bi.width,
@@ -121,27 +144,20 @@ function sortImagesPrimaryFirst<T extends { id: string }>(
 
 // ---------- mutations (Tx; staged into the request's single commit) ----------
 
-export function patchBoardItem(
+export async function patchBoardItem(
   tx: Tx,
   id: string,
   patch: PatchBoardItemInput,
-): void {
-  const update: Record<string, number> = { updatedAt: nowSec() };
-  if (patch.x !== undefined) {
-    update.x = patch.x;
-  }
-  if (patch.y !== undefined) {
-    update.y = patch.y;
-  }
-  if (patch.zIndex !== undefined) {
-    update.zIndex = patch.zIndex;
-  }
-  if (patch.width !== undefined) {
-    update.width = patch.width;
-  }
-  if (patch.height !== undefined) {
-    update.height = patch.height;
-  }
+): Promise<void> {
+  await assertPlacementOwned(tx, id);
+  const update = {
+    updatedAt: nowSec(),
+    ...(patch.x !== undefined && { x: patch.x }),
+    ...(patch.y !== undefined && { y: patch.y }),
+    ...(patch.zIndex !== undefined && { zIndex: patch.zIndex }),
+    ...(patch.width !== undefined && { width: patch.width }),
+    ...(patch.height !== undefined && { height: patch.height }),
+  };
   tx.stage(
     tx.db
       .update(schema.boardItems)
@@ -150,11 +166,12 @@ export function patchBoardItem(
   );
 }
 
-export function addBoardItem(
+export async function addBoardItem(
   tx: Tx,
   boardId: string,
   input: AddItemInput,
-): BoardItemRow {
+): Promise<BoardItemRow> {
+  await assertBoardOwned(tx, boardId);
   const now = nowSec();
   const itemId = genId();
   const boardItemId = genId();
@@ -163,6 +180,7 @@ export function addBoardItem(
   tx.stage(
     tx.db.insert(schema.items).values({
       id: itemId,
+      ownerId: tx.scope.userId,
       sourceUrl: input.sourceUrl,
       title: input.title,
       brand: input.brand,
@@ -236,7 +254,8 @@ export function addBoardItem(
   };
 }
 
-export function deleteBoardItem(tx: Tx, id: string): void {
+export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
+  await assertPlacementOwned(tx, id);
   const now = nowSec();
   tx.stage(
     tx.db
@@ -246,7 +265,8 @@ export function deleteBoardItem(tx: Tx, id: string): void {
   );
 }
 
-export function restoreBoardItem(tx: Tx, id: string): void {
+export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {
+  await assertPlacementOwned(tx, id);
   tx.stage(
     tx.db
       .update(schema.boardItems)
@@ -260,12 +280,14 @@ export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
     where: eq(schema.boardItems.id, id),
   });
   if (!placement) {
-    return;
+    throw new TRPCError({ code: 'NOT_FOUND' });
   }
+  await assertBoardOwned(tx, placement.boardId);
   await stagePurge(tx, [placement.id], [placement.itemId]);
 }
 
 export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
+  await assertBoardOwned(tx, boardId);
   const trashed = await tx.query.boardItems.findMany({
     where: and(
       eq(schema.boardItems.boardId, boardId),
@@ -282,11 +304,37 @@ export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
   );
 }
 
+// Confirms the placement exists AND its parent board belongs to the current
+// scope. Throws NOT_FOUND otherwise (so we don't leak existence of other
+// users' placements as FORBIDDEN). Mutations call this before staging writes.
+async function assertPlacementOwned(
+  tx: Tx,
+  placementId: string,
+): Promise<void> {
+  const row = await tx.db
+    .select({ id: schema.boardItems.id })
+    .from(schema.boardItems)
+    .innerJoin(schema.boards, eq(schema.boards.id, schema.boardItems.boardId))
+    .where(
+      and(
+        eq(schema.boardItems.id, placementId),
+        eq(schema.boards.ownerId, tx.scope.userId),
+      ),
+    )
+    .limit(1);
+  if (row.length === 0) {
+    throw new TRPCError({ code: 'NOT_FOUND' });
+  }
+}
+
 // Stages the SQL writes for a hard-purge of the given placements + any items
 // that become orphans + their R2 blob cleanup. Reads are done eagerly to
 // compute orphans; writes accumulate in the Tx and commit at the boundary.
 // Callers (e.g. `deleteBoard`) can stage additional statements afterward so
 // the entire procedure still commits in one batch.
+//
+// Caller is responsible for ownership checks. This function trusts every id
+// passed in has already been authorized.
 export async function stagePurge(
   tx: Tx,
   placementIds: string[],

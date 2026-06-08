@@ -33,3 +33,6 @@ simple = { limit = 30, period = 60 }
 
 [vars]
 ENVIRONMENT = "development"
+# Comma-separated email allowlist for signup. Add yourself to sign up locally.
+# Override in `.dev.vars` (gitignored) if you don't want your email in source.
+INVITE_EMAILS = "REDACTED@example.com"

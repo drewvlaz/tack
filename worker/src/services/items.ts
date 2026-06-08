@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import type { Tx } from '../db/tx';
@@ -13,6 +14,7 @@ export async function setPrimaryImage(
   itemId: string,
   imageId: string | null,
 ): Promise<void> {
+  await assertItemOwned(tx, itemId);
   if (imageId !== null) {
     const owned = await tx.query.itemImages.findFirst({
       where: and(
@@ -66,10 +68,14 @@ export async function reparseItem(
   anthropicKey: string,
 ): Promise<ReparseResult> {
   const item = await tx.query.items.findFirst({
-    where: and(eq(schema.items.id, itemId), isNull(schema.items.deletedAt)),
+    where: and(
+      eq(schema.items.id, itemId),
+      eq(schema.items.ownerId, tx.scope.userId),
+      isNull(schema.items.deletedAt),
+    ),
   });
   if (!item) {
-    throw new Error(`Item not found: ${itemId}`);
+    throw new TRPCError({ code: 'NOT_FOUND' });
   }
 
   const { meta } = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
@@ -165,4 +171,17 @@ export async function reparseItem(
   tx.scheduleBlobCleanup(existing);
 
   return { id: itemId, updated, imageCount: meta.imageUrls.length };
+}
+
+async function assertItemOwned(tx: Tx, itemId: string): Promise<void> {
+  const row = await tx.query.items.findFirst({
+    where: and(
+      eq(schema.items.id, itemId),
+      eq(schema.items.ownerId, tx.scope.userId),
+    ),
+    columns: { id: true },
+  });
+  if (!row) {
+    throw new TRPCError({ code: 'NOT_FOUND' });
+  }
 }

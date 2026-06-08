@@ -25,7 +25,7 @@ import {
   listBoards,
   renameBoard,
 } from '../services/boards';
-import { publicProcedure, router } from '../trpc/init';
+import { protectedProcedure, router } from '../trpc/init';
 
 // Domain → wire. Resolves each StoredImage ref to a `/api/images/...` URL
 // (or external URL) the frontend can fetch directly. This is the ONE place
@@ -41,96 +41,116 @@ function toBoardItemWire(row: BoardItemRow): BoardItem {
 }
 
 export const boardsRouter = router({
-  list: publicProcedure.query(({ ctx }) => listBoards(ctx.db)),
+  list: protectedProcedure.query(({ ctx }) =>
+    listBoards({ db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } }),
+  ),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(CreateBoardBody)
     .mutation(({ ctx, input }) =>
-      withTransaction(ctx.db, ctx.images, async (tx) =>
+      withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, async (tx) =>
         createBoard(tx, input.name),
       ),
     ),
 
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, (tx) =>
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
         deleteBoard(tx, input.id),
       );
       return { ok: true as const };
     }),
 
-  rename: publicProcedure
+  rename: protectedProcedure
     .input(RenameBoardBody)
     .mutation(({ ctx, input }) =>
-      withTransaction(ctx.db, ctx.images, (tx) =>
+      withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
         renameBoard(tx, input.id, input.name),
       ),
     ),
 
-  getItems: publicProcedure
+  getItems: protectedProcedure
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const rows = await listBoardItems(ctx.db, input.boardId);
+      const rows = await listBoardItems(
+        { db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } },
+        input.boardId,
+      );
       return rows.map(toBoardItemWire);
     }),
 
-  patchItem: publicProcedure
+  patchItem: protectedProcedure
     .input(z.object({ id: z.string(), patch: PatchBoardItemBody }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, async (tx) =>
-        patchBoardItem(tx, input.id, input.patch),
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => patchBoardItem(tx, input.id, input.patch),
       );
       return { ok: true as const };
     }),
 
-  addItem: publicProcedure
+  addItem: protectedProcedure
     .input(z.object({ boardId: z.string(), item: AddItemBody }))
     .mutation(async ({ ctx, input }) => {
-      const row = await withTransaction(ctx.db, ctx.images, async (tx) =>
-        addBoardItem(tx, input.boardId, input.item),
+      const row = await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => addBoardItem(tx, input.boardId, input.item),
       );
       return toBoardItemWire(row);
     }),
 
-  deleteItem: publicProcedure
+  deleteItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, async (tx) =>
-        deleteBoardItem(tx, input.id),
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => deleteBoardItem(tx, input.id),
       );
       return { ok: true as const };
     }),
 
-  listTrash: publicProcedure
+  listTrash: protectedProcedure
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const rows = await listTrashedBoardItems(ctx.db, input.boardId);
+      const rows = await listTrashedBoardItems(
+        { db: ctx.db, r2: ctx.images, scope: { userId: ctx.userId } },
+        input.boardId,
+      );
       return rows.map(toBoardItemWire);
     }),
 
-  restoreItem: publicProcedure
+  restoreItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, async (tx) =>
-        restoreBoardItem(tx, input.id),
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => restoreBoardItem(tx, input.id),
       );
       return { ok: true as const };
     }),
 
-  purgeItem: publicProcedure
+  purgeItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, (tx) =>
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
         purgeBoardItem(tx, input.id),
       );
       return { ok: true as const };
     }),
 
-  emptyTrash: publicProcedure
+  emptyTrash: protectedProcedure
     .input(z.object({ boardId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await withTransaction(ctx.db, ctx.images, (tx) =>
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
         emptyBoardTrash(tx, input.boardId),
       );
       return { ok: true as const };

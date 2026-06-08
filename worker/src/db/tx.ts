@@ -7,6 +7,15 @@ export type BatchStatement = BatchItem<'sqlite'>;
 
 export type BlobRef = { r2Key: string; sourceUrl: string | null };
 
+// Identity of the caller, attached to every Tx and to read-only ServiceCtx.
+// Services read this to filter queries / stamp writes — they never accept a
+// userId as a free parameter.
+export type Scope = { userId: string };
+
+// Read-only service handle. Carries the same scope as Tx so list/get
+// services can apply ownership filters without taking userId out-of-band.
+export type ServiceCtx = { db: Db; r2: R2Bucket; scope: Scope };
+
 // Logical transaction handle. Services that mutate take `tx: Tx` instead of
 // `db: Db`. Writes are STAGED (recorded in an accumulator) but not executed;
 // reads pass through directly. `withTransaction` commits everything in one
@@ -22,6 +31,7 @@ export class Tx {
   constructor(
     public readonly db: Db,
     public readonly r2: R2Bucket,
+    public readonly scope: Scope,
   ) {}
 
   // Reads pass through. Reads issued during a Tx do NOT see writes staged
@@ -56,9 +66,10 @@ export class Tx {
 export async function withTransaction<T>(
   db: Db,
   r2: R2Bucket,
+  scope: Scope,
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
-  const tx = new Tx(db, r2);
+  const tx = new Tx(db, r2, scope);
   // If `fn` throws, neither the SQL batch nor the R2 cleanup runs.
   const result = await fn(tx);
 
