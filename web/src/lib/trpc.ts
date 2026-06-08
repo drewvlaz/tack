@@ -6,6 +6,9 @@ export const trpc = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
       url: `${import.meta.env.VITE_API_URL ?? 'http://localhost:8787'}/trpc`,
+      // Send the session cookie cross-origin. CORS on the worker is
+      // explicitly origin-locked with `credentials: true` to accept this.
+      fetch: (url, opts) => fetch(url, { ...opts, credentials: 'include' }),
     }),
   ],
 });

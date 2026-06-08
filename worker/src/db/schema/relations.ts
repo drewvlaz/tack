@@ -3,13 +3,27 @@ import { boardItems } from './boardItems';
 import { boards } from './boards';
 import { itemImages } from './itemImages';
 import { items } from './items';
+import { sessions } from './sessions';
+import { users } from './users';
 
-export const boardsRelations = relations(boards, ({ many }) => ({
-  boardItems: many(boardItems),
+export const usersRelations = relations(users, ({ many }) => ({
+  boards: many(boards),
+  items: many(items),
+  sessions: many(sessions),
 }));
 
-export const itemsRelations = relations(items, ({ many }) => ({
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));
+
+export const boardsRelations = relations(boards, ({ many, one }) => ({
+  boardItems: many(boardItems),
+  owner: one(users, { fields: [boards.ownerId], references: [users.id] }),
+}));
+
+export const itemsRelations = relations(items, ({ many, one }) => ({
   images: many(itemImages),
+  owner: one(users, { fields: [items.ownerId], references: [users.id] }),
 }));
 
 export const itemImagesRelations = relations(itemImages, ({ one }) => ({

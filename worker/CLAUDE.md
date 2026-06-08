@@ -63,14 +63,16 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 
 **Forward path to collab (Durable Objects).** When per-board write logic moves into a `BoardDO`, the same `Tx` shape will wrap `state.storage.transaction(cb)` instead of a deferred batch — services keep the `(tx, ...)` signature. The migration is at the `withTransaction` implementation, not at the service surface.
 
-**Resource scoping (future).** When auth lands, `Tx` will carry a `scope` field (`{ userId, kind }`) populated by the router from the authenticated context. Services will read `tx.scope` and apply it to their reads/writes (e.g. `eq(boards.ownerId, tx.scope.userId)`). Read-only services that don't take Tx today will need a parallel `Ctx` shape carrying scope. Leave this slot open; don't pretend it's already there.
+**Resource scoping.** `Tx` carries `scope: { userId }`, populated by the router from the authenticated context. Mutation services read `tx.scope.userId` and apply it to reads/writes (e.g. `eq(boards.ownerId, tx.scope.userId)`). Read-only services take a `ServiceCtx = { db, r2, scope }` (also defined in `db/tx.ts`) — same scope, different transport. Pattern: every read filters by ownerId; every mutation does a SELECT ownership check before staging writes, throwing `TRPCError({ code: 'NOT_FOUND' })` on miss (don't leak existence of other users' rows as FORBIDDEN). See `services/boards.ts:assertBoardOwned` and `services/boardItems.ts:assertPlacementOwned` for the canonical pattern.
 
 **Read-then-write stale-check windows** (not partial commits — the write itself is still atomic):
 
 - `setPrimaryImage` SELECTs for ownership before staging the UPDATE. The image could be soft-deleted between the SELECT and the eventual commit. Worst case: primary points at a just-deleted image; the list-time filter resolves it on next read.
 - `reparseItem` interleaves a Claude call and R2 uploads between its reads and stages. Concurrent reparses for the same item are last-write-wins on `items` columns; image batches may also interleave. Don't fire concurrent reparses for the same item.
 
-**Context shape:** `{ db, images, anthropicKey }`. Built in `index.ts` per request from `c.env`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
+**Context shape:** `{ db, images, anthropicKey, parseLimiter, clientIp, userId, sessionId }`. Built in `index.ts` per request from `c.env`; `userId`/`sessionId` come from looking up the `tack_sess` cookie via `services/auth.ts:lookupSession`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
+
+**Procedures:** every tRPC procedure uses `protectedProcedure` (from `trpc/init.ts`), which throws `UNAUTHORIZED` if `ctx.userId` is null and otherwise narrows it to a non-null string for the handler. There are no `publicProcedure`s — auth on the Hono side (POST `/api/auth/{signup,login,logout}`, GET `/api/auth/me`) handles the bootstrap.
 
 **Images don't go through tRPC.** Bytes stream from R2 via the Hono route `GET /api/images/*` (`routes/images.ts`). tRPC returns the `/api/images/...` URL only; the frontend fetches the actual image directly.
 
@@ -82,10 +84,15 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 - `IMAGES` — R2 bucket `fashion-mood-images`.
 - `ANTHROPIC_API_KEY` — set as a worker secret (or in `.dev.vars` locally, which is gitignored).
 - `PARSE_LIMITER` — first-party rate-limit binding (`[[ratelimits]]` block), 30 requests per 60s per `cf-connecting-ip`. Only `parseUrl` consults it; the rest of the API isn't rate-limited yet.
+- `INVITE_EMAILS` — comma-separated email allowlist for signup. Read by `services/auth.ts:parseAllowlist`. Add yourself to sign up locally; override in `.dev.vars` if you don't want your email in source.
 
-## CORS / auth posture
+## CORS / auth
 
-CORS is currently locked to localhost dev origins (`5173`/`5174`) in `index.ts`. **The worker has no auth yet** — every tRPC procedure is `publicProcedure`. Before any production deploy, add auth and extend the CORS allowlist to the deployed frontend origin. See the `TODO(auth)` marker in `index.ts`.
+CORS is locked to localhost dev origins (`5173`/`5174`) in `index.ts` with `credentials: true` so the session cookie can ride along. Adding production: extend the allowlist with the deployed frontend origin — `credentials: true` requires an explicit origin, never `*`.
+
+Auth is email + password with sessions stored in D1 (`sessions` table) and an opaque session id sent as the `tack_sess` cookie (HttpOnly, SameSite=Lax, Secure in non-dev, 30-day TTL). Hono routes at `/api/auth/{signup,login,logout,me}` (`routes/auth.ts`); tRPC reads the cookie in `createContext` and exposes `ctx.userId` to procedures. Passwords are PBKDF2-SHA256 / 600k iterations (OWASP 2023), stored as a self-describing PHC string (`pbkdf2$600000$<salt>$<hash>`). Signup is gated by the `INVITE_EMAILS` allowlist — open signup is off.
+
+Local dev seed creates fixture user `dev@local` with password `tackdev123` (see `seed.sql`); sign in with those to see the seeded board. Real signup requires an email in `INVITE_EMAILS`.
 
 ## Cron triggers
 
@@ -99,7 +106,9 @@ Regenerate Cloudflare types after binding changes: `pnpm cf-typegen`.
 
 Schema lives in `src/db/schema/` — one file per table, with `relations.ts` holding all cross-table relations (separated so the table files don't import each other and risk circular FK references). The barrel `index.ts` is what `drizzle.config.ts` and `createDb` point at. Tables and relations:
 
-- `boards` ←(many)— `board_items` —(one)→ `items` —(many)— `item_images`
+- `users` —(many)→ `boards` ←(many)— `board_items` —(one)→ `items` —(many)→ `item_images`
+- `users` —(many)→ `sessions`
+- `boards.ownerId` and `items.ownerId` FK into `users(id)` with `ON DELETE cascade`. `board_items` and `item_images` are scoped transitively via their parent.
 - `board_items` is the join table with placement (x, y, width, height, z_index). Unique on `(board_id, item_id)`.
 - `items` is the canonical product. `item_images` holds N R2-backed images, ordered by `display_order`.
 
@@ -116,6 +125,16 @@ pnpm db:studio                            # drizzle-kit studio UI
 ```
 
 Always pass `--name <snake_case_description>` to `db:generate` so the file is named after what changes (e.g. `0002_base_timestamps.sql`, not drizzle's random `0006_calm_vulcan.sql`). The name is the only at-a-glance record of intent in the migrations folder.
+
+**Migrations must preserve existing data.** Treat every generated migration as if it's about to run against production with real user boards in it. Before applying, read the generated SQL and confirm it doesn't destroy data:
+
+- **Never** edit a migration to add `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, or `DELETE FROM` against existing data — even if drizzle-kit suggests it. If a schema change forces drizzle to emit a destructive statement (e.g. renaming a column → drizzle's default is `DROP` + `ADD`), rewrite the migration by hand as `ALTER TABLE ... RENAME COLUMN`, or split into add-new-column → backfill → drop-old-column over multiple deploys.
+- **No backfill = data loss.** Adding a `NOT NULL` column without a default to a non-empty table will fail at apply time; with a default, rows get the default and the prior signal is gone. If the new column needs real values, generate it nullable first, backfill in a separate migration, then add the constraint.
+- **Renames go through add/copy/drop.** Renaming a table or column in one shot via drizzle often produces a destructive sequence. Stage it: add the new shape, copy the data with a `INSERT ... SELECT` or `UPDATE`, then drop the old shape in a later migration once code no longer references it.
+- **No edits to past migrations.** Once a migration has been applied anywhere (local dev counts), it's frozen. Fix mistakes with a new migration on top. Editing applied migrations diverges drizzle's state from the DB and the next `db:migrate` will misbehave.
+- **Inspect before applying.** After `pnpm db:generate`, open the SQL file and read it end to end. Confirm: every existing column you care about still exists, every existing row will still satisfy the new constraints, and there are no `DROP`/`TRUNCATE` statements you didn't expect. Only then run `db:migrate:local` and exercise the app.
+
+If a destructive migration is genuinely needed (e.g. dropping a deprecated table that has known-empty production data), call it out explicitly and confirm with the user before generating it.
 
 Timestamps: store as `Math.floor(Date.now() / 1000)` (unix seconds, integer column). Don't store ISO strings.
 

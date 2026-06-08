@@ -1,13 +1,15 @@
 import { TRPCError } from '@trpc/server';
 import { ParseResultSchema, ParseUrlBody } from '../schemas/parse';
 import { parseProductUrl } from '../services/parser';
-import { publicProcedure } from '../trpc/init';
+import { protectedProcedure } from '../trpc/init';
 
-export const parseUrlProcedure = publicProcedure
+export const parseUrlProcedure = protectedProcedure
   .input(ParseUrlBody)
   .mutation(async ({ ctx, input }) => {
     // Bound the most-expensive procedure per IP. Each call is HTML fetch +
     // paid Claude tokens + up to 12 image downloads — easy to weaponize.
+    // Auth gates access (only logged-in users hit this), but per-IP limiting
+    // still bounds a compromised account.
     const { success } = await ctx.parseLimiter.limit({ key: ctx.clientIp });
     if (!success) {
       throw new TRPCError({

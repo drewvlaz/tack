@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBoards } from '../hooks/server/useBoards';
 import { useCreateBoard } from '../hooks/server/useCreateBoard';
 import { useDeleteBoard } from '../hooks/server/useDeleteBoard';
+import { useLogout } from '../hooks/server/useLogout';
+import { useMe } from '../hooks/server/useMe';
 import { useRenameBoard } from '../hooks/server/useRenameBoard';
 import { useBoardsStore } from '../store/boards';
 import { useRailsStore } from '../store/rails';
@@ -13,9 +15,11 @@ const PENDING_PREFIX = '__pending__';
 
 export default function BoardsSidebar() {
   const { boards, isLoading: boardsLoading } = useBoards();
+  const { data: me } = useMe();
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
   const renameBoard = useRenameBoard();
+  const logout = useLogout();
 
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
   const setActiveBoardId = useBoardsStore((s) => s.setActiveBoardId);
@@ -244,6 +248,21 @@ export default function BoardsSidebar() {
           );
         })}
       </div>
+
+      {me && (
+        <footer className="border-border/60 flex shrink-0 items-center justify-between gap-2 border-t px-5 py-3">
+          <span className="text-fg-muted truncate text-xs" title={me.email}>
+            {me.email}
+          </span>
+          <button
+            onClick={() => logout.mutate()}
+            disabled={logout.isPending}
+            className="text-fg-subtle hover:text-fg text-[11px] uppercase tracking-wider disabled:opacity-50"
+          >
+            {logout.isPending ? 'Signing out…' : 'Sign out'}
+          </button>
+        </footer>
+      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}

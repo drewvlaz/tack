@@ -6,4 +6,8 @@ export type Context = {
   anthropicKey: string;
   parseLimiter: RateLimit;
   clientIp: string;
+  // Populated by `createContext` from the session cookie. Null when the
+  // request is unauthenticated; `protectedProcedure` narrows it to a string.
+  userId: string | null;
+  sessionId: string | null;
 };
