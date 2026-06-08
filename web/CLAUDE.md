@@ -104,6 +104,22 @@ const y = (-panY.get() + window.innerHeight / 2 - 200) / zoom;
 
 This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "drop at center" affordance.
 
+## Design system
+
+Visual consistency lives in two files and a `shared/` directory — load the `frontend-design` skill (`.claude/skills/frontend-design/SKILL.md`) before any UI change.
+
+- **Tokens (CSS):** `src/index.css` — colors, radius, focus ring, dark-mode pairs. Registered with Tailwind v4 via `@theme inline`, so use Tailwind classes (`bg-surface`, `text-fg-muted`, `ring-border`, `rounded-md`, etc.). Add new tokens here BEFORE reaching for `text-[Npx]` or hex literals in components.
+- **Tokens (TS):** `src/config.ts` — spring physics, zoom/card/canvas constants. Consumed by Framer Motion and gesture math.
+- **Primitives:** `src/components/shared/`
+  - `Button` (variants: primary / secondary / ghost / destructive; sizes: sm / md; `loading`, `leading`, `trailing`, `block`)
+  - `IconButton` (variants: ghost / raised; `aria-label` required by type)
+  - `TextField` (label + input + error + trailing slot; wires `aria-invalid`/`aria-describedby`)
+  - `ConfirmDialog`, `Rail`, `UrlInputRow`, `Pulse`
+
+If you're about to write a second one-off `bg-fg text-surface rounded-md …` button, you're drifting — extend `Button` instead.
+
+A11y rules every component must satisfy: focus-visible ring, `aria-label` on icon-only buttons, associated labels on inputs, WCAG-AA contrast, no color-only state, semantic HTML, reduced-motion respected. Full checklist in the skill.
+
 ## Feel targets (don't regress)
 
 - Drag: low stiffness, low damping, slight overshoot on release.
