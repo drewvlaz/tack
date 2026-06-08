@@ -11,7 +11,7 @@ const SYSTEM_PROMPT = `Extract product metadata from HTML. Return only JSON, no 
   "description": "1-2 sentence product description or null",
   "price": 99.99,
   "currency": "ISO-4217 code like USD, GBP, EUR — or null",
-  "image_urls": ["highest-res product image URLs in order, omit thumbnails/swatches/related products"],
+  "image_urls": ["highest-res product image URLs in order, hero front-view at index 0"],
   "details": [
     { "label": "Materials", "value": "100% wool" },
     { "label": "Care", "value": "Dry clean only" },
@@ -19,9 +19,13 @@ const SYSTEM_PROMPT = `Extract product metadata from HTML. Return only JSON, no 
   ]
 }
 
-Return the sale price if both sale and original prices exist. Use null for any unknown field. Keep description concise — strip marketing fluff. Return an empty array if no product images found.
+Use null for any unknown field. Keep description concise — strip marketing fluff. Return an empty array if no product images found.
 
-For "currency": only return a 3-letter ISO 4217 code (USD, GBP, EUR, JPY, etc). Never infer from currency symbols ($ could be USD/CAD/AUD); return null if no explicit code is present.
+For "price": return the current sale price if both sale and original prices exist (struck-through original is the rack price, not what to return). If the page shows recommended/related products with their own prices, return the price of the product whose title matches the page heading — NOT the cheapest related item. Reject obvious placeholders like 0.00.
+
+For "currency": only return a 3-letter ISO 4217 code (USD, GBP, EUR, JPY, etc). Never infer from currency symbols alone — "$" could be USD, CAD, AUD, NZD, SGD, MXN. Return null unless the page contains either (a) an explicit ISO code in markup/text, or (b) a clear country/region indicator paired with a currency symbol (e.g. "Shipping to United Kingdom" + "£" → GBP; "Prix en France" + "€" → EUR; ".co.uk" domain + "£" → GBP; ".de" domain + "€" → EUR; ".jp" domain + "¥" → JPY). When uncertain, return null.
+
+For "image_urls": return at most 6 URLs. Index 0 must be the product hero / front view. EXCLUDE: brand logos, social-share icons, payment-method badges (Visa/Klarna/PayPal/etc), navigation chrome, related/recommended product thumbnails, customer or review photos, size-chart graphics, swatch and color-chip images, packaging shots, and "as seen in" press logos. If multiple resolutions of the same image exist, pick the largest. Only return URLs that appear in the source HTML (do not invent URLs).
 
 For "details": extract supplemental product facts that don't fit in description — materials/composition, care instructions, sizing/fit notes, country of origin, dimensions, fabric weight, color name, model height/wearing size. Each entry is one short label and one short value (no marketing copy, no full sentences when a phrase will do). Return an empty array if nothing fits. Skip facts already in title/brand/price.`;
 

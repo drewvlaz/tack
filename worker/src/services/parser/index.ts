@@ -1,15 +1,19 @@
+import { log } from '../../lib/log';
 import { safeFetch, UnsafeUrlError } from '../../lib/safeFetch';
 import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
 import { extractMetaWithClaude } from './claude';
 import {
-  extractCurrency,
-  extractPrice,
+  extractFromJsonLd,
+  extractFromMicrodata,
   extractTemplateImageUrls,
+  intersectWithClaude,
   parseHtml,
   rebuildFromReference,
   resolveAndDedupeUrls,
+  scoreAndRankImages,
   stripHtml,
+  type ImageSource,
   type ParsedDetail,
   type ParsedMeta,
 } from './meta';
@@ -31,6 +35,11 @@ export class ParseFetchError extends Error {
 }
 
 const MAX_IMAGES = 12;
+
+// When structured-data and Claude disagree on price, prefer Claude only when
+// the gap is large enough to suggest the structured-data hit was a wrong-SKU
+// or rack-vs-sale mix-up. Sub-5% deltas are usually tax/shipping noise.
+const PRICE_DISCREPANCY_RATIO = 0.05;
 
 // Cap on the raw HTML we'll buffer. Real product pages are well under this;
 // anything larger is either a tarpit or not a product page.
@@ -164,16 +173,29 @@ export async function fetchAndParseMeta(
   const html = await readBodyCapped(res, MAX_HTML_BYTES);
 
   const parsed = await parseHtml(html);
-  const { title, brand, ogImages, jsonLdImages, imgTagImages } = parsed;
+  const { title, brand, ogImages, jsonLdScripts, imgTagImages } = parsed;
   let description = parsed.description;
-  let price = extractPrice(html);
-  let currency = extractCurrency(html);
+
+  // Structured-data first (anchored to schema.org/Product; price+currency
+  // come from the same Offer node so they always agree). Microdata is the
+  // fallback for sites that don't ship JSON-LD.
+  const jsonLd = extractFromJsonLd(jsonLdScripts, url);
+  let price = jsonLd.price;
+  let currency = jsonLd.currency;
+  if (price === null) {
+    const micro = extractFromMicrodata(html);
+    price = micro.price;
+    if (currency === null) {
+      currency = micro.currency;
+    }
+  }
   let details: ParsedDetail[] = [];
 
-  // Combine sources. Retailers vary: some put the full gallery in JSON-LD,
-  // some only in og:image, and many (e.g. SSENSE) embed it in Next.js JSON
-  // blobs with literal __IMAGE_PARAMS__ placeholders that we rebuild using
-  // og:image as a transform reference.
+  // Combine image sources. Retailers vary: some put the full gallery in
+  // JSON-LD, some only in og:image, many (e.g. SSENSE) embed it in Next.js
+  // JSON blobs with literal __IMAGE_PARAMS__ placeholders we rebuild using
+  // og:image as a transform reference. IMG tags are filtered to the og:image
+  // host so we don't pull in third-party widgets/ads.
   const ogHost = hostnameOf(ogImages[0], url);
   const filteredImgTagImages = ogHost
     ? imgTagImages.filter((u) => hostnameOf(u, url) === ogHost)
@@ -184,32 +206,75 @@ export async function fetchAndParseMeta(
         .map((t) => rebuildFromReference(t, ogReference))
         .filter((u): u is string => u !== null)
     : [];
-  let imageUrls = resolveAndDedupeUrls(url, [
-    ...jsonLdImages,
-    ...ogImages,
-    ...filteredImgTagImages,
-    ...rebuiltFromTemplates,
-  ]).filter((u) => !hasPlaceholderSegment(u));
+
+  // Score-and-rank: JSON-LD Product images carry the highest weight (the
+  // retailer themselves marked these as product photography), og:image is
+  // the next-strongest signal, and <img> tags are the weakest (susceptible
+  // to navigation chrome, recommendation widgets, etc.).
+  const sources: ImageSource[] = [
+    { tag: 'jsonld', score: 4, urls: jsonLd.productImages },
+    { tag: 'og', score: 2, urls: ogImages },
+    { tag: 'rebuilt', score: 3, urls: rebuiltFromTemplates },
+    { tag: 'img', score: 1, urls: filteredImgTagImages },
+  ];
+  let imageUrls = scoreAndRankImages(
+    url,
+    sources,
+    jsonLd.ambientImages,
+    MAX_IMAGES,
+  ).filter((u) => !hasPlaceholderSegment(u));
 
   // Details (size/care/materials) live in page body, never og tags — so we
-  // always need Claude for them. Also covers price/description/images fallback.
+  // always need Claude for them. Claude also serves as a cross-validator
+  // for price and a curator for images.
+  let claudeMeta: ParsedMeta | null = null;
   try {
-    const meta = await extractMetaWithClaude(stripHtml(html), apiKey);
-    if (price === null) {
-      price = meta.price;
-    }
-    if (currency === null) {
-      currency = meta.currency;
-    }
-    if (description === null) {
-      description = meta.description;
-    }
-    if (imageUrls.length === 0) {
-      imageUrls = resolveAndDedupeUrls(url, meta.imageUrls);
-    }
-    details = meta.details;
+    claudeMeta = await extractMetaWithClaude(stripHtml(html), apiKey);
   } catch {
     warnings.push('claude_failed');
+  }
+
+  if (claudeMeta) {
+    if (description === null) {
+      description = claudeMeta.description;
+    }
+    if (currency === null) {
+      currency = claudeMeta.currency;
+    }
+    // Price cross-validation: prefer Claude when structured data is missing,
+    // OR when the values disagree significantly AND currencies agree (so
+    // we're not picking a value from a different region/SKU).
+    if (price === null) {
+      price = claudeMeta.price;
+    } else if (
+      claudeMeta.price !== null &&
+      claudeMeta.currency !== null &&
+      currency !== null &&
+      claudeMeta.currency === currency
+    ) {
+      const delta = Math.abs(claudeMeta.price - price);
+      const ratio = price > 0 ? delta / price : 0;
+      if (ratio > PRICE_DISCREPANCY_RATIO) {
+        log.debug(
+          `parser price mismatch ${price} vs ${claudeMeta.price} (${currency}); preferring Claude`,
+        );
+        price = claudeMeta.price;
+      }
+    }
+    if (imageUrls.length === 0) {
+      // No discovered candidates survived — fall back to Claude's list
+      // directly (last resort).
+      imageUrls = resolveAndDedupeUrls(url, claudeMeta.imageUrls).filter(
+        (u) => !hasPlaceholderSegment(u),
+      );
+    } else if (claudeMeta.imageUrls.length > 0) {
+      // Use Claude's list as a curator: drop discovered URLs Claude
+      // didn't flag as product images. `intersectWithClaude` is
+      // conservative — keeps the original pool when overlap is too small
+      // (Claude likely saw URLs in a form we can't reconcile).
+      imageUrls = intersectWithClaude(url, imageUrls, claudeMeta.imageUrls);
+    }
+    details = claudeMeta.details;
   }
 
   return {
