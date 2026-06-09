@@ -103,9 +103,10 @@ export async function addBoardItem(
   boardId: string,
   input: AddItemInput,
 ): Promise<BoardItemRow> {
-  // Verify board ownership BEFORE staging — same-tx reads can't see staged
-  // writes on D1, so this is the only chance to fail-fast on a forged boardId.
-  await tx.boards.byIdOrThrow(boardId);
+  // Verify the caller is an editor (owner counts) BEFORE staging — same-tx
+  // reads can't see staged writes on D1, so this is the only chance to
+  // fail-fast on a forged boardId or a board the caller doesn't belong to.
+  await tx.boards.requireEditor(boardId);
   // R2 keys returned by `parseUrl` are namespaced as `items/{userId}/...`.
   // Reject any r2-kind image whose owner segment doesn't match the caller —
   // otherwise a client could pass a key it scraped from another user's parse
@@ -211,7 +212,7 @@ export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
 }
 
 export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
-  await tx.boards.byIdOrThrow(boardId);
+  await tx.boards.requireEditor(boardId);
   const trashed = await tx.placements.listTrashIdsForBoard(boardId);
   if (trashed.length === 0) {
     return;
