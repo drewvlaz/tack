@@ -1,6 +1,7 @@
 import { AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useBoardItems } from '../hooks/server/useBoardItems';
+import { useBoards } from '../hooks/server/useBoards';
 import { useDeleteItem } from '../hooks/server/useDeleteItem';
 import { useHotkey } from '../hooks/useHotkey';
 import type { RealItem } from '../lib/trpc';
@@ -8,6 +9,7 @@ import { useBoardsStore } from '../store/boards';
 import { useCanvasStore } from '../store/canvas';
 import { useThemeStore } from '../store/theme';
 import BoardsSidebar from './BoardsSidebar';
+import MembersPanel from './BoardSettings/MembersPanel';
 import ConfirmDialog from './shared/ConfirmDialog';
 import SidePanel from './SidePanel/SidePanel';
 import TrashDrawer from './TrashDrawer';
@@ -26,6 +28,11 @@ export default function AppUI() {
   const deleteItem = useDeleteItem(activeBoardId ?? '');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+
+  const { boards } = useBoards();
+  const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
+  const isOwner = activeBoard?.role === 'owner';
 
   useHotkey('Escape', () => setSelectedId(null), {
     scope: 'panel',
@@ -54,6 +61,24 @@ export default function AppUI() {
       <BoardsSidebar />
 
       <div className="pointer-events-auto absolute top-4 right-4 flex gap-2">
+        {activeBoardId && isOwner && (
+          <button
+            onClick={() => setMembersOpen(true)}
+            aria-label="Share board"
+            title="Share"
+            className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M4 7a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM10 4a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM10 12a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM5.5 6l3-1.5M5.5 8l3 1.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
         {activeBoardId && (
           <button
             onClick={() => setTrashOpen(true)}
@@ -97,6 +122,15 @@ export default function AppUI() {
           open={trashOpen}
           boardId={activeBoardId}
           onClose={() => setTrashOpen(false)}
+        />
+      )}
+
+      {activeBoardId && activeBoard && isOwner && (
+        <MembersPanel
+          open={membersOpen}
+          boardId={activeBoardId}
+          boardName={activeBoard.name}
+          onClose={() => setMembersOpen(false)}
         />
       )}
 
