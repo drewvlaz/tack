@@ -182,17 +182,16 @@ export async function addBoardItem(
 
 export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
   await tx.placements.byIdOrThrow(id);
-  const now = nowSec();
-  tx.placements.stageUpdate(id, { deletedAt: now, updatedAt: now });
+  tx.placements.stageSoftDelete(id, nowSec());
 }
 
 export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {
-  await tx.placements.byIdOrThrow(id);
-  tx.placements.stageUpdate(id, { deletedAt: null, updatedAt: nowSec() });
+  await tx.placements.byIdIncludingTrashedOrThrow(id);
+  tx.placements.stageRestore(id, nowSec());
 }
 
 export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
-  const placement = await tx.placements.byIdOrThrow(id);
+  const placement = await tx.placements.byIdIncludingTrashedOrThrow(id);
   await stagePurge(tx, [placement.id], [placement.itemId]);
 }
 
@@ -229,7 +228,8 @@ export async function stagePurge(
   const uniqueItemIds = [...new Set(itemIds)];
   const placementIdSet = new Set(placementIds);
 
-  const allPlacements = await tx.placements.findReferencingItems(uniqueItemIds);
+  const allPlacements =
+    await tx.placements.findReferencingItemsIncludingTrashed(uniqueItemIds);
   const stillReferenced = new Set(
     allPlacements.filter((p) => !placementIdSet.has(p.id)).map((p) => p.itemId),
   );
@@ -237,10 +237,11 @@ export async function stagePurge(
     (iid) => !stillReferenced.has(iid),
   );
 
-  const orphanImages = await tx.itemImages.findForItems(orphanItemIds);
+  const orphanImages =
+    await tx.itemImages.findForItemsIncludingTrashed(orphanItemIds);
 
-  tx.placements.stageDeleteMany(placementIds);
-  tx.items.stageDeleteMany(orphanItemIds);
+  tx.placements.stageHardDeleteMany(placementIds);
+  tx.items.stageHardDeleteMany(orphanItemIds);
   if (orphanImages.length) {
     tx.scheduleBlobCleanup(orphanImages);
   }
