@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { createDb } from '../../db/client';
 import { withTransaction } from '../../db/tx';
-import { CredentialsBody } from '../../schemas/auth';
+import { CredentialsBody, SignupBody } from '../../schemas/auth';
 import {
   deleteSession,
   login,
@@ -52,9 +52,7 @@ authRoutes.post('/signup', async (c) => {
     return limited;
   }
 
-  const parsed = CredentialsBody.safeParse(
-    await c.req.json().catch(() => null),
-  );
+  const parsed = SignupBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     return c.json({ error: 'invalid_body' }, 400);
   }
@@ -66,10 +64,20 @@ authRoutes.post('/signup', async (c) => {
       createDb(c.env.DB),
       c.env.IMAGES,
       AUTH_SCOPE,
-      (tx) => signup(tx, parsed.data.email, parsed.data.password, allowlist),
+      (tx) =>
+        signup(tx, parsed.data.email, parsed.data.password, allowlist, {
+          inviteToken: parsed.data.inviteToken,
+        }),
     );
     setSessionCookie(c, authOutcome.sessionId, c.env.ENVIRONMENT);
-    return c.json(authOutcome.user);
+    // Pass invitedBoardId through so the frontend can navigate the user
+    // directly to the board they were invited to.
+    return c.json({
+      ...authOutcome.user,
+      ...(authOutcome.invitedBoardId !== undefined && {
+        invitedBoardId: authOutcome.invitedBoardId,
+      }),
+    });
   } catch (err) {
     return authErrorResponse(c, err);
   }

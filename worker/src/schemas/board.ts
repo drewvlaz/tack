@@ -2,10 +2,13 @@ import { z } from 'zod';
 import { ItemDetailSchema, StoredImageSchema } from './parse';
 import { Coord, SafeUrl, Size, ZIndex } from './primitives';
 
+export const BoardRoleSchema = z.enum(['owner', 'editor']);
+
 export const BoardSchema = z.object({
   id: z.string(),
   name: z.string(),
   createdAt: z.number(),
+  role: BoardRoleSchema,
 });
 
 export const CreateBoardBody = z.object({

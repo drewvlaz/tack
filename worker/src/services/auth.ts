@@ -4,6 +4,7 @@ import * as schema from '../db/schema';
 import type { Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
+import { redeemInvite } from './boardMembers';
 
 // PBKDF2-SHA256, 600k iterations is OWASP 2023 guidance for password storage.
 // 16-byte salt, 32-byte derived key. Stored as a PHC-style string so the
@@ -195,16 +196,28 @@ function validatePassword(password: string): void {
 
 export type AuthOutcome = { user: PublicUser; sessionId: string };
 
+export type SignupOptions = {
+  inviteToken?: string;
+};
+
 export async function signup(
   tx: Tx,
   rawEmail: string,
   password: string,
   allowlist: ReadonlySet<string>,
-): Promise<AuthOutcome> {
+  options: SignupOptions = {},
+): Promise<AuthOutcome & { invitedBoardId?: string }> {
   const email = normalizeEmail(rawEmail);
   validateEmail(email);
   validatePassword(password);
-  if (!allowlist.has(email)) {
+
+  // A valid invite token bypasses the global INVITE_EMAILS allowlist: it's
+  // a stronger signal (someone explicitly invited you to a specific board)
+  // and the whole point of invites is that the inviter shouldn't also need
+  // to be a deployment admin. The token is validated below inside the same
+  // Tx so a forged token can't bypass the allowlist.
+  const hasInvite = options.inviteToken !== undefined;
+  if (!hasInvite && !allowlist.has(email)) {
     throw new AuthError(
       'not_allowlisted',
       'This email is not invited to sign up.',
@@ -232,8 +245,20 @@ export async function signup(
     }),
   );
 
+  // Redeem the invite atomically with user creation: same Tx, same batch.
+  // If the token turns out to be invalid the whole signup unwinds.
+  let invitedBoardId: string | undefined;
+  if (options.inviteToken !== undefined) {
+    const redemption = await redeemInvite(tx, options.inviteToken, userId);
+    invitedBoardId = redemption.boardId;
+  }
+
   const sessionId = createSession(tx, userId);
-  return { user: { id: userId, email }, sessionId };
+  return {
+    user: { id: userId, email },
+    sessionId,
+    ...(invitedBoardId !== undefined && { invitedBoardId }),
+  };
 }
 
 export async function login(

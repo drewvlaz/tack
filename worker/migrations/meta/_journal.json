@@ -57,6 +57,13 @@
       "when": 1780877074800,
       "tag": "0007_users_sessions_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781045071880,
+      "tag": "0008_collab_membership",
+      "breakpoints": true
     }
   ]
 }
