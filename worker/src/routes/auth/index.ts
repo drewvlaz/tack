@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { createDb } from '../../db/client';
 import { withTransaction } from '../../db/tx';
 import { CredentialsBody } from '../../schemas/auth';
@@ -19,6 +19,7 @@ import { authErrorResponse } from './errors';
 type Bindings = {
   DB: D1Database;
   IMAGES: R2Bucket;
+  AUTH_LIMITER: RateLimit;
   INVITE_EMAILS?: string;
   ENVIRONMENT?: string;
 };
@@ -28,9 +29,29 @@ type Bindings = {
 // scope for users/sessions tables.
 const AUTH_SCOPE = { userId: '__auth__' };
 
+// Keyed by Cloudflare's edge-supplied client IP. Without the header (local
+// curl, mis-configured front-door) every caller maps to the same bucket — the
+// limiter still works, it just becomes a per-deployment cap rather than
+// per-IP. Better that than crashy on a missing header.
+async function checkAuthRateLimit(
+  c: Context<{ Bindings: Bindings }>,
+): Promise<Response | null> {
+  const key = c.req.header('cf-connecting-ip') ?? 'anonymous';
+  const { success } = await c.env.AUTH_LIMITER.limit({ key });
+  if (success) {
+    return null;
+  }
+  return c.json({ error: 'rate_limited' }, 429);
+}
+
 export const authRoutes = new Hono<{ Bindings: Bindings }>();
 
 authRoutes.post('/signup', async (c) => {
+  const limited = await checkAuthRateLimit(c);
+  if (limited) {
+    return limited;
+  }
+
   const parsed = CredentialsBody.safeParse(
     await c.req.json().catch(() => null),
   );
@@ -55,6 +76,11 @@ authRoutes.post('/signup', async (c) => {
 });
 
 authRoutes.post('/login', async (c) => {
+  const limited = await checkAuthRateLimit(c);
+  if (limited) {
+    return limited;
+  }
+
   const parsed = CredentialsBody.safeParse(
     await c.req.json().catch(() => null),
   );

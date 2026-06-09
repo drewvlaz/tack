@@ -24,6 +24,7 @@ export const parseUrlProcedure = protectedProcedure
         input.url,
         ctx.anthropicKey,
         ctx.images,
+        ctx.userId,
       );
       return ParseResultSchema.parse(result);
     } catch (err) {

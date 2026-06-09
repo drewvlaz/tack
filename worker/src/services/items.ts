@@ -104,7 +104,7 @@ export async function reparseItem(
   // leaves orphan blobs (GC-able) rather than rows pointing at missing bytes.
   const stored = (
     await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
-      storeImage(tx.r2, src),
+      storeImage(tx.r2, tx.scope.userId, src),
     )
   ).filter((s) => s !== null);
   const newIds = stored.map(() => genId());

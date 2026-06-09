@@ -93,13 +93,17 @@ describe('boards service', () => {
         currency: null,
         details: [],
         images: [
-          { kind: 'r2', key: 'items/del-1', sourceUrl: 'https://cdn/a.jpg' },
+          {
+            kind: 'r2',
+            key: 'items/user-test/del-1',
+            sourceUrl: 'https://cdn/a.jpg',
+          },
         ],
         x: 0,
         y: 0,
       }),
     );
-    await env.IMAGES.put('items/del-1', new Uint8Array([1, 2, 3]));
+    await env.IMAGES.put('items/user-test/del-1', new Uint8Array([1, 2, 3]));
     expect(await listBoardItems(ctx(), board.id)).toHaveLength(1);
 
     await withTransaction(db(), env.IMAGES, SCOPE, (tx) =>
@@ -115,7 +119,7 @@ describe('boards service', () => {
     ).toEqual([]);
     expect(await db().query.items.findMany()).toEqual([]);
     expect(await db().query.itemImages.findMany()).toEqual([]);
-    expect(await env.IMAGES.get('items/del-1')).toBeNull();
+    expect(await env.IMAGES.get('items/user-test/del-1')).toBeNull();
   });
 
   it('deleteBoard rolls the entire batch back if any statement fails', async () => {
@@ -193,8 +197,16 @@ describe('addBoardItem', () => {
           { label: 'Care', value: 'Specialist leather clean' },
         ],
         images: [
-          { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
-          { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
+          {
+            kind: 'r2',
+            key: 'items/user-test/abc',
+            sourceUrl: 'https://cdn/a.jpg',
+          },
+          {
+            kind: 'r2',
+            key: 'items/user-test/def',
+            sourceUrl: 'https://cdn/b.jpg',
+          },
         ],
         x: 10,
         y: 20,
@@ -208,8 +220,16 @@ describe('addBoardItem', () => {
       { label: 'Care', value: 'Specialist leather clean' },
     ]);
     expect(item.images.map((img) => img.image)).toEqual([
-      { kind: 'r2', key: 'items/abc', sourceUrl: 'https://cdn/a.jpg' },
-      { kind: 'r2', key: 'items/def', sourceUrl: 'https://cdn/b.jpg' },
+      {
+        kind: 'r2',
+        key: 'items/user-test/abc',
+        sourceUrl: 'https://cdn/a.jpg',
+      },
+      {
+        kind: 'r2',
+        key: 'items/user-test/def',
+        sourceUrl: 'https://cdn/b.jpg',
+      },
     ]);
     expect(item.images[0].id).toMatch(/^[A-Za-z0-9]{21}$/);
     expect(item.images[1].id).toMatch(/^[A-Za-z0-9]{21}$/);
@@ -262,7 +282,11 @@ describe('addBoardItem', () => {
           currency: null,
           details: [],
           images: [
-            { kind: 'r2', key: 'items/x', sourceUrl: 'https://cdn/x.jpg' },
+            {
+              kind: 'r2',
+              key: 'items/user-test/x',
+              sourceUrl: 'https://cdn/x.jpg',
+            },
           ],
           x: 0,
           y: 0,
@@ -273,5 +297,34 @@ describe('addBoardItem', () => {
     expect(await db().query.items.findMany()).toEqual([]);
     expect(await db().query.itemImages.findMany()).toEqual([]);
     expect(await db().query.boardItems.findMany()).toEqual([]);
+  });
+
+  it('rejects an r2 image key owned by a different user', async () => {
+    const board = await withTransaction(db(), env.IMAGES, SCOPE, (tx) =>
+      Promise.resolve(createBoard(tx, 'B')),
+    );
+    await expect(
+      withTransaction(db(), env.IMAGES, SCOPE, (tx) =>
+        addBoardItem(tx, board.id, {
+          sourceUrl: 'https://example.com/cross-user',
+          title: null,
+          brand: null,
+          description: null,
+          price: null,
+          currency: null,
+          details: [],
+          images: [
+            {
+              kind: 'r2',
+              key: 'items/someone-else/abc',
+              sourceUrl: 'https://cdn/a.jpg',
+            },
+          ],
+          x: 0,
+          y: 0,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(await db().query.items.findMany()).toEqual([]);
   });
 });

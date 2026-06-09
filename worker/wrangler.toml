@@ -31,6 +31,17 @@ type = "ratelimit"
 namespace_id = "fashion-mood-parse"
 simple = { limit = 30, period = 60 }
 
+# Rate-limits /api/auth/login and /api/auth/signup per client IP. PBKDF2-600k
+# already makes online brute force expensive (~250ms/attempt), but without a
+# per-IP cap an attacker can still pipeline credential-stuffing across a list
+# of emails. 10/min is generous for humans (a mistyped password retried a few
+# times in a minute is well under) and tight on automation.
+[[unsafe.bindings]]
+name = "AUTH_LIMITER"
+type = "ratelimit"
+namespace_id = "fashion-mood-auth"
+simple = { limit = 10, period = 60 }
+
 [vars]
 ENVIRONMENT = "development"
 # Comma-separated email allowlist for signup. Add yourself to sign up locally.

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import type { HydratedPlacement } from '../db/repos/placements';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
@@ -7,7 +8,7 @@ import {
   type BoardItemRow,
   type PatchBoardItemInput,
 } from '../schemas/board';
-import { fromR2Key, toR2Key } from './images';
+import { fromR2Key, r2KeyOwner, toR2Key } from './images';
 
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 280;
@@ -105,6 +106,20 @@ export async function addBoardItem(
   // Verify board ownership BEFORE staging — same-tx reads can't see staged
   // writes on D1, so this is the only chance to fail-fast on a forged boardId.
   await tx.boards.byIdOrThrow(boardId);
+  // R2 keys returned by `parseUrl` are namespaced as `items/{userId}/...`.
+  // Reject any r2-kind image whose owner segment doesn't match the caller —
+  // otherwise a client could pass a key it scraped from another user's parse
+  // response and attach those bytes to its own board. The user segment is the
+  // capability: unguessable nanoid keys make scraping unlikely, but defense
+  // in depth costs us one substring check.
+  for (const img of input.images) {
+    if (img.kind === 'r2' && r2KeyOwner(img.key) !== tx.scope.userId) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Image key not owned by caller',
+      });
+    }
+  }
   const now = nowSec();
   const itemId = genId();
   const boardItemId = genId();

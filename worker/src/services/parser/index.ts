@@ -295,12 +295,13 @@ export async function parseProductUrl(
   url: string,
   anthropicKey: string,
   images: R2Bucket,
+  userId: string,
 ): Promise<ParseResult> {
   const { meta, warnings } = await fetchAndParseMeta(url, anthropicKey);
 
   const stored = (
     await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
-      storeImage(images, src),
+      storeImage(images, userId, src),
     )
   ).filter((s): s is StoredImage => s !== null);
   if (stored.length < meta.imageUrls.length) {
