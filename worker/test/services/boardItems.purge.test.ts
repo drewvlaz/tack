@@ -53,7 +53,7 @@ describe('purgeBoardItem', () => {
         images: [
           {
             kind: 'r2',
-            key: 'items/purge-1',
+            key: 'items/user-test/purge-1',
             sourceUrl: 'https://cdn/a.jpg',
           },
         ],
@@ -61,7 +61,7 @@ describe('purgeBoardItem', () => {
         y: 0,
       }),
     );
-    await env.IMAGES.put('items/purge-1', new Uint8Array([1, 2, 3]));
+    await env.IMAGES.put('items/user-test/purge-1', new Uint8Array([1, 2, 3]));
 
     await withTransaction(db(), env.IMAGES, SCOPE, (tx) =>
       purgeBoardItem(tx, item.id),
@@ -74,7 +74,7 @@ describe('purgeBoardItem', () => {
     ).toEqual([]);
     expect(await db().query.items.findMany()).toEqual([]);
     expect(await db().query.itemImages.findMany()).toEqual([]);
-    expect(await env.IMAGES.get('items/purge-1')).toBeNull();
+    expect(await env.IMAGES.get('items/user-test/purge-1')).toBeNull();
   });
 
   it('throws NOT_FOUND for an unknown placement id', async () => {

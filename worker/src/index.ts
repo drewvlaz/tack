@@ -11,6 +11,7 @@ type Bindings = {
   IMAGES: R2Bucket;
   ANTHROPIC_API_KEY: string;
   PARSE_LIMITER: RateLimit;
+  AUTH_LIMITER: RateLimit;
   ENVIRONMENT?: string;
   LOG_LEVEL?: string;
   INVITE_EMAILS?: string;

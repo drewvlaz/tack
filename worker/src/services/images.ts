@@ -9,6 +9,30 @@ export type StoredImage =
 const R2_KEY_PREFIX = 'items/';
 const DEFAULT_IMAGE_CONTENT_TYPE = 'image/jpeg';
 
+// R2 keys are namespaced under the uploading user: `items/{userId}/{nanoid}`.
+// The userId segment is the security pin — `addBoardItem` rejects any r2 key
+// whose userId segment doesn't match the caller's scope, so a client can't
+// attach another user's uploaded bytes to its own board just by passing the
+// key back. The proxy at `routes/images.ts` keeps the `items/` membership
+// check; per-request ownership is enforced at attach time, not at serve time,
+// so future share/embed flows can serve images publicly without rewriting
+// keys.
+export function buildR2Key(userId: string, id: string): string {
+  return `${R2_KEY_PREFIX}${userId}/${id}`;
+}
+
+export function r2KeyOwner(key: string): string | null {
+  if (!key.startsWith(R2_KEY_PREFIX)) {
+    return null;
+  }
+  const rest = key.slice(R2_KEY_PREFIX.length);
+  const slash = rest.indexOf('/');
+  if (slash <= 0) {
+    return null;
+  }
+  return rest.slice(0, slash);
+}
+
 // Allowlist for stored image bytes. Origins can claim any content-type, and
 // serving back e.g. `text/html` from `/api/images/*` would be a same-origin XSS
 // path — clamp at ingest and again at serve time.
@@ -60,6 +84,7 @@ export function toR2Key(img: StoredImage): string {
 
 export async function storeImage(
   images: R2Bucket,
+  userId: string,
   sourceUrl: string,
 ): Promise<StoredImage | null> {
   try {
@@ -86,7 +111,7 @@ export async function storeImage(
       }
     }
 
-    const key = `${R2_KEY_PREFIX}${genId()}`;
+    const key = buildR2Key(userId, genId());
     const contentType = normalizeImageType(rawType);
 
     await images.put(key, res.body, { httpMetadata: { contentType } });
