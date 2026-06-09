@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq, inArray, isNull, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, type SQL } from 'drizzle-orm';
 import type { Db } from '../client';
 import * as schema from '../schema';
 import type { Scope, Tx } from '../tx';
@@ -10,7 +10,14 @@ export type ItemUpdate = Partial<
   Omit<typeof schema.items.$inferInsert, 'id' | 'ownerId' | 'createdAt'>
 >;
 
-function scopeWhere(scope: Scope): SQL {
+function activeScope(scope: Scope): SQL | undefined {
+  return and(
+    eq(schema.items.ownerId, scope.userId),
+    isNull(schema.items.deletedAt),
+  );
+}
+
+function anyScope(scope: Scope): SQL {
   return eq(schema.items.ownerId, scope.userId);
 }
 
@@ -22,7 +29,7 @@ export class ItemsReadRepo {
 
   async byId(id: string): Promise<ItemRow | undefined> {
     return this.db.query.items.findFirst({
-      where: and(eq(schema.items.id, id), scopeWhere(this.scope)),
+      where: and(eq(schema.items.id, id), activeScope(this.scope)),
     });
   }
 
@@ -34,16 +41,14 @@ export class ItemsReadRepo {
     return row;
   }
 
-  // byId with the soft-delete filter applied — used by reparseItem so it
-  // doesn't refresh a trashed item.
-  async byIdActiveOrThrow(id: string): Promise<ItemRow> {
-    const row = await this.db.query.items.findFirst({
-      where: and(
-        eq(schema.items.id, id),
-        scopeWhere(this.scope),
-        isNull(schema.items.deletedAt),
-      ),
+  async byIdIncludingTrashed(id: string): Promise<ItemRow | undefined> {
+    return this.db.query.items.findFirst({
+      where: and(eq(schema.items.id, id), anyScope(this.scope)),
     });
+  }
+
+  async byIdIncludingTrashedOrThrow(id: string): Promise<ItemRow> {
+    const row = await this.byIdIncludingTrashed(id);
     if (!row) {
       throw new TRPCError({ code: 'NOT_FOUND' });
     }
@@ -65,23 +70,52 @@ export class ItemsTxRepo extends ItemsReadRepo {
     );
   }
 
+  // UPDATE any row owned by the caller (active or trashed). "Trashed-ness"
+  // is a service-layer invariant — pair with `byIdOrThrow` at the boundary
+  // if you need to reject updates against trashed rows.
   stageUpdate(id: string, set: ItemUpdate): void {
     this.tx.stage(
       this.tx.db
         .update(schema.items)
         .set(set)
-        .where(and(eq(schema.items.id, id), scopeWhere(this.scope))),
+        .where(and(eq(schema.items.id, id), anyScope(this.scope))),
     );
   }
 
-  stageDeleteMany(ids: string[]): void {
+  stageSoftDelete(id: string, deletedAt: number): void {
+    this.tx.stage(
+      this.tx.db
+        .update(schema.items)
+        .set({ deletedAt, updatedAt: deletedAt })
+        .where(and(eq(schema.items.id, id), activeScope(this.scope))),
+    );
+  }
+
+  stageRestore(id: string, updatedAt: number): void {
+    this.tx.stage(
+      this.tx.db
+        .update(schema.items)
+        .set({ deletedAt: null, updatedAt })
+        .where(
+          and(
+            eq(schema.items.id, id),
+            eq(schema.items.ownerId, this.scope.userId),
+            isNotNull(schema.items.deletedAt),
+          ),
+        ),
+    );
+  }
+
+  // Hard delete: drops rows regardless of trash state. Used by `stagePurge`
+  // to clean up orphaned items.
+  stageHardDeleteMany(ids: string[]): void {
     if (ids.length === 0) {
       return;
     }
     this.tx.stage(
       this.tx.db
         .delete(schema.items)
-        .where(and(inArray(schema.items.id, ids), scopeWhere(this.scope))),
+        .where(and(inArray(schema.items.id, ids), anyScope(this.scope))),
     );
   }
 }

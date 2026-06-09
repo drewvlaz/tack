@@ -7,9 +7,10 @@ export type ItemImageRow = typeof schema.itemImages.$inferSelect;
 export type ItemImageInsert = typeof schema.itemImages.$inferInsert;
 
 // Item images inherit ownership transitively through their parent item.
-// Reads INNER JOIN items; writes filter via an items.ownerId subquery.
+// Reads INNER JOIN items; writes filter via an items.ownerId subquery. The
+// "active" scope also requires the parent item to be active.
 
-function ownedItemIds(db: Db, scope: Scope) {
+function ownedAnyItemIds(db: Db, scope: Scope) {
   return db
     .select({ id: schema.items.id })
     .from(schema.items)
@@ -17,7 +18,7 @@ function ownedItemIds(db: Db, scope: Scope) {
 }
 
 function scopeWhere(db: Db, scope: Scope): SQL {
-  return inArray(schema.itemImages.itemId, ownedItemIds(db, scope));
+  return inArray(schema.itemImages.itemId, ownedAnyItemIds(db, scope));
 }
 
 export class ItemImagesReadRepo {
@@ -26,7 +27,7 @@ export class ItemImagesReadRepo {
     protected readonly scope: Scope,
   ) {}
 
-  // Active images for one item, ordered by displayOrder. Scoped via items.
+  // Active images on an active item, ordered by displayOrder.
   async listForItem(itemId: string): Promise<ItemImageRow[]> {
     const rows = await this.db
       .select({ img: schema.itemImages })
@@ -36,6 +37,7 @@ export class ItemImagesReadRepo {
         and(
           eq(schema.itemImages.itemId, itemId),
           eq(schema.items.ownerId, this.scope.userId),
+          isNull(schema.items.deletedAt),
           isNull(schema.itemImages.deletedAt),
         ),
       )
@@ -43,8 +45,9 @@ export class ItemImagesReadRepo {
     return rows.map((r) => r.img);
   }
 
-  // Find one image by id, but only when it actually belongs to the given
-  // (caller-owned) item. Used by setPrimaryImage to confirm parent → child.
+  // Find one active image by id, but only when it actually belongs to the
+  // given (caller-owned, active) item. Used by setPrimaryImage to confirm
+  // parent → child.
   async findByItemAndId(
     itemId: string,
     imageId: string,
@@ -58,6 +61,7 @@ export class ItemImagesReadRepo {
           eq(schema.itemImages.id, imageId),
           eq(schema.itemImages.itemId, itemId),
           eq(schema.items.ownerId, this.scope.userId),
+          isNull(schema.items.deletedAt),
           isNull(schema.itemImages.deletedAt),
         ),
       )
@@ -65,9 +69,12 @@ export class ItemImagesReadRepo {
     return rows[0]?.img;
   }
 
-  // Returns all images for a set of items, scoped via items. Used by
-  // stagePurge to know which R2 blobs to clean up.
-  async findForItems(itemIds: string[]): Promise<ItemImageRow[]> {
+  // All images for a set of items, scoped via items. Used by stagePurge to
+  // schedule R2 cleanup — needs every image (active or trashed) so blobs
+  // aren't stranded when an orphan item is hard-deleted.
+  async findForItemsIncludingTrashed(
+    itemIds: string[],
+  ): Promise<ItemImageRow[]> {
     if (itemIds.length === 0) {
       return [];
     }
@@ -100,9 +107,10 @@ export class ItemImagesTxRepo extends ItemImagesReadRepo {
     this.tx.stage(this.tx.db.insert(schema.itemImages).values(values));
   }
 
-  // Hard-delete every image for one item. Scoped via items subquery — an id
-  // referencing another user's item matches zero rows.
-  stageDeleteAllForItem(itemId: string): void {
+  // Hard-delete every image for one item, regardless of trash state. Scoped
+  // via items subquery — an id referencing another user's item matches zero
+  // rows.
+  stageHardDeleteAllForItem(itemId: string): void {
     this.tx.stage(
       this.tx.db
         .delete(schema.itemImages)

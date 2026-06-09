@@ -7,7 +7,7 @@ import { stagePurge } from './boardItems';
 // ---------- reads ----------
 
 export async function listBoards(ctx: ServiceCtx): Promise<Board[]> {
-  const rows = await ctx.boards.listActive();
+  const rows = await ctx.boards.list();
   return rows.map((b) => ({ id: b.id, name: b.name, createdAt: b.createdAt }));
 }
 
@@ -27,14 +27,14 @@ export function createBoard(tx: Tx, name: string): Board {
 export async function deleteBoard(tx: Tx, id: string): Promise<void> {
   await tx.boards.byIdOrThrow(id);
 
-  const placements = await tx.placements.listIdsForBoard(id);
+  const placements = await tx.placements.listIdsForBoardIncludingTrashed(id);
   await stagePurge(
     tx,
     placements.map((p) => p.id),
     placements.map((p) => p.itemId),
   );
 
-  tx.boards.stageDelete(id);
+  tx.boards.stageHardDelete(id);
 }
 
 export async function renameBoard(

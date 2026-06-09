@@ -56,7 +56,7 @@ export async function reparseItem(
   itemId: string,
   anthropicKey: string,
 ): Promise<ReparseResult> {
-  const item = await tx.items.byIdActiveOrThrow(itemId);
+  const item = await tx.items.byIdOrThrow(itemId);
 
   const { meta } = await fetchAndParseMeta(item.sourceUrl, anthropicKey);
 
@@ -122,7 +122,7 @@ export async function reparseItem(
     ...baseUpdate,
     primaryImageId: reboundPrimaryId,
   });
-  tx.itemImages.stageDeleteAllForItem(itemId);
+  tx.itemImages.stageHardDeleteAllForItem(itemId);
   tx.itemImages.stageInsertMany(
     stored.map((s, i) => ({
       id: newIds[i],
