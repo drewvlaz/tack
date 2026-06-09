@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBoards } from '../hooks/server/useBoards';
 import { useCreateBoard } from '../hooks/server/useCreateBoard';
 import { useDeleteBoard } from '../hooks/server/useDeleteBoard';
+import { useLeaveBoard } from '../hooks/server/useLeaveBoard';
 import { useLogout } from '../hooks/server/useLogout';
 import { useMe } from '../hooks/server/useMe';
 import { useRenameBoard } from '../hooks/server/useRenameBoard';
+import type { Board } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
 import { useRailsStore } from '../store/rails';
 import ConfirmDialog from './shared/ConfirmDialog';
@@ -19,6 +21,7 @@ export default function BoardsSidebar() {
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
   const renameBoard = useRenameBoard();
+  const leaveBoard = useLeaveBoard();
   const logout = useLogout();
 
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
@@ -29,6 +32,10 @@ export default function BoardsSidebar() {
 
   const [draftName, setDraftName] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [pendingLeave, setPendingLeave] = useState<{
     id: string;
     name: string;
   } | null>(null);
@@ -84,6 +91,18 @@ export default function BoardsSidebar() {
       onSuccess: () => setPendingDelete(null),
     });
   }
+
+  function confirmLeave() {
+    if (!pendingLeave) {
+      return;
+    }
+    leaveBoard.mutate(pendingLeave.id, {
+      onSuccess: () => setPendingLeave(null),
+    });
+  }
+
+  const ownedBoards = boards.filter((b) => b.role === 'owner');
+  const sharedBoards = boards.filter((b) => b.role === 'editor');
 
   function commitRename() {
     if (!renaming) {
@@ -143,110 +162,43 @@ export default function BoardsSidebar() {
           </p>
         )}
 
-        {boards.map((board) => {
-          const isActive = board.id === activeBoardId;
-          const isPending = board.id.startsWith(PENDING_PREFIX);
-          const isRenaming = renaming?.id === board.id;
-          return (
-            <div
-              key={board.id}
-              className={`group flex items-center rounded-md transition-colors ${
-                isActive
-                  ? 'bg-surface-muted text-fg'
-                  : 'text-fg-muted hover:bg-surface-muted/60 hover:text-fg'
-              }`}
-            >
-              {isRenaming ? (
-                <input
-                  ref={renameInputRef}
-                  value={renaming.draft}
-                  onChange={(e) =>
-                    setRenaming({ ...renaming, draft: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      commitRename();
-                    } else if (e.key === 'Escape') {
-                      setRenaming(null);
-                    }
-                  }}
-                  onBlur={commitRename}
-                  className="text-fg flex-1 truncate bg-transparent px-3 py-2 text-sm outline-none"
-                />
-              ) : (
-                <button
-                  onClick={() => !isPending && setActiveBoardId(board.id)}
-                  onDoubleClick={() => {
-                    if (isPending) {
-                      return;
-                    }
-                    setRenaming({
-                      id: board.id,
-                      draft: board.name,
-                      original: board.name,
-                    });
-                  }}
-                  disabled={isPending}
-                  title={
-                    isPending
-                      ? undefined
-                      : `Created ${formatDistanceToNow(new Date(board.createdAt * 1000), { addSuffix: true })} · ${format(new Date(board.createdAt * 1000), 'PP')}`
-                  }
-                  className="flex-1 truncate px-3 py-2 text-left text-sm disabled:opacity-50"
-                >
-                  {board.name}
-                </button>
-              )}
-              {!isPending && !isRenaming && (
-                <>
-                  <button
-                    onClick={() =>
-                      setRenaming({
-                        id: board.id,
-                        draft: board.name,
-                        original: board.name,
-                      })
-                    }
-                    aria-label={`Rename ${board.name}`}
-                    className="text-fg-subtle hover:text-fg flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path
-                        d="M7.5 1.5l2 2-6 6H1.5v-2l6-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                  {boards.length > 1 && (
-                    <button
-                      onClick={() =>
-                        setPendingDelete({ id: board.id, name: board.name })
-                      }
-                      aria-label={`Delete ${board.name}`}
-                      className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 10 10"
-                        fill="none"
-                      >
-                        <path
-                          d="M2 2l6 6M8 2l-6 6"
-                          stroke="currentColor"
-                          strokeWidth="1.4"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
+        {ownedBoards.length > 0 && (
+          <BoardGroup
+            label="Your boards"
+            boards={ownedBoards}
+            activeBoardId={activeBoardId}
+            renaming={renaming}
+            renameInputRef={renameInputRef}
+            onSetActive={setActiveBoardId}
+            onRenameStart={(b) =>
+              setRenaming({ id: b.id, draft: b.name, original: b.name })
+            }
+            onRenameChange={(draft) =>
+              renaming && setRenaming({ ...renaming, draft })
+            }
+            onRenameCommit={commitRename}
+            onRenameCancel={() => setRenaming(null)}
+            onDelete={(b) => setPendingDelete({ id: b.id, name: b.name })}
+            canDelete={ownedBoards.length + sharedBoards.length > 1}
+          />
+        )}
+
+        {sharedBoards.length > 0 && (
+          <BoardGroup
+            label="Shared with you"
+            boards={sharedBoards}
+            activeBoardId={activeBoardId}
+            renaming={renaming}
+            renameInputRef={renameInputRef}
+            onSetActive={setActiveBoardId}
+            onRenameStart={null}
+            onRenameChange={() => undefined}
+            onRenameCommit={() => undefined}
+            onRenameCancel={() => undefined}
+            onLeave={(b) => setPendingLeave({ id: b.id, name: b.name })}
+            canDelete={false}
+          />
+        )}
       </div>
 
       {me && (
@@ -278,6 +230,167 @@ export default function BoardsSidebar() {
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
       />
+
+      <ConfirmDialog
+        open={pendingLeave !== null}
+        title="Leave board?"
+        message={
+          pendingLeave
+            ? `You'll lose access to “${pendingLeave.name}”. The owner can re-invite you later.`
+            : undefined
+        }
+        confirmLabel={leaveBoard.isPending ? 'Leaving…' : 'Leave'}
+        destructive
+        busy={leaveBoard.isPending}
+        onCancel={() => setPendingLeave(null)}
+        onConfirm={confirmLeave}
+      />
     </Rail>
+  );
+}
+
+type BoardGroupProps = {
+  label: string;
+  boards: Board[];
+  activeBoardId: string | null;
+  renaming: { id: string; draft: string; original: string } | null;
+  renameInputRef: (el: HTMLInputElement | null) => void;
+  onSetActive: (id: string) => void;
+  // Rename is gated to owners by passing `null` from the shared-group caller.
+  onRenameStart: ((board: Board) => void) | null;
+  onRenameChange: (draft: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+  onDelete?: (board: Board) => void;
+  onLeave?: (board: Board) => void;
+  canDelete: boolean;
+};
+
+function BoardGroup({
+  label,
+  boards,
+  activeBoardId,
+  renaming,
+  renameInputRef,
+  onSetActive,
+  onRenameStart,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+  onDelete,
+  onLeave,
+  canDelete,
+}: BoardGroupProps) {
+  return (
+    <div className="mt-3 first:mt-0">
+      <p className="text-fg-subtle px-3 pt-2 pb-1 text-[10px] font-medium tracking-[0.18em] uppercase">
+        {label}
+      </p>
+      {boards.map((board) => {
+        const isActive = board.id === activeBoardId;
+        const isPending = board.id.startsWith(PENDING_PREFIX);
+        const isRenaming = renaming?.id === board.id;
+        return (
+          <div
+            key={board.id}
+            className={`group flex items-center rounded-md transition-colors ${
+              isActive
+                ? 'bg-surface-muted text-fg'
+                : 'text-fg-muted hover:bg-surface-muted/60 hover:text-fg'
+            }`}
+          >
+            {isRenaming && renaming ? (
+              <input
+                ref={renameInputRef}
+                value={renaming.draft}
+                onChange={(e) => onRenameChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    onRenameCommit();
+                  } else if (e.key === 'Escape') {
+                    onRenameCancel();
+                  }
+                }}
+                onBlur={onRenameCommit}
+                className="text-fg flex-1 truncate bg-transparent px-3 py-2 text-sm outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => !isPending && onSetActive(board.id)}
+                onDoubleClick={() => {
+                  if (isPending || !onRenameStart) {
+                    return;
+                  }
+                  onRenameStart(board);
+                }}
+                disabled={isPending}
+                title={
+                  isPending
+                    ? undefined
+                    : `Created ${formatDistanceToNow(new Date(board.createdAt * 1000), { addSuffix: true })} · ${format(new Date(board.createdAt * 1000), 'PP')}`
+                }
+                className="flex-1 truncate px-3 py-2 text-left text-sm disabled:opacity-50"
+              >
+                {board.name}
+              </button>
+            )}
+            {!isPending && !isRenaming && (
+              <>
+                {onRenameStart && (
+                  <button
+                    onClick={() => onRenameStart(board)}
+                    aria-label={`Rename ${board.name}`}
+                    className="text-fg-subtle hover:text-fg flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path
+                        d="M7.5 1.5l2 2-6 6H1.5v-2l6-6z"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+                {onDelete && canDelete && (
+                  <button
+                    onClick={() => onDelete(board)}
+                    aria-label={`Delete ${board.name}`}
+                    className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path
+                        d="M2 2l6 6M8 2l-6 6"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+                {onLeave && (
+                  <button
+                    onClick={() => onLeave(board)}
+                    aria-label={`Leave ${board.name}`}
+                    title="Leave board"
+                    className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path
+                        d="M6 1H2v9h4M5 5.5h5M8 3.5l2 2-2 2"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

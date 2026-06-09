@@ -18,6 +18,7 @@ export function useCreateBoard() {
         id: `__pending__${Date.now()}`,
         name,
         createdAt: Math.floor(Date.now() / 1000),
+        role: 'owner',
       };
       queryClient.setQueryData<Board[]>(BOARDS_QUERY_KEY, (old = []) => [
         ...old,

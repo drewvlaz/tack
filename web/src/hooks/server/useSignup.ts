@@ -1,13 +1,20 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { signup, type User } from '../../api/auth';
+import { signup, type SignupResponse } from '../../api/auth';
 import { ME_QUERY_KEY } from './useMe';
 
 export function useSignup() {
   const qc = useQueryClient();
-  return useMutation<User, Error, { email: string; password: string }>({
-    mutationFn: ({ email, password }) => signup(email, password),
+  return useMutation<
+    SignupResponse,
+    Error,
+    { email: string; password: string; inviteToken?: string }
+  >({
+    mutationFn: ({ email, password, inviteToken }) =>
+      signup(email, password, inviteToken),
     onSuccess: (user) => {
-      qc.setQueryData(ME_QUERY_KEY, user);
+      // Strip invitedBoardId before cacheing — ME_QUERY_KEY holds `User`,
+      // not the signup-only auxiliary fields.
+      qc.setQueryData(ME_QUERY_KEY, { id: user.id, email: user.email });
     },
   });
 }

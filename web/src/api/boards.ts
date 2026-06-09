@@ -60,3 +60,37 @@ export function purgeItem(id: string): Promise<{ ok: true }> {
 export function emptyTrash(boardId: string): Promise<{ ok: true }> {
   return trpc.boards.emptyTrash.mutate({ boardId });
 }
+
+// ---------- collab: invites + membership ----------
+
+export function inviteToBoard(
+  boardId: string,
+): Promise<{ token: string; expiresAt: number }> {
+  return trpc.boards.invite.mutate({ boardId });
+}
+
+export function acceptInvite(token: string): Promise<{ boardId: string }> {
+  return trpc.boards.acceptInvite.mutate({ token });
+}
+
+export type BoardMember = {
+  userId: string;
+  email: string;
+  role: 'owner' | 'editor';
+  joinedAt: number;
+};
+
+export function listMembers(boardId: string): Promise<BoardMember[]> {
+  return trpc.boards.listMembers.query({ boardId });
+}
+
+export function removeMember(
+  boardId: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return trpc.boards.removeMember.mutate({ boardId, userId });
+}
+
+export function leaveBoard(boardId: string): Promise<{ ok: true }> {
+  return trpc.boards.leave.mutate({ boardId });
+}

@@ -14,7 +14,7 @@ export class AuthFetchError extends Error {
 
 async function authFetch<T>(
   path: string,
-  init?: RequestInit & { body?: unknown },
+  init?: Omit<RequestInit, 'body'> & { body?: unknown },
 ): Promise<T> {
   const { body, ...rest } = init ?? {};
   const res = await fetch(`${API_BASE}/api/auth${path}`, {
@@ -42,8 +42,23 @@ async function authFetch<T>(
   return (await res.json()) as T;
 }
 
-export function signup(email: string, password: string): Promise<User> {
-  return authFetch<User>('/signup', { method: 'POST', body: { email, password } });
+// Signup response carries an `invitedBoardId` when the user redeemed an
+// invite token during signup, so the caller can jump straight to that board.
+export type SignupResponse = User & { invitedBoardId?: string };
+
+export function signup(
+  email: string,
+  password: string,
+  inviteToken?: string,
+): Promise<SignupResponse> {
+  return authFetch<SignupResponse>('/signup', {
+    method: 'POST',
+    body: {
+      email,
+      password,
+      ...(inviteToken !== undefined ? { inviteToken } : {}),
+    },
+  });
 }
 
 export function login(email: string, password: string): Promise<User> {
