@@ -32,7 +32,6 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.71",
-    "@cloudflare/workers-types": "^4.20260607.1",
     "drizzle-kit": "^0.31.10",
     "typescript": "~5.8.0",
     "vitest": "^3.2.6",
