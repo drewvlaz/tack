@@ -20,8 +20,6 @@ function db() {
 
 async function wipe() {
   await env.DB.exec('DELETE FROM board_items');
-  await env.DB.exec('DELETE FROM item_images');
-  await env.DB.exec('DELETE FROM items');
   await env.DB.exec('DELETE FROM boards');
   await env.DB.exec('DELETE FROM sessions');
   await env.DB.exec('DELETE FROM users');

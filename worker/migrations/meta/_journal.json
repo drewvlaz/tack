@@ -64,6 +64,13 @@
       "when": 1781045071880,
       "tag": "0008_collab_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781050193100,
+      "tag": "0009_fold_items_into_placements",
+      "breakpoints": true
     }
   ]
 }

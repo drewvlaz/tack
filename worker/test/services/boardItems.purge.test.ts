@@ -20,8 +20,6 @@ function db() {
 
 async function wipe() {
   await env.DB.exec('DELETE FROM board_items');
-  await env.DB.exec('DELETE FROM item_images');
-  await env.DB.exec('DELETE FROM items');
   await env.DB.exec('DELETE FROM boards');
   await env.DB.exec('DELETE FROM sessions');
   await env.DB.exec('DELETE FROM users');
@@ -72,8 +70,7 @@ describe('purgeBoardItem', () => {
         where: (bi, { eq }) => eq(bi.boardId, board.id),
       }),
     ).toEqual([]);
-    expect(await db().query.items.findMany()).toEqual([]);
-    expect(await db().query.itemImages.findMany()).toEqual([]);
+    expect(await db().query.boardItemImages.findMany()).toEqual([]);
     expect(await env.IMAGES.get('items/user-test/purge-1')).toBeNull();
   });
 

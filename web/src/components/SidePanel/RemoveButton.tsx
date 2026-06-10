@@ -3,14 +3,14 @@ import { useDeleteItem } from '../../hooks/server/useDeleteItem';
 import ConfirmDialog from '../shared/ConfirmDialog';
 
 type RemoveButtonProps = {
-  itemId: string;
+  id: string;
   boardId: string;
   title: string | null;
   onRemoved: () => void;
 };
 
 export default function RemoveButton({
-  itemId,
+  id,
   boardId,
   title,
   onRemoved,
@@ -19,7 +19,7 @@ export default function RemoveButton({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   function handleConfirm() {
-    deleteItem.mutate(itemId, {
+    deleteItem.mutate(id, {
       onSuccess: () => {
         setConfirmOpen(false);
         onRemoved();

@@ -1,7 +1,7 @@
 import { useReparseItem } from '../../hooks/server/useReparseItem';
 
 type TopBarProps = {
-  itemId: string;
+  id: string;
   boardId: string;
   onClose: () => void;
 };
@@ -9,13 +9,13 @@ type TopBarProps = {
 const buttonClass =
   'absolute top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-surface-raised/90 text-fg-muted backdrop-blur-md ring-1 ring-border/60 hover:text-fg transition-colors disabled:opacity-50';
 
-export default function TopBar({ itemId, boardId, onClose }: TopBarProps) {
+export default function TopBar({ id, boardId, onClose }: TopBarProps) {
   const reparseItem = useReparseItem(boardId);
 
   return (
     <>
       <button
-        onClick={() => reparseItem.mutate(itemId)}
+        onClick={() => reparseItem.mutate(id)}
         disabled={reparseItem.isPending}
         aria-label="Refresh from source"
         title="Re-fetch from source URL"

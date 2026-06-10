@@ -28,9 +28,12 @@ export type RenameBoardInput = z.infer<typeof RenameBoardBody>;
 // (what the router returns over tRPC). The two diverge only in how images are
 // represented: rows carry a `StoredImage` (R2 key or external URL); the wire
 // carries a resolved display URL that the frontend can hit directly.
+//
+// After fold 0009: there's no separate item id — `id` IS the placement id and
+// also the only identity for metadata. `addedBy` is informational attribution
+// (nullable if the contributor's account was deleted).
 const BoardItemBaseSchema = z.object({
   id: z.string(),
-  itemId: z.string(),
   title: z.string().nullable(),
   brand: z.string().nullable(),
   description: z.string().nullable(),
@@ -39,6 +42,7 @@ const BoardItemBaseSchema = z.object({
   details: z.array(ItemDetailSchema),
   sourceUrl: z.string(),
   addedAt: z.number(),
+  addedBy: z.string().nullable(),
   updatedAt: z.number(),
   x: z.number(),
   y: z.number(),

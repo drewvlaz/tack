@@ -1,18 +1,18 @@
 import { relations } from 'drizzle-orm';
 import { boardInvites } from './boardInvites';
+import { boardItemImages } from './boardItemImages';
 import { boardItems } from './boardItems';
 import { boardMembers } from './boardMembers';
 import { boards } from './boards';
-import { itemImages } from './itemImages';
-import { items } from './items';
 import { sessions } from './sessions';
 import { users } from './users';
 
 export const usersRelations = relations(users, ({ many }) => ({
   boards: many(boards),
-  items: many(items),
   sessions: many(sessions),
   memberships: many(boardMembers),
+  // No items relation — items folded into board_items in migration 0009.
+  // `boardItems.addedBy` is informational attribution, not a strong link.
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -53,16 +53,21 @@ export const boardInvitesRelations = relations(boardInvites, ({ one }) => ({
   }),
 }));
 
-export const itemsRelations = relations(items, ({ many, one }) => ({
-  images: many(itemImages),
-  owner: one(users, { fields: [items.ownerId], references: [users.id] }),
-}));
-
-export const itemImagesRelations = relations(itemImages, ({ one }) => ({
-  item: one(items, { fields: [itemImages.itemId], references: [items.id] }),
-}));
-
-export const boardItemsRelations = relations(boardItems, ({ one }) => ({
+export const boardItemsRelations = relations(boardItems, ({ one, many }) => ({
   board: one(boards, { fields: [boardItems.boardId], references: [boards.id] }),
-  item: one(items, { fields: [boardItems.itemId], references: [items.id] }),
+  addedByUser: one(users, {
+    fields: [boardItems.addedBy],
+    references: [users.id],
+  }),
+  images: many(boardItemImages),
 }));
+
+export const boardItemImagesRelations = relations(
+  boardItemImages,
+  ({ one }) => ({
+    boardItem: one(boardItems, {
+      fields: [boardItemImages.boardItemId],
+      references: [boardItems.id],
+    }),
+  }),
+);

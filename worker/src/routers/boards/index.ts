@@ -14,7 +14,9 @@ import {
   listTrashedBoardItems,
   patchBoardItem,
   purgeBoardItem,
+  reparseItem,
   restoreBoardItem,
+  setPrimaryImage,
 } from '../../services/boardItems';
 import {
   acceptInvite,
@@ -147,6 +149,31 @@ export const boardsRouter = router({
       );
       return { ok: true as const };
     }),
+
+  // Re-fetch the placement's sourceUrl and refresh its metadata + images.
+  // Editor-allowed: any member can refresh any placement on a board they
+  // belong to.
+  reparseItem: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) =>
+      withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
+        reparseItem(tx, input.id, ctx.anthropicKey),
+      ),
+    ),
+
+  // Pick which image is shown first / used as the placement's hero.
+  setPrimaryImage: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        imageId: z.string().nullable(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
+        setPrimaryImage(tx, input.id, input.imageId),
+      ),
+    ),
 
   // ---------- collab: invites + membership ----------
 
