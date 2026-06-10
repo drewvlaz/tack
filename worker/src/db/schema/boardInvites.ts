@@ -3,9 +3,11 @@ import { baseColumns } from './base';
 import { boards } from './boards';
 import { users } from './users';
 
-// One-shot tokens that grant editor membership on redemption. `token` is the
-// capability — 32 random bytes, base64url, unguessable. Stored in the clear
-// because the token IS the credential (same model as session ids).
+// One-shot tokens that grant editor membership on redemption. The capability
+// is 32 random bytes, base64url, generated server-side and surfaced once via
+// the URL shown to the inviter. The DB only stores `tokenHash` — SHA-256 hex
+// of the raw token — so a DB leak doesn't expose redeemable links. The raw
+// token is high-entropy so a single SHA-256 round is enough; no salt.
 //
 // Redemption is a one-time event: `redeemedAt` is set, `redeemedBy` records
 // who consumed it. A second redeem attempt is rejected. Tokens also expire
@@ -17,7 +19,7 @@ export const boardInvites = sqliteTable(
     boardId: text('board_id')
       .notNull()
       .references(() => boards.id, { onDelete: 'cascade' }),
-    token: text('token').notNull().unique(),
+    tokenHash: text('token_hash').notNull().unique(),
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
