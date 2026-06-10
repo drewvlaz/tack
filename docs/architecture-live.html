@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tack · Live Updates Architecture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+
+        /* Tokens — mirror the app's design language (web/src/index.css). */
+        --bg: #faf8f5;
+        --bg-elev: #ffffff;
+        --bg-muted: #f1ede6;
+        --border: #e5dfd4;
+        --fg: #1a1a1a;
+        --fg-muted: #5c5c5c;
+        --fg-subtle: #8a8a82;
+        --accent: #2a6ef0;
+        --accent-soft: #e6efff;
+        --persistent: #c2410c;
+        --persistent-soft: #fef0e6;
+        --ephemeral: #047857;
+        --ephemeral-soft: #e6f5ee;
+        --code-bg: #f4efe7;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
+          0 8px 24px rgba(0, 0, 0, 0.04);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #15140f;
+          --bg-elev: #1c1b16;
+          --bg-muted: #232118;
+          --border: #2e2b22;
+          --fg: #ece7d7;
+          --fg-muted: #aaa697;
+          --fg-subtle: #6a6757;
+          --accent: #6ea1ff;
+          --accent-soft: #1a2540;
+          --persistent: #fb923c;
+          --persistent-soft: #2a1a10;
+          --ephemeral: #34d399;
+          --ephemeral-soft: #0f2620;
+          --code-bg: #1a1812;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4),
+            0 8px 24px rgba(0, 0, 0, 0.25);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter',
+          system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 56px;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 56px 32px 96px;
+      }
+
+      @media (max-width: 880px) {
+        .page {
+          grid-template-columns: 1fr;
+          gap: 24px;
+          padding: 32px 20px 64px;
+        }
+        nav.toc {
+          position: static;
+          margin-bottom: 24px;
+        }
+      }
+
+      nav.toc {
+        position: sticky;
+        top: 56px;
+        align-self: start;
+        font-size: 13px;
+      }
+      nav.toc .label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--fg-subtle);
+        margin-bottom: 10px;
+      }
+      nav.toc ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      nav.toc li {
+        margin: 2px 0;
+      }
+      nav.toc a {
+        color: var(--fg-muted);
+        text-decoration: none;
+        padding: 4px 0;
+        display: block;
+        line-height: 1.4;
+        border-left: 2px solid transparent;
+        padding-left: 12px;
+        margin-left: -14px;
+        transition: color 120ms, border-color 120ms;
+      }
+      nav.toc a:hover {
+        color: var(--fg);
+        border-left-color: var(--border);
+      }
+      nav.toc a.active {
+        color: var(--fg);
+        border-left-color: var(--accent);
+      }
+      nav.toc .group {
+        margin-top: 16px;
+      }
+      nav.toc .group:first-child {
+        margin-top: 0;
+      }
+      nav.toc ol.sub {
+        margin-top: 2px;
+        padding-left: 14px;
+        font-size: 12px;
+      }
+
+      header.page-header {
+        margin-bottom: 40px;
+      }
+      .eyebrow {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--fg-subtle);
+        margin: 0 0 12px;
+      }
+      h1 {
+        font-size: 28px;
+        line-height: 1.2;
+        margin: 0 0 8px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .subtitle {
+        font-size: 15px;
+        color: var(--fg-muted);
+        margin: 0;
+      }
+
+      section {
+        margin-top: 56px;
+      }
+      section.major {
+        padding-top: 24px;
+        border-top: 1px solid var(--border);
+      }
+
+      h2 {
+        font-size: 22px;
+        line-height: 1.25;
+        margin: 0 0 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      h3 {
+        font-size: 16px;
+        margin: 32px 0 12px;
+        font-weight: 600;
+      }
+      h3 .marker {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-right: 10px;
+        vertical-align: 1px;
+      }
+      h3 .marker.persistent {
+        background: var(--persistent-soft);
+        color: var(--persistent);
+      }
+      h3 .marker.ephemeral {
+        background: var(--ephemeral-soft);
+        color: var(--ephemeral);
+      }
+      h3 .marker.mixed {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+      p.lede {
+        color: var(--fg-muted);
+        font-size: 15px;
+        margin: -4px 0 20px;
+        max-width: 65ch;
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        overflow-x: auto;
+        font-family:
+          'JetBrains Mono', 'SF Mono', Menlo, Monaco, 'Cascadia Code',
+          'Roboto Mono', monospace;
+        font-size: 12.5px;
+        line-height: 1.55;
+        margin: 0 0 20px;
+        box-shadow: var(--shadow);
+      }
+      pre.diagram {
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      code {
+        font-family:
+          'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
+        font-size: 0.92em;
+        background: var(--code-bg);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+
+      ul,
+      ol {
+        padding-left: 22px;
+        margin: 0 0 18px;
+      }
+      li {
+        margin: 6px 0;
+      }
+      li::marker {
+        color: var(--fg-subtle);
+      }
+
+      .invariants {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        counter-reset: inv;
+      }
+      .invariants li {
+        counter-increment: inv;
+        position: relative;
+        padding: 14px 16px 14px 52px;
+        margin: 8px 0;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .invariants li::before {
+        content: counter(inv);
+        position: absolute;
+        left: 14px;
+        top: 14px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--bg-muted);
+        color: var(--fg-muted);
+        font-size: 11px;
+        font-weight: 600;
+        display: grid;
+        place-items: center;
+      }
+      .invariants li strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .invariants li p {
+        color: var(--fg-muted);
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .legend {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+        margin: 20px 0 28px;
+      }
+      .legend .item {
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 16px;
+      }
+      .legend .item .tag {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-bottom: 8px;
+      }
+      .legend .item .tag.persistent {
+        background: var(--persistent-soft);
+        color: var(--persistent);
+      }
+      .legend .item .tag.ephemeral {
+        background: var(--ephemeral-soft);
+        color: var(--ephemeral);
+      }
+      .legend .item p {
+        margin: 0;
+        font-size: 13.5px;
+        color: var(--fg-muted);
+        line-height: 1.5;
+      }
+
+      details {
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0 16px;
+        margin: 14px 0;
+      }
+      details summary {
+        cursor: pointer;
+        padding: 14px 0;
+        font-weight: 500;
+        color: var(--fg);
+        list-style: none;
+      }
+      details summary::-webkit-details-marker {
+        display: none;
+      }
+      details summary::before {
+        content: '▸';
+        display: inline-block;
+        width: 1em;
+        margin-right: 6px;
+        color: var(--fg-subtle);
+        transition: transform 120ms;
+      }
+      details[open] summary::before {
+        transform: rotate(90deg);
+      }
+      details > *:not(summary) {
+        padding-bottom: 4px;
+      }
+
+      footer {
+        margin-top: 80px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--fg-subtle);
+      }
+      footer a {
+        color: var(--fg-muted);
+      }
+
+      /* Compact alternative-and-reason list used in the Why DO section. */
+      dl.alternatives {
+        margin: 0 0 24px;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 24px;
+        row-gap: 4px;
+        font-size: 14px;
+      }
+      dl.alternatives dt {
+        font-weight: 500;
+        color: var(--fg);
+        padding: 6px 0;
+      }
+      dl.alternatives dd {
+        margin: 0;
+        color: var(--fg-muted);
+        padding: 6px 0;
+        line-height: 1.5;
+      }
+      @media (max-width: 720px) {
+        dl.alternatives {
+          grid-template-columns: 1fr;
+          row-gap: 0;
+        }
+        dl.alternatives dd {
+          padding: 0 0 12px;
+        }
+      }
+
+      /* Trade-off list: each item has a leading inline label. */
+      ul.tradeoffs {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 16px;
+      }
+      ul.tradeoffs li {
+        padding: 12px 0;
+        border-top: 1px solid var(--border);
+        font-size: 14px;
+        color: var(--fg-muted);
+        line-height: 1.55;
+      }
+      ul.tradeoffs li:first-child {
+        border-top: none;
+        padding-top: 4px;
+      }
+      ul.tradeoffs li strong {
+        color: var(--fg);
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <nav class="toc" aria-label="Table of contents">
+        <p class="label">Contents</p>
+        <ol id="toc-list">
+          <li class="group"><a href="#overview">Overview</a></li>
+          <li><a href="#why-do">Why Durable Objects</a></li>
+          <li><a href="#components">Components</a></li>
+          <li class="group"><a href="#sequences">Sequences</a></li>
+          <li>
+            <ol class="sub">
+              <li><a href="#seq-mutation">Persistent mutation</a></li>
+              <li><a href="#seq-cursor">Cursor broadcast</a></li>
+              <li><a href="#seq-drag">Collaborative drag</a></li>
+              <li><a href="#seq-connect">Connect + sync</a></li>
+              <li><a href="#seq-reconnect">Reconnect</a></li>
+              <li><a href="#seq-kick">Kick (revoked)</a></li>
+            </ol>
+          </li>
+          <li class="group"><a href="#invariants">Invariants</a></li>
+        </ol>
+      </nav>
+
+      <main>
+        <header class="page-header">
+          <p class="eyebrow">Tack · Phase 2 + 3</p>
+          <h1>Live updates architecture</h1>
+          <p class="subtitle">
+            How shared-board edits propagate in real time once the
+            Durable Object transport lands. Phase 1 (shared boards with
+            refresh-to-see) is already in HEAD; this document scopes
+            what comes next.
+          </p>
+        </header>
+
+        <section id="overview">
+          <h2>Overview</h2>
+          <p class="lede">
+            Two transports out of the browser, two classes of message,
+            one Durable Object per board acting as broadcaster.
+          </p>
+
+          <div class="legend">
+            <div class="item">
+              <span class="tag persistent">Persistent</span>
+              <p>
+                Server-originated, broadcast <em>after</em> the D1 commit
+                lands. <code>add</code> · <code>patch</code> ·
+                <code>delete</code> · <code>restore</code> ·
+                <code>members.changed</code> · <code>kick</code>.
+                Carries a <code>clientMsgId</code> so the originator can
+                suppress its own echo.
+              </p>
+            </div>
+            <div class="item">
+              <span class="tag ephemeral">Ephemeral</span>
+              <p>
+                Client-originated, fanned out immediately by the DO,
+                never persisted. <code>cursor</code> · <code>drag</code>
+                · <code>ping</code>. Lost messages are lost — the next
+                throttled emit covers the gap.
+              </p>
+            </div>
+          </div>
+
+          <p>
+            tRPC remains the only durable write path. The Durable Object
+            holds zero persistent state — on restart, peers reconnect
+            and resync via <code>boards.getItems</code>. R2 cleanup and
+            DO broadcast both live in the same <code>Tx</code>
+            accumulator (<code>scheduleBlobCleanup</code> /
+            <code>scheduleBroadcast</code>) and drain only after
+            <code>db.batch()</code> commits — if SQL throws, neither
+            runs.
+          </p>
+        </section>
+
+        <section id="why-do" class="major">
+          <h2>Why Durable Objects</h2>
+          <p class="lede">
+            Workers are stateless and ephemeral — two peers on the same
+            board could land on two different isolates with no shared
+            memory. We need exactly one address per board where all
+            connections converge. Durable Objects are Cloudflare's
+            stateful primitive; ours is just the broadcast hub.
+          </p>
+
+          <h3>The constraint</h3>
+          <p>
+            A Worker invocation has no shared memory with its siblings.
+            If Alice's WS connection lives on isolate <code>A</code> and
+            Bob's lives on isolate <code>B</code>, there is no
+            in-process place to keep "the list of connections for board
+            X." Without a stateful coordinator, every broadcast would
+            need an external message bus and the latency budget for
+            cursors evaporates.
+          </p>
+
+          <h3>What a DO gives us</h3>
+          <ol>
+            <li>
+              <strong>Single-instance-per-name.</strong>
+              <code>env.BOARD_DO.idFromName(boardId)</code> always
+              resolves to the <em>same</em> DO instance. Every WS for
+              that board converges there. Broadcast iterates
+              <code>state.getWebSockets()</code> — no cross-isolate
+              plumbing.
+            </li>
+            <li>
+              <strong>Hibernation API.</strong> Cursor traffic is
+              bursty-with-long-idles.
+              <code>state.acceptWebSocket()</code> hands the socket back
+              to the platform between messages and only wakes the DO on
+              inbound traffic. Idle peers don't keep an isolate hot.
+            </li>
+            <li>
+              <strong>Serialized writes.</strong> Method calls on a DO
+              are processed one at a time. We don't have to coordinate
+              concurrent broadcasts — the DO is its own ordering
+              authority.
+            </li>
+          </ol>
+
+          <h3>Why per-board (not per-user, not global)</h3>
+          <p>
+            One DO per board scopes traffic naturally. Cursor blast
+            radius is exactly the set of peers on that board (small —
+            usually 2–5). A noisy board can't degrade other boards'
+            latency. Per-user would mean cross-multiplexing N boards
+            through one DO with no clean fanout target. Global would
+            funnel every cursor through a single CPU and cliff at low
+            hundreds of users.
+          </p>
+
+          <h3>Alternatives we ruled out</h3>
+          <dl class="alternatives">
+            <dt>Stateless Workers + external pub/sub</dt>
+            <dd>
+              Redis / Upstash / NATS adds infra we don't own, costs
+              money, and introduces a latency hop. Overkill for our
+              volume.
+            </dd>
+            <dt>Polling</dt>
+            <dd>Defeats the sub-100ms cursor target.</dd>
+            <dt>Server-Sent Events</dt>
+            <dd>
+              One-way only (server → client). We need to send cursor
+              and drag positions <em>up</em>.
+            </dd>
+            <dt>WebRTC peer-to-peer</dt>
+            <dd>
+              Still needs a signaling server, NAT traversal is brittle,
+              and the security model gets complicated fast.
+            </dd>
+            <dt>One global broadcaster Worker</dt>
+            <dd>
+              Workers don't work that way. Even if they did, every
+              cursor message would contend for one CPU.
+            </dd>
+          </dl>
+
+          <h3>Trade-offs we accept</h3>
+          <ul class="tradeoffs">
+            <li>
+              <strong>~30–50 ms cold-start</strong> on the first peer
+              joining a board. The DO stays warm while anyone's
+              connected.
+            </li>
+            <li>
+              <strong>Geographic pinning.</strong> A DO lives in one
+              region. Cross-continent peers pay the extra round-trip.
+              For a personal moodboard with small co-editor groups,
+              peers usually cluster anyway.
+            </li>
+            <li>
+              <strong>Hibernation footguns.</strong> Per-socket data
+              must go through <code>serializeAttachment</code>; instance
+              fields don't survive between messages. Easy to get wrong
+              on first attempt — documented as an invariant in the
+              implementation plan.
+            </li>
+            <li>
+              <strong>Cost.</strong> DOs bill on requests + duration.
+              For Tack's scale (single-digit boards, sub-100 concurrent
+              users), pennies per month.
+            </li>
+          </ul>
+
+          <h3>What the DO is NOT</h3>
+          <p>
+            The DO is <strong>not a database.</strong> It holds zero
+            durable state. D1 is the source of truth. If a DO restarts
+            (deploy, eviction, region failover), peers reconnect,
+            re-issue <code>boards.getItems</code>, and life continues.
+            This is invariant #1 below — it keeps the architecture safe
+            to evolve.
+          </p>
+        </section>
+
+        <section id="components" class="major">
+          <h2>Components</h2>
+          <p class="lede">
+            Two browsers, one Hono worker with a tRPC handler and a WS
+            upgrade route, one DO per board, D1 + R2 as the durable
+            substrate.
+          </p>
+          <pre class="diagram">┌──────────────────────────────────────────────────────────────────────────┐
+│  Browser (Alice)                       Browser (Bob)                     │
+│  ┌──────────────────────┐              ┌──────────────────────┐          │
+│  │ React + TanStack Q   │              │ React + TanStack Q   │          │
+│  │  - useBoardItems     │              │  - useBoardItems     │          │
+│  │  - useAddItem        │              │  - useAddItem        │          │
+│  │  - useSyncPosition   │              │  - useSyncPosition   │          │
+│  │  - useBoardLive ←─┐  │              │  - useBoardLive ←─┐  │          │
+│  │  - presence store │  │              │  - presence store │  │          │
+│  │  - sentMsgIds Set │  │              │  - sentMsgIds Set │  │          │
+│  └─────┬──────┬──────┼──┘              └─────┬──────┬──────┼──┘          │
+│   tRPC │   WS │ (in) │                  tRPC │   WS │ (in) │             │
+│  (POST)│ (out)│      │                 (POST)│ (out)│      │             │
+└────────┼──────┼──────┼─────────────────────┼──────┼──────┼───────────────┘
+         │      │      │                     │      │      │
+         ▼      ▼      │                     ▼      ▼      │
+┌──────────────────────┴──────────────────────────────────┴────────────────┐
+│  Cloudflare Worker (Hono)                                                │
+│  ┌─────────────────────────────┐   ┌────────────────────────────────┐    │
+│  │ tRPC handler                │   │ GET /api/boards/:id/live       │    │
+│  │  - protectedProcedure       │   │  - cookie → session            │    │
+│  │  - withTransaction(tx)      │   │  - boards.requireEditor()      │    │
+│  │       ↓                     │   │  - forward upgrade to DO       │    │
+│  │    stage SQL                │   └──────────────┬─────────────────┘    │
+│  │    scheduleBlobCleanup      │                  │ Upgrade              │
+│  │    scheduleBroadcast  ◄─────┼──── after        │                      │
+│  │       ↓                     │     SQL commit   │                      │
+│  │    db.batch([...])          │                  │                      │
+│  │    R2 deletes               │                  │                      │
+│  │    DO.publish(msg) ─────────┼──────────┐       │                      │
+│  └─────────────────────────────┘          │       │                      │
+│                                           ▼       ▼                      │
+│                       ┌───────────────────────────────────────────┐      │
+│                       │ BoardDO (one per board, named by boardId) │      │
+│                       │  - hibernation API                        │      │
+│                       │  - state.getWebSockets() = live sockets   │      │
+│                       │  - publish(msg): fan out to all sockets   │      │
+│                       │  - webSocketMessage: relay ephemeral msgs │      │
+│                       │  - no durable storage (D1 is source)      │      │
+│                       └────────────────────┬──────────────────────┘      │
+│                                            │                             │
+│  ┌──────────────────────┐ ┌─────────────────┴─────────────┐              │
+│  │ D1 (SQLite)          │ │ R2 (images)                   │              │
+│  │  boards,             │ │  items/{userId}/{nanoid}      │              │
+│  │  board_items,        │ │                               │              │
+│  │  board_item_images,  │ │                               │              │
+│  │  board_members,      │ │                               │              │
+│  │  board_invites,      │ │                               │              │
+│  │  users, sessions     │ │                               │              │
+│  └──────────────────────┘ └───────────────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────────┘</pre>
+        </section>
+
+        <section id="sequences" class="major">
+          <h2>Sequences</h2>
+          <p class="lede">
+            Six flows. The first three carry the main load (mutations,
+            cursors, drag). The last three handle lifecycle (connect,
+            reconnect, kick).
+          </p>
+
+          <h3 id="seq-mutation">
+            <span class="marker persistent">Persistent</span>
+            Mutation (Alice adds item, Bob sees it)
+          </h3>
+          <p>
+            tRPC stages SQL, then schedules the broadcast on the same
+            <code>Tx</code> accumulator. The broadcast carries the
+            originator's <code>clientMsgId</code>, which Alice's
+            browser uses to suppress the echo of its own optimistic
+            update.
+          </p>
+          <pre class="diagram">Alice                  Worker (tRPC)         BoardDO           Bob
+  │  parseUrl(url)         │                    │              │
+  │ ─────────────────────► │                    │              │
+  │                        │  fetch+claude+R2   │              │
+  │  ParseResult           │                    │              │
+  │ ◄───────────────────── │                    │              │
+  │                        │                    │              │
+  │  addItem({..., clientMsgId=K})              │              │
+  │ ─────────────────────► │                    │              │
+  │                        │  withTx:           │              │
+  │                        │    boards.req...   │              │
+  │                        │    stage inserts   │              │
+  │                        │    schedBroadcast  │              │
+  │                        │  ──── db.batch ──► │              │
+  │                        │  ──── R2 cleanup ► │              │
+  │                        │  DO.publish({type:'add',          │
+  │                        │              clientMsgId:K, ...}) │
+  │                        │ ─────────────────► │              │
+  │  BoardItem             │                    │  WS push:    │
+  │ ◄───────────────────── │                    │  {add, K, item}
+  │                        │                    │ ───────────► │
+  │  WS push:              │                    │              │
+  │  {add, K, item}        │                    │              │
+  │ ◄──────────────────────┴──────────────────  │              │
+  │                                             │              │
+  │  clientMsgId K is in sentMsgIds             │              │
+  │  → suppress echo, keep optimistic state     │              │
+  │                                             │              │
+  │                                             │  Bob's clientMsgIds
+  │                                             │  has no K
+  │                                             │  → setQueryData(items)
+  │                                             │     splices in item
+  │                                             │  → Card mounts,
+  │                                             │     spring animates</pre>
+
+          <h3 id="seq-cursor">
+            <span class="marker ephemeral">Ephemeral</span>
+            Cursor broadcast
+          </h3>
+          <p>
+            Pure relay through the DO. No D1 write, no
+            <code>clientMsgId</code> — the DO fans out to peers and
+            skips the originator. Throttled ~30Hz on the client side.
+          </p>
+          <pre class="diagram">Alice (pointermove, throttled ~30Hz)
+  │   WS send: {type:'cursor', x, y}
+  │ ─────────────────────────────────────► BoardDO
+  │                                         │
+  │                                         │  webSocketMessage(ws, msg):
+  │                                         │    validate shape (Zod)
+  │                                         │    attach userId from
+  │                                         │      serializeAttachment
+  │                                         │    fan out to peers
+  │                                         │      EXCEPT originator
+  │                                         │
+  │                                         │  for ws in getWebSockets():
+  │                                         │    if ws != originator:
+  │                                         │      ws.send(msg + userId)
+  │                                         │
+  │                          ◄────────────  │
+  │                          Bob's WS push: │
+  │                          {cursor, userId:alice, x, y}
+  │
+  │ Bob's presence store:
+  │   cursors[alice] = {x, y, lastSeenAt: now}
+  │ Cursor overlay re-renders (springX/springY update)
+  │ → Alice's colored arrow tracks at 30Hz
+  │
+  │ 5s after Alice's last cursor msg, presence cull removes entry.</pre>
+
+          <h3 id="seq-drag">
+            <span class="marker mixed">Mixed</span>
+            Collaborative drag
+          </h3>
+          <p>
+            Two-phase: ephemeral while the drag is in flight (60Hz drag
+            messages move Bob's Card via motion values), then a single
+            persistent <code>patch</code> on drag end carries the final
+            position to D1.
+          </p>
+          <pre class="diagram">Alice                       BoardDO                Bob
+  │ dragStart               │                       │
+  │                         │                       │
+  │ pointermove (throttled ~60Hz)                   │
+  │ WS {type:'drag',        │                       │
+  │     placementId, x, y}  │                       │
+  │ ──────────────────────► │  fanout (except       │
+  │                         │   originator)         │
+  │                         │ ────────────────────► │
+  │ (repeats ~60Hz                                  │ Bob's Card:
+  │  for the duration                               │   remoteDrags[pid]
+  │  of the drag)                                   │   = {userId, x, y}
+  │                                                 │   Card's springX/Y
+  │                                                 │   driven by stream
+  │ dragEnd                 │                       │   (no React state
+  │                         │                       │    churn — motion
+  │ HTTPS patchBoardItem    │                       │    values direct)
+  │ ──────────────────────► │ tRPC path             │
+  │   {id, x, y, clientMsgId:K}                     │
+  │                         │ withTx: stage,        │
+  │                         │ commit, publish       │
+  │                         │ ────────────────────► │
+  │                                                 │ WS {patch, K, ...}
+  │                                                 │ presence.remoteDrags[pid]
+  │                                                 │   cleared
+  │                                                 │ query cache patched
+  │                                                 │ → Card snaps to final</pre>
+
+          <h3 id="seq-connect">
+            <span class="marker mixed">Lifecycle</span>
+            Connect + initial sync
+          </h3>
+          <p>
+            No special "sync" message — the existing
+            <code>boards.getItems</code> tRPC query already gives the
+            client a fresh snapshot. The WS opens against that snapshot
+            and incoming patches are diffs from there.
+          </p>
+          <pre class="diagram">Bob opens board                Worker          BoardDO       D1
+  │ tRPC: boards.getItems        │                │            │
+  │ ───────────────────────────► │ ─── SELECT ──────────────► │
+  │ items[]                      │                │            │
+  │ ◄─────────────────────────── │                │            │
+  │ (TanStack Query cache hot)   │                │            │
+  │                              │                │            │
+  │ WS upgrade /api/boards/:id/live              │            │
+  │ ───────────────────────────► │ cookie→session             │
+  │                              │ boards.requireEditor       │
+  │                              │ forward upgrade ──────────►│
+  │                              │                │           │
+  │                              │       state.acceptWebSocket(ws,
+  │                              │         [userId, sessionId, clientId])
+  │                              │       serializeAttachment({userId, clientId})
+  │                              │                │
+  │ WS open                      │                │
+  │ ◄─────────────────────────── │ ◄──────────── │
+  │
+  │ Stream connected. No "sync" message — getItems already gave us
+  │ the snapshot. Incoming patches are diffs against that snapshot.</pre>
+
+          <h3 id="seq-reconnect">
+            <span class="marker mixed">Lifecycle</span>
+            Reconnect after disconnect
+          </h3>
+          <p>
+            Exponential backoff up to 30s. On reopen, invalidate the
+            items query so the client re-snaps from D1 — any patches
+            missed during the outage are now in the snapshot.
+          </p>
+          <pre class="diagram">Bob (offline 30s)                Worker          BoardDO
+  │ WS dropped (network loss)     │                │
+  │                               │                │ webSocketClose
+  │                               │                │ broadcast {presence_leave, bob}
+  │
+  │ Backoff: 1s, 2s, 4s, ...
+  │ ▼
+  │ WS upgrade (new conn)         │                │
+  │ ────────────────────────────► │ ────────────► state.acceptWebSocket
+  │ WS open
+  │
+  │ Invalidate ['boards', id, 'items'] query
+  │ ────► tRPC boards.getItems    │ ── SELECT ──────────────► D1
+  │ ◄────────────────────────────                              │
+  │ Cache replaced with fresh snapshot
+  │
+  │ Any patches Bob missed during the outage are now reflected
+  │ in the snapshot. Live patches resume from this point.</pre>
+
+          <h3 id="seq-kick">
+            <span class="marker persistent">Persistent</span>
+            Kick (membership revoked mid-session)
+          </h3>
+          <p>
+            <code>removeMember</code> stages the soft-remove + a
+            targeted <code>kick</code> broadcast. The DO finds Bob's
+            specific socket by attachment and closes it with a
+            non-retry code so the client doesn't auto-reconnect.
+          </p>
+          <pre class="diagram">Alice                  Worker             BoardDO              Bob
+  │ removeMember          │                   │                  │
+  │ ───────────────────► │                   │                  │
+  │                       │ withTx:           │                  │
+  │                       │  requireOwner     │                  │
+  │                       │  stage soft-rm    │                  │
+  │                       │  schedBroadcast   │                  │
+  │                       │   {type:'kick',   │                  │
+  │                       │    userId:bob}    │                  │
+  │                       │ db.batch          │                  │
+  │                       │ DO.publish ─────► │                  │
+  │                       │                   │ find Bob's ws    │
+  │                       │                   │ (attach.userId)  │
+  │                       │                   │ ws.send({kick})  │
+  │                       │                   │ ws.close(4003)   │
+  │                       │                   │                  │ ws.onmessage:
+  │                       │                   │                  │   show toast
+  │                       │                   │                  │   clear activeBoardId
+  │                       │                   │                  │   invalidate boards list
+  │                       │                   │                  │ ws.onclose:
+  │                       │                   │                  │   do NOT reconnect
+  │                       │                   │                  │   (clean close code)</pre>
+        </section>
+
+        <section id="invariants" class="major">
+          <h2>Invariants</h2>
+          <p class="lede">
+            Properties the design has to preserve. Each one is encoded
+            in either the file layout or the runtime ordering, not in
+            convention.
+          </p>
+          <ol class="invariants">
+            <li>
+              <strong>tRPC is the only durable write path.</strong>
+              <p>
+                The DO never writes to D1. A DO restart loses nothing
+                important — peers reconnect and resync via
+                <code>getItems</code>.
+              </p>
+            </li>
+            <li>
+              <strong>
+                R2 cleanup AND DO broadcast both run after
+                <code>db.batch()</code> commits.
+              </strong>
+              <p>
+                <code>scheduleBlobCleanup</code> and
+                <code>scheduleBroadcast</code> are siblings in the
+                <code>Tx</code> accumulator. If the batch throws,
+                neither runs.
+              </p>
+            </li>
+            <li>
+              <strong>Echo suppression is clientMsgId-based.</strong>
+              <p>
+                The client tags each mutation, the server echoes the
+                tag through the broadcast, the originating client
+                ignores echoes with its own tags. No server-side
+                per-connection memory required.
+              </p>
+            </li>
+            <li>
+              <strong>Authorization happens on the HTTP upgrade.</strong>
+              <p>
+                The DO trusts the userId in the connection
+                attachment because only the worker's
+                <code>/live</code> route can set it.
+              </p>
+            </li>
+            <li>
+              <strong>
+                Ephemeral messages never touch D1 and carry no
+                clientMsgId.
+              </strong>
+              <p>
+                Lost cursor or drag messages are lost — the next
+                throttled emit covers the gap. No retransmit, no
+                replay buffer.
+              </p>
+            </li>
+            <li>
+              <strong>Presence is purely client-derived.</strong>
+              <p>
+                Cursor and drag entries are populated from inbound
+                messages. A peer that quietly vanishes is culled
+                after 5s of no traffic.
+              </p>
+            </li>
+          </ol>
+        </section>
+
+        <footer>
+          <p>
+            See also the implementation plan at
+            <code>~/.claude/plans/a-i-alpha-quizzical-engelbart.md</code>
+            and Phase 1 commits <code>13b2cac</code> (server) and
+            <code>b46e364</code> (frontend) on <code>main</code>.
+          </p>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      // Cheap scrollspy: highlight the TOC entry whose section is most
+      // visible. IntersectionObserver covers the common case; the loop on
+      // sections is bounded by document size.
+      const sections = document.querySelectorAll('section[id], h3[id]');
+      const tocLinks = new Map();
+      document
+        .querySelectorAll('nav.toc a')
+        .forEach((a) =>
+          tocLinks.set(a.getAttribute('href').slice(1), a),
+        );
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const link = tocLinks.get(entry.target.id);
+            if (!link) continue;
+            if (entry.isIntersecting) {
+              tocLinks.forEach((a) => a.classList.remove('active'));
+              link.classList.add('active');
+            }
+          }
+        },
+        {
+          rootMargin: '-40% 0px -55% 0px',
+          threshold: 0,
+        },
+      );
+      sections.forEach((s) => observer.observe(s));
+    </script>
+  </body>
+</html>
