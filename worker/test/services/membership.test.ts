@@ -304,11 +304,12 @@ describe('invites', () => {
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
       createInvite(tx, board.id),
     );
-    // Force expiry. expiresAt is unix seconds.
+    // Force expiry. expiresAt is unix seconds. We can't look up by raw
+    // token anymore (DB stores only the hash); scope by board_id instead.
     await env.DB.prepare(
-      'UPDATE board_invites SET expires_at = ?1 WHERE token = ?2',
+      'UPDATE board_invites SET expires_at = ?1 WHERE board_id = ?2',
     )
-      .bind(0, token)
+      .bind(0, board.id)
       .run();
 
     await expect(
@@ -330,10 +331,9 @@ describe('invites', () => {
     // No board_members row was inserted.
     const members = await db().query.boardMembers.findMany();
     expect(members).toEqual([]);
-    // Token is consumed.
-    const [invite] = await db().query.boardInvites.findMany({
-      where: (i, { eq }) => eq(i.token, token),
-    });
+    // Token is consumed. Only one invite exists in this test; assert on it
+    // directly (we can't look up by raw token — DB stores only the hash).
+    const [invite] = await db().query.boardInvites.findMany();
     expect(invite.redeemedAt).not.toBeNull();
   });
 
@@ -344,6 +344,28 @@ describe('invites', () => {
       { email: 'alice@local', role: 'owner' },
       { email: 'bob@local', role: 'editor' },
     ]);
+  });
+
+  it('the raw token never appears in board_invites', async () => {
+    // Regression guard for the at-rest hashing. If a future refactor
+    // accidentally writes back the cleartext, this fires.
+    const board = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
+      Promise.resolve(createBoard(tx, 'Hashed')),
+    );
+    const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
+      createInvite(tx, board.id),
+    );
+
+    const rows = await db().query.boardInvites.findMany();
+    expect(rows).toHaveLength(1);
+    const stored = rows[0].tokenHash;
+    // 64 hex chars = 256 bits, the SHA-256 hex shape.
+    expect(stored).toMatch(/^[0-9a-f]{64}$/);
+    // The hash is NOT the raw token under any encoding we use elsewhere.
+    expect(stored).not.toBe(token);
+    // And the raw token isn't a substring of anything we persist.
+    const serialized = JSON.stringify(rows[0]);
+    expect(serialized.includes(token)).toBe(false);
   });
 });
 
@@ -486,9 +508,9 @@ describe('invite token bypasses INVITE_EMAILS allowlist at signup', () => {
       createInvite(tx, board.id),
     );
     await env.DB.prepare(
-      'UPDATE board_invites SET expires_at = ?1 WHERE token = ?2',
+      'UPDATE board_invites SET expires_at = ?1 WHERE board_id = ?2',
     )
-      .bind(0, token)
+      .bind(0, board.id)
       .run();
 
     await expect(

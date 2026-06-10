@@ -23,7 +23,9 @@ export type MemberView = {
   joinedAt: number;
 };
 
-// base64url, no padding. Same encoding as session ids.
+// base64url, no padding. Same encoding as session ids. Raw form is only
+// ever surfaced to the inviter through the share URL — the DB stores the
+// hash (see hashInviteToken below).
 function genToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(INVITE_TOKEN_BYTES));
   let s = '';
@@ -31,6 +33,20 @@ function genToken(): string {
     s += String.fromCharCode(bytes[i]);
   }
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// SHA-256 hex of the raw token. Used both at issuance (to derive the value
+// we store) and at redemption (to look up by). The raw input is 32 random
+// bytes — a single SHA-256 round is plenty; no salt or KDF stretching.
+// Hex (not base64) for easy eyeballing in db:studio.
+async function hashInviteToken(rawToken: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(rawToken),
+  );
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 // ---------- reads ----------
@@ -98,18 +114,21 @@ export async function createInvite(
 
   const now = nowSec();
   const token = genToken();
+  const tokenHash = await hashInviteToken(token);
   const expiresAt = now + INVITE_TTL_SECONDS;
   tx.stage(
     tx.db.insert(schema.boardInvites).values({
       id: genId(),
       boardId,
-      token,
+      tokenHash,
       createdBy: tx.scope.userId,
       expiresAt,
       createdAt: now,
       updatedAt: now,
     }),
   );
+  // Raw token returned to the caller — it's the one and only time the
+  // cleartext value is surfaced. The DB only ever holds the hash.
   return { token, expiresAt };
 }
 
@@ -126,8 +145,11 @@ export async function redeemInvite(
   token: string,
   userId: string,
 ): Promise<InviteRedemption> {
+  // The DB only knows the hash. Hash the presented raw token and look it
+  // up — same one-pass SHA-256 used at issuance, so the digests match.
+  const tokenHash = await hashInviteToken(token);
   const invite = await tx.db.query.boardInvites.findFirst({
-    where: eq(schema.boardInvites.token, token),
+    where: eq(schema.boardInvites.tokenHash, tokenHash),
   });
   if (!invite) {
     throw new TRPCError({
