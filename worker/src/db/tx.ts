@@ -2,12 +2,10 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { deleteStoredImage, fromR2Key } from '../services/images';
 import type { Db } from './client';
 import {
+  BoardItemImagesReadRepo,
+  BoardItemImagesTxRepo,
   BoardsReadRepo,
   BoardsTxRepo,
-  ItemImagesReadRepo,
-  ItemImagesTxRepo,
-  ItemsReadRepo,
-  ItemsTxRepo,
   PlacementsReadRepo,
   PlacementsTxRepo,
 } from './repos';
@@ -28,9 +26,8 @@ export type Scope = { userId: string };
 // smell — see .claude/skills/service-design.
 export class ServiceCtx {
   readonly boards: BoardsReadRepo;
-  readonly items: ItemsReadRepo;
   readonly placements: PlacementsReadRepo;
-  readonly itemImages: ItemImagesReadRepo;
+  readonly boardItemImages: BoardItemImagesReadRepo;
 
   constructor(
     public readonly db: Db,
@@ -38,9 +35,8 @@ export class ServiceCtx {
     public readonly scope: Scope,
   ) {
     this.boards = new BoardsReadRepo(db, scope);
-    this.items = new ItemsReadRepo(db, scope);
     this.placements = new PlacementsReadRepo(db, scope);
-    this.itemImages = new ItemImagesReadRepo(db, scope);
+    this.boardItemImages = new BoardItemImagesReadRepo(db, scope);
   }
 }
 
@@ -59,9 +55,8 @@ export class Tx {
   private readonly blobsToDelete: BlobRef[] = [];
 
   readonly boards: BoardsTxRepo;
-  readonly items: ItemsTxRepo;
   readonly placements: PlacementsTxRepo;
-  readonly itemImages: ItemImagesTxRepo;
+  readonly boardItemImages: BoardItemImagesTxRepo;
 
   constructor(
     public readonly db: Db,
@@ -69,9 +64,8 @@ export class Tx {
     public readonly scope: Scope,
   ) {
     this.boards = new BoardsTxRepo(this);
-    this.items = new ItemsTxRepo(this);
     this.placements = new PlacementsTxRepo(this);
-    this.itemImages = new ItemImagesTxRepo(this);
+    this.boardItemImages = new BoardItemImagesTxRepo(this);
   }
 
   stage(...stmts: BatchStatement[]): void {

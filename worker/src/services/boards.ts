@@ -30,10 +30,10 @@ export function createBoard(tx: Tx, name: string): Board {
   return { id, name, createdAt: now, role: 'owner' };
 }
 
-// Hard purge: drops all placements for the board, items that become orphans
-// (no remaining placements anywhere), their R2 blobs, then the board row —
-// all in a single atomic batch via the Tx. Owner-only: an editor on a shared
-// board doesn't get to nuke it.
+// Hard purge: drops all placements for the board, their R2 blobs, then
+// the board row — all in a single atomic batch via the Tx. Owner-only.
+// After fold 0009 there's no separate items table to orphan-check; the
+// FK cascade on board_items + the staged blob cleanup are enough.
 export async function deleteBoard(tx: Tx, id: string): Promise<void> {
   await tx.boards.requireOwner(id);
 
@@ -41,7 +41,6 @@ export async function deleteBoard(tx: Tx, id: string): Promise<void> {
   await stagePurge(
     tx,
     placements.map((p) => p.id),
-    placements.map((p) => p.itemId),
   );
 
   tx.boards.stageHardDelete(id);

@@ -27,8 +27,6 @@ async function wipe() {
   // Sessions cascade from users, so we wipe sessions first to keep order safe
   // when we re-seed the fixture user.
   await env.DB.exec('DELETE FROM board_items');
-  await env.DB.exec('DELETE FROM item_images');
-  await env.DB.exec('DELETE FROM items');
   await env.DB.exec('DELETE FROM boards');
   await env.DB.exec('DELETE FROM sessions');
   await env.DB.exec('DELETE FROM users');
@@ -117,8 +115,7 @@ describe('boards service', () => {
         where: (bi, { eq }) => eq(bi.boardId, board.id),
       }),
     ).toEqual([]);
-    expect(await db().query.items.findMany()).toEqual([]);
-    expect(await db().query.itemImages.findMany()).toEqual([]);
+    expect(await db().query.boardItemImages.findMany()).toEqual([]);
     expect(await env.IMAGES.get('items/user-test/del-1')).toBeNull();
   });
 
@@ -165,7 +162,6 @@ describe('boards service', () => {
 
     expect(await listBoards(ctx())).toHaveLength(1);
     expect(await listBoardItems(ctx(), board.id)).toHaveLength(1);
-    expect(await db().query.items.findMany()).toHaveLength(1);
     // placement is referenced just to make sure it survived
     expect(
       await db().query.boardItems.findMany({
@@ -236,8 +232,8 @@ describe('addBoardItem', () => {
     expect(item.x).toBe(10);
     expect(item.y).toBe(20);
 
-    const images = await db().query.itemImages.findMany({
-      where: (img, { eq }) => eq(img.itemId, item.itemId),
+    const images = await db().query.boardItemImages.findMany({
+      where: (img, { eq }) => eq(img.boardItemId, item.id),
     });
     expect(images).toHaveLength(2);
     expect(images.map((i) => i.displayOrder).sort()).toEqual([0, 1]);
@@ -262,8 +258,8 @@ describe('addBoardItem', () => {
       }),
     );
     expect(item.images).toEqual([]);
-    const images = await db().query.itemImages.findMany({
-      where: (img, { eq }) => eq(img.itemId, item.itemId),
+    const images = await db().query.boardItemImages.findMany({
+      where: (img, { eq }) => eq(img.boardItemId, item.id),
     });
     expect(images).toEqual([]);
   });
@@ -294,8 +290,7 @@ describe('addBoardItem', () => {
       ),
     ).rejects.toThrow();
 
-    expect(await db().query.items.findMany()).toEqual([]);
-    expect(await db().query.itemImages.findMany()).toEqual([]);
+    expect(await db().query.boardItemImages.findMany()).toEqual([]);
     expect(await db().query.boardItems.findMany()).toEqual([]);
   });
 
@@ -325,6 +320,6 @@ describe('addBoardItem', () => {
         }),
       ),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    expect(await db().query.items.findMany()).toEqual([]);
+    expect(await db().query.boardItems.findMany()).toEqual([]);
   });
 });

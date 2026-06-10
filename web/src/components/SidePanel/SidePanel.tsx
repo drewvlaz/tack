@@ -34,19 +34,19 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
       exit={{ x: rightWidth }}
       transition={spring.panel}
     >
-      <TopBar itemId={item.itemId} boardId={boardId} onClose={onClose} />
+      <TopBar id={item.id} boardId={boardId} onClose={onClose} />
 
       <div className="flex-1 overflow-y-auto">
         <Hero
           images={images}
           alt={item.title ?? ''}
-          itemId={item.itemId}
+          id={item.id}
           boardId={boardId}
         />
         <Details item={item} />
         <div className="border-border border-t px-7 py-4">
           <RemoveButton
-            itemId={item.id}
+            id={item.id}
             boardId={boardId}
             title={item.title}
             onRemoved={onClose}

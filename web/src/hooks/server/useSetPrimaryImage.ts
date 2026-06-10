@@ -2,22 +2,24 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { setPrimaryImage } from '../../api/items';
 import type { CanvasItem } from '../../lib/trpc';
 
-type Args = { itemId: string; imageId: string; boardId: string };
+// `id` is the placement id (board_items.id) post-fold. The frontend uses
+// it to address the placement when reordering its image strip.
+type Args = { id: string; imageId: string; boardId: string };
 
 export function useSetPrimaryImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ itemId, imageId }: Args) => setPrimaryImage(itemId, imageId),
+    mutationFn: ({ id, imageId }: Args) => setPrimaryImage(id, imageId),
 
-    onMutate: async ({ itemId, imageId, boardId }) => {
+    onMutate: async ({ id, imageId, boardId }) => {
       const queryKey = ['boards', boardId, 'items'];
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<CanvasItem[]>(queryKey);
 
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) => {
-          if (item.kind !== 'real' || item.itemId !== itemId) {
+          if (item.kind !== 'real' || item.id !== id) {
             return item;
           }
           const idx = item.images.findIndex((img) => img.id === imageId);

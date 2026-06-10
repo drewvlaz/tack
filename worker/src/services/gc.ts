@@ -20,9 +20,9 @@ export async function sweepOrphanR2Blobs(
   now: Date,
 ): Promise<SweepResult> {
   // Load every referenced r2_key into memory. The set is bounded by the size
-  // of `item_images` — order of 10² to 10⁴ rows is fine. If this grows past
-  // ~1M rows we'd need to flip the loop (paginate keys, query DB per page).
-  const rows = await db.query.itemImages.findMany({
+  // of `board_item_images` — order of 10² to 10⁴ rows is fine. If this grows
+  // past ~1M rows we'd flip the loop (paginate keys, query DB per page).
+  const rows = await db.query.boardItemImages.findMany({
     columns: { r2Key: true },
   });
   const referenced = new Set(

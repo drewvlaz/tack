@@ -8,11 +8,13 @@ type HeroImage = { id: string; url: string };
 type HeroProps = {
   images: HeroImage[];
   alt: string;
-  itemId: string;
+  // Placement id (board_items.id post-fold). The image strip + setPrimary
+  // belong to this placement.
+  id: string;
   boardId: string;
 };
 
-export default function Hero({ images, alt, itemId, boardId }: HeroProps) {
+export default function Hero({ images, alt, id, boardId }: HeroProps) {
   const [heroIdx, setHeroIdx] = useState(0);
   const [heroAspect, setHeroAspect] = useState(1);
   const [heroLoaded, setHeroLoaded] = useState(false);
@@ -37,7 +39,7 @@ export default function Hero({ images, alt, itemId, boardId }: HeroProps) {
   }
 
   function handleSetPrimary(imageId: string) {
-    setPrimary.mutate({ itemId, imageId, boardId });
+    setPrimary.mutate({ id, imageId, boardId });
     // After reorder the primary becomes index 0; refocus the hero there.
     setHeroIdx(0);
   }

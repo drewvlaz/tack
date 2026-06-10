@@ -1,9 +1,11 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
-// Regex matching the four owned tables. Centralized so all three scoping
+// Regex matching the owned tables. Centralized so all three scoping
 // rules stay in sync — if a new owned table appears, add it here once.
-const OWNED_TABLES = /^(boards|items|boardItems|itemImages)$/;
+// After fold 0009: items+itemImages are gone; placements (boardItems)
+// carry metadata + boardItemImages carry the blobs.
+const OWNED_TABLES = /^(boards|boardItems|boardItemImages)$/;
 
 // Smells that break the scoped-repo guarantee in services. The repos in
 // db/repos/ are the ONLY place these patterns are allowed; everywhere else

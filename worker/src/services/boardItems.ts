@@ -8,13 +8,15 @@ import {
   type BoardItemRow,
   type PatchBoardItemInput,
 } from '../schemas/board';
-import { fromR2Key, r2KeyOwner, toR2Key } from './images';
+import { fromR2Key, r2KeyOwner, storeImage, toR2Key } from './images';
+import { fetchAndParseMeta, mapLimit } from './parser';
 
 const DEFAULT_CARD_WIDTH = 220;
-const DEFAULT_CARD_HEIGHT = 280;
+const DEFAULT_CARD_HEIGHT = 400;
 const INITIAL_Z_INDEX = 0;
+const IMAGE_FETCH_CONCURRENCY = 4;
 
-// ---------- reads (no Tx; read-only) ----------
+// ---------- reads ----------
 
 export async function listBoardItems(
   ctx: ServiceCtx,
@@ -32,31 +34,29 @@ export async function listTrashedBoardItems(
   return hydrated.map(toBoardItemRow);
 }
 
-// Maps the repo's raw joined shape to the domain BoardItemRow. The repo
-// returns scoped + joined data; the service handles StoredImage construction
-// (fromR2Key) and primary-image sorting — both are domain concerns.
+// Map a hydrated placement (row + images) to the domain shape. Images get
+// the primary one moved to position 0 if set.
 function toBoardItemRow({
   placement,
-  item,
   images,
 }: HydratedPlacement): BoardItemRow {
-  const sortedImages = sortImagesPrimaryFirst(images, item.primaryImageId);
+  const sorted = sortImagesPrimaryFirst(images, placement.primaryImageId);
   return {
     id: placement.id,
-    itemId: placement.itemId,
-    title: item.title,
-    brand: item.brand,
-    description: item.description,
-    price: item.price,
-    currency: item.currency,
-    details: item.details ?? [],
-    images: sortedImages.map((img) => ({
+    title: placement.title,
+    brand: placement.brand,
+    description: placement.description,
+    price: placement.price,
+    currency: placement.currency,
+    details: placement.details ?? [],
+    images: sorted.map((img) => ({
       id: img.id,
       image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
     })),
-    sourceUrl: item.sourceUrl,
+    sourceUrl: placement.sourceUrl,
     addedAt: placement.createdAt,
-    updatedAt: item.updatedAt,
+    addedBy: placement.addedBy,
+    updatedAt: placement.updatedAt,
     x: placement.x,
     y: placement.y,
     width: placement.width,
@@ -103,16 +103,15 @@ export async function addBoardItem(
   boardId: string,
   input: AddItemInput,
 ): Promise<BoardItemRow> {
-  // Verify the caller is an editor (owner counts) BEFORE staging — same-tx
-  // reads can't see staged writes on D1, so this is the only chance to
-  // fail-fast on a forged boardId or a board the caller doesn't belong to.
+  // Editor or owner can add. requireEditor returns NOT_FOUND for non-
+  // members (existence-leak safety) and is the only access check we need
+  // — placement metadata + images all hang off this one row now.
   await tx.boards.requireEditor(boardId);
-  // R2 keys returned by `parseUrl` are namespaced as `items/{userId}/...`.
-  // Reject any r2-kind image whose owner segment doesn't match the caller —
-  // otherwise a client could pass a key it scraped from another user's parse
-  // response and attach those bytes to its own board. The user segment is the
-  // capability: unguessable nanoid keys make scraping unlikely, but defense
-  // in depth costs us one substring check.
+
+  // R2 keys returned by parseUrl are namespaced `items/{uploaderUserId}/...`.
+  // Reject any r2-kind image whose owner segment doesn't match the caller,
+  // so a client can't pass a key scraped from another user's parse and
+  // attach those bytes to a board.
   for (const img of input.images) {
     if (img.kind === 'r2' && r2KeyOwner(img.key) !== tx.scope.userId) {
       throw new TRPCError({
@@ -121,45 +120,24 @@ export async function addBoardItem(
       });
     }
   }
+
   const now = nowSec();
-  const itemId = genId();
-  const boardItemId = genId();
+  const placementId = genId();
   const imageIds = input.images.map(() => genId());
 
-  tx.items.stageInsert({
-    id: itemId,
+  tx.placements.stageInsert({
+    id: placementId,
+    boardId,
+    addedBy: tx.scope.userId,
     sourceUrl: input.sourceUrl,
     title: input.title,
     brand: input.brand,
     description: input.description,
     price: input.price,
-    // `currency` defaults to 'USD' at the column level — only override when
-    // the parser actually extracted an ISO code. Missing currency still
-    // looks like USD on the wire; a real £/€ product persists correctly.
+    // currency falls back to the column default 'USD' when the parser
+    // didn't extract one.
     ...(input.currency ? { currency: input.currency } : {}),
     details: input.details.length > 0 ? input.details : null,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  if (input.images.length > 0) {
-    tx.itemImages.stageInsertMany(
-      input.images.map((img, i) => ({
-        id: imageIds[i],
-        itemId,
-        r2Key: toR2Key(img),
-        sourceUrl: img.sourceUrl,
-        displayOrder: i,
-        createdAt: now,
-        updatedAt: now,
-      })),
-    );
-  }
-
-  tx.placements.stageInsert({
-    id: boardItemId,
-    boardId,
-    itemId,
     x: input.x,
     y: input.y,
     width: DEFAULT_CARD_WIDTH,
@@ -169,24 +147,34 @@ export async function addBoardItem(
     updatedAt: now,
   });
 
-  // Construct the response in memory from inputs + generated IDs. No re-read
-  // — the writes haven't been committed yet, so a read wouldn't see them on
-  // D1. The shape matches what `listBoardItems` would return after commit.
+  if (input.images.length > 0) {
+    tx.boardItemImages.stageInsertMany(
+      input.images.map((img, i) => ({
+        id: imageIds[i],
+        boardItemId: placementId,
+        r2Key: toR2Key(img),
+        sourceUrl: img.sourceUrl,
+        displayOrder: i,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+
+  // Construct the response in memory from inputs + generated IDs. Same
+  // reason as before the fold: D1 can't see staged writes mid-Tx.
   return {
-    id: boardItemId,
-    itemId,
+    id: placementId,
     title: input.title,
     brand: input.brand,
     description: input.description,
     price: input.price,
     currency: input.currency ?? 'USD',
     details: input.details,
-    images: input.images.map((img, i) => ({
-      id: imageIds[i],
-      image: img,
-    })),
+    images: input.images.map((img, i) => ({ id: imageIds[i], image: img })),
     sourceUrl: input.sourceUrl,
     addedAt: now,
+    addedBy: tx.scope.userId,
     updatedAt: now,
     x: input.x,
     y: input.y,
@@ -208,7 +196,7 @@ export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {
 
 export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
   const placement = await tx.placements.byIdIncludingTrashedOrThrow(id);
-  await stagePurge(tx, [placement.id], [placement.itemId]);
+  await stagePurge(tx, [placement.id]);
 }
 
 export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
@@ -217,48 +205,171 @@ export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
   if (trashed.length === 0) {
     return;
   }
-  await stagePurge(
-    tx,
-    trashed.map((p) => p.id),
-    trashed.map((p) => p.itemId),
-  );
+  await stagePurge(tx, trashed);
 }
 
-// Stages the SQL writes for a hard-purge of the given placements + any items
-// that become orphans + their R2 blob cleanup. Reads are done eagerly to
-// compute orphans; writes accumulate in the Tx and commit at the boundary.
-// Callers (e.g. `deleteBoard`) can stage additional statements afterward so
-// the entire procedure still commits in one batch.
-//
-// Every read and write goes through scoped repos, so even if a caller forgets
-// the parent ownership check, this function can't reach across users.
+// Stages the SQL writes for a hard-purge of the given placements + their
+// R2 blob cleanup. After the fold, there's no orphan-item accounting:
+// board_item_images cascades on placement delete, so a single hard delete
+// against board_items is enough. Blob cleanup runs after the SQL commit.
 export async function stagePurge(
   tx: Tx,
   placementIds: string[],
-  itemIds: string[],
 ): Promise<void> {
   if (placementIds.length === 0) {
     return;
   }
-
-  const uniqueItemIds = [...new Set(itemIds)];
-  const placementIdSet = new Set(placementIds);
-
-  const allPlacements =
-    await tx.placements.findReferencingItemsIncludingTrashed(uniqueItemIds);
-  const stillReferenced = new Set(
-    allPlacements.filter((p) => !placementIdSet.has(p.id)).map((p) => p.itemId),
-  );
-  const orphanItemIds = uniqueItemIds.filter(
-    (iid) => !stillReferenced.has(iid),
-  );
-
-  const orphanImages =
-    await tx.itemImages.findForItemsIncludingTrashed(orphanItemIds);
-
+  const images =
+    await tx.boardItemImages.findForBoardItemsIncludingTrashed(placementIds);
   tx.placements.stageHardDeleteMany(placementIds);
-  tx.items.stageHardDeleteMany(orphanItemIds);
-  if (orphanImages.length) {
-    tx.scheduleBlobCleanup(orphanImages);
+  if (images.length) {
+    tx.scheduleBlobCleanup(images);
   }
+}
+
+// ---------- placement-keyed item-edit ops (formerly in services/items.ts) ----------
+
+export async function setPrimaryImage(
+  tx: Tx,
+  placementId: string,
+  imageId: string | null,
+): Promise<void> {
+  await tx.placements.byIdOrThrow(placementId);
+  if (imageId !== null) {
+    const owned = await tx.boardItemImages.findByBoardItemAndId(
+      placementId,
+      imageId,
+    );
+    if (!owned) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Image ${imageId} does not belong to ${placementId}`,
+      });
+    }
+  }
+  tx.placements.stageUpdate(placementId, {
+    primaryImageId: imageId,
+    updatedAt: nowSec(),
+  });
+}
+
+export type ReparseResult = {
+  id: string;
+  updated: {
+    title: boolean;
+    brand: boolean;
+    description: boolean;
+    price: boolean;
+    details: boolean;
+  };
+  imageCount: number;
+};
+
+function detailsEqual(
+  a: Array<{ label: string; value: string }> | null | undefined,
+  b: Array<{ label: string; value: string }> | null | undefined,
+): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (d, i) => d.label === right[i].label && d.value === right[i].value,
+  );
+}
+
+// Re-fetch the placement's sourceUrl, run it through the parser, and
+// update the placement + its images in place. Access is board-scoped:
+// any editor on the board can refresh metadata for any placement,
+// regardless of who originally added it. New image blobs go under the
+// caller's R2 prefix; old blobs are scheduled for cleanup after commit.
+export async function reparseItem(
+  tx: Tx,
+  placementId: string,
+  anthropicKey: string,
+): Promise<ReparseResult> {
+  const placement = await tx.placements.byIdOrThrow(placementId);
+
+  const { meta } = await fetchAndParseMeta(placement.sourceUrl, anthropicKey);
+
+  const nextDetails = meta.details.length > 0 ? meta.details : null;
+  const updated = {
+    title: meta.title !== null && meta.title !== placement.title,
+    brand: meta.brand !== null && meta.brand !== placement.brand,
+    description:
+      meta.description !== null && meta.description !== placement.description,
+    price: meta.price !== null && meta.price !== placement.price,
+    details:
+      meta.details.length > 0 && !detailsEqual(nextDetails, placement.details),
+  };
+
+  const now = nowSec();
+  const baseUpdate = {
+    title: meta.title ?? placement.title,
+    brand: meta.brand ?? placement.brand,
+    description: meta.description ?? placement.description,
+    price: meta.price ?? placement.price,
+    currency: meta.currency ?? placement.currency,
+    details: nextDetails ?? placement.details,
+    updatedAt: now,
+  };
+
+  if (meta.imageUrls.length === 0) {
+    tx.placements.stageUpdate(placementId, baseUpdate);
+    return { id: placementId, updated, imageCount: 0 };
+  }
+
+  const existing = await tx.boardItemImages.listForBoardItem(placementId);
+
+  const existingSrcs = existing.map((img) => img.sourceUrl);
+  const sourceUrlsMatch =
+    existingSrcs.length === meta.imageUrls.length &&
+    existingSrcs.every((s, i) => s === meta.imageUrls[i]);
+
+  if (sourceUrlsMatch) {
+    tx.placements.stageUpdate(placementId, baseUpdate);
+    return { id: placementId, updated, imageCount: existing.length };
+  }
+
+  // R2 writes before SQL: SQL inserts need the new keys; a crash here
+  // leaves orphan blobs (GC-able) rather than rows pointing at missing
+  // bytes. Uploaded under the CALLER's r2 prefix, even when reparsing a
+  // placement someone else originally added — uploader provenance is the
+  // R2 boundary, not the placement boundary.
+  const stored = (
+    await mapLimit(meta.imageUrls, IMAGE_FETCH_CONCURRENCY, (src) =>
+      storeImage(tx.r2, tx.scope.userId, src),
+    )
+  ).filter((s) => s !== null);
+  const newIds = stored.map(() => genId());
+
+  // Preserve primary across reparse when the same source URL is still present.
+  const prevPrimary = placement.primaryImageId
+    ? existing.find((img) => img.id === placement.primaryImageId)
+    : null;
+  const reboundPrimaryId = prevPrimary?.sourceUrl
+    ? (newIds[stored.findIndex((s) => s.sourceUrl === prevPrimary.sourceUrl)] ??
+      null)
+    : null;
+
+  tx.placements.stageUpdate(placementId, {
+    ...baseUpdate,
+    primaryImageId: reboundPrimaryId,
+  });
+  tx.boardItemImages.stageHardDeleteAllForBoardItem(placementId);
+  tx.boardItemImages.stageInsertMany(
+    stored.map((s, i) => ({
+      id: newIds[i],
+      boardItemId: placementId,
+      r2Key: toR2Key(s),
+      sourceUrl: s.sourceUrl,
+      displayOrder: i,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+  tx.scheduleBlobCleanup(existing);
+
+  return { id: placementId, updated, imageCount: meta.imageUrls.length };
 }
