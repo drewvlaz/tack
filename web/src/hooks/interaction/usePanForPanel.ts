@@ -22,6 +22,8 @@ type Params = {
 // Pans the canvas left when the right panel opens over the selected card, and
 // restores the pan when it closes. Tracks the applied offset in a ref so the
 // restore exactly undoes the open animation even if the user pans in between.
+// Recomputes the target offset on every selection change so switching to a
+// card that doesn't need a pan releases any pan applied by the previous one.
 export function usePanForPanel({
   selectedId,
   rightWidth,
@@ -33,34 +35,30 @@ export function usePanForPanel({
   const panAnimRef = useRef<AnimationPlaybackControls | null>(null);
 
   useEffect(() => {
-    const wasOpen = panelOffsetRef.current !== 0;
-    const isOpen = selectedId !== null;
+    const selected =
+      selectedId === null
+        ? null
+        : (items.find((i) => i.kind === 'real' && i.id === selectedId) ?? null);
 
-    if (isOpen && !wasOpen) {
-      const selected = items.find(
-        (i) => i.kind === 'real' && i.id === selectedId,
-      );
-      if (!selected) {
-        return;
-      }
-
+    let targetOffset = 0;
+    if (selected) {
       const z = zoom.get();
-      const itemRightScreen = panX.get() + (selected.x + selected.width) * z;
+      const naturalPanX = panX.get() - panelOffsetRef.current;
+      const itemRightScreen = naturalPanX + (selected.x + selected.width) * z;
       const panelLeftScreen = window.innerWidth - rightWidth;
       const overlap = itemRightScreen - (panelLeftScreen - PANEL_EDGE_MARGIN);
-      if (overlap <= 0) {
-        return;
+      if (overlap > 0) {
+        targetOffset = -overlap;
       }
-
-      const delta = -overlap;
-      panelOffsetRef.current = delta;
-      panAnimRef.current?.stop();
-      panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
-    } else if (!isOpen && wasOpen) {
-      const delta = -panelOffsetRef.current;
-      panelOffsetRef.current = 0;
-      panAnimRef.current?.stop();
-      panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
     }
+
+    const delta = targetOffset - panelOffsetRef.current;
+    if (delta === 0) {
+      return;
+    }
+
+    panelOffsetRef.current = targetOffset;
+    panAnimRef.current?.stop();
+    panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
   }, [selectedId, rightWidth, panX, zoom, items]);
 }
