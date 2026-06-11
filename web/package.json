@@ -1,11 +1,13 @@
 {
-  "name": "@fashion-mood/web",
+  "name": "@tack/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:staging": "tsc -b && vite build --mode staging",
+    "build:production": "tsc -b && vite build --mode production",
     "preview": "vite preview",
     "lint": "tsc --noEmit && eslint .",
     "test": "vitest run",
@@ -15,7 +17,7 @@
     "**/*.{ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "dependencies": {
-    "@fashion-mood/worker": "workspace:*",
+    "@tack/worker": "workspace:*",
     "@tanstack/react-query": "^5.101.0",
     "@trpc/client": "^11.17.0",
     "@use-gesture/react": "^10.3.1",

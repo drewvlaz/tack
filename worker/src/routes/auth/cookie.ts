@@ -41,14 +41,23 @@ function buildSessionCookie(
   environment: string | undefined,
   maxAge: number = SESSION_MAX_AGE,
 ): string {
+  const isDev = environment === 'development';
+  // SameSite policy is driven by the deployment topology:
+  //   Dev: frontend and worker both run on `localhost` → same-site → Lax is
+  //        fine (and avoids needing Secure on http).
+  //   Staging/prod: frontend on *.pages.dev, worker on *.workers.dev →
+  //        cross-site. Browsers refuse to send SameSite=Lax cookies on
+  //        cross-site fetch/XHR, so signup looks fine but the very next
+  //        request lands without the cookie. Need SameSite=None + Secure
+  //        (Secure is mandatory for None per spec).
   const parts = [
     `${SESSION_COOKIE}=${value}`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${isDev ? 'Lax' : 'None'}`,
     `Max-Age=${maxAge}`,
   ];
-  if (environment !== 'development') {
+  if (!isDev) {
     parts.push('Secure');
   }
   return parts.join('; ');

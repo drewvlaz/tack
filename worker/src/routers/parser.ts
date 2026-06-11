@@ -10,13 +10,16 @@ export const parseUrlProcedure = protectedProcedure
     // Bound the most-expensive procedure per IP. Each call is HTML fetch +
     // paid Claude tokens + up to 12 image downloads — easy to weaponize.
     // Auth gates access (only logged-in users hit this), but per-IP limiting
-    // still bounds a compromised account.
-    const { success } = await ctx.parseLimiter.limit({ key: ctx.clientIp });
-    if (!success) {
-      throw new TRPCError({
-        code: 'TOO_MANY_REQUESTS',
-        message: 'Too many parse requests. Try again in a minute.',
-      });
+    // still bounds a compromised account. Skipped when the binding is absent
+    // (free-tier deploys); re-enables transparently when added back.
+    if (ctx.parseLimiter) {
+      const { success } = await ctx.parseLimiter.limit({ key: ctx.clientIp });
+      if (!success) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many parse requests. Try again in a minute.',
+        });
+      }
     }
 
     try {

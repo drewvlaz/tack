@@ -54,7 +54,7 @@ const repoBypassRules = [
 ];
 
 export default tseslint.config([
-  { ignores: ['dist', '.wrangler'] },
+  { ignores: ['dist', '.wrangler', 'worker-configuration.d.ts'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.ts'],

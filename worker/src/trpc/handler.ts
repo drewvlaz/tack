@@ -9,7 +9,8 @@ type TrpcBindings = {
   DB: D1Database;
   IMAGES: R2Bucket;
   ANTHROPIC_API_KEY: string;
-  PARSE_LIMITER: RateLimit;
+  // Optional: free-tier deploys omit the rate-limit binding entirely.
+  PARSE_LIMITER?: RateLimit;
 };
 
 export async function handleTrpcRequest(
@@ -27,7 +28,7 @@ export async function handleTrpcRequest(
       db,
       images: c.env.IMAGES,
       anthropicKey: c.env.ANTHROPIC_API_KEY,
-      parseLimiter: c.env.PARSE_LIMITER,
+      parseLimiter: c.env.PARSE_LIMITER ?? null,
       // CF-Connecting-IP is set by Cloudflare's edge and is the client's
       // public IP. Fall back to "anonymous" so a missing header behaves like
       // a single shared bucket (rate-limited, but not crashy).
