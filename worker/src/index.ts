@@ -10,18 +10,25 @@ type Bindings = {
   DB: D1Database;
   IMAGES: R2Bucket;
   ANTHROPIC_API_KEY: string;
-  PARSE_LIMITER: RateLimit;
-  AUTH_LIMITER: RateLimit;
+  // Optional: free-tier deploys omit the rate-limit bindings entirely. Code
+  // paths that consume these (routers/parser.ts, routes/auth/index.ts) skip
+  // the .limit() call when the binding is absent.
+  PARSE_LIMITER?: RateLimit;
+  AUTH_LIMITER?: RateLimit;
   ENVIRONMENT?: string;
   LOG_LEVEL?: string;
   INVITE_EMAILS?: string;
+  // Deployed-env CORS allowlist entry. Set per env in wrangler.toml's
+  // `[env.<name>.vars]` to the matching Pages URL. Unset locally — dev
+  // origins (5173/5174) are hardcoded below.
+  FRONTEND_ORIGIN?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// Dev-only origins. Production deploys will need an explicit allowlist here
-// (the production frontend URL) — leaving CORS at `*` would nullify the auth
-// cookie, and `credentials: true` requires an explicit origin anyway.
+// Local-dev origins. Deployed envs add their FRONTEND_ORIGIN var on top of
+// these; `credentials: true` requires an explicit origin (never `*`) so the
+// auth cookie can ride along.
 const DEV_ORIGINS = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
@@ -36,7 +43,16 @@ app.use('*', (c, next) => {
 app.use(
   '*',
   cors({
-    origin: (origin) => (DEV_ORIGINS.has(origin) ? origin : null),
+    origin: (origin, c) => {
+      if (DEV_ORIGINS.has(origin)) {
+        return origin;
+      }
+      const env = c.env as Bindings;
+      if (env.FRONTEND_ORIGIN && origin === env.FRONTEND_ORIGIN) {
+        return origin;
+      }
+      return null;
+    },
     credentials: true,
   }),
 );

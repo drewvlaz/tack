@@ -2,7 +2,7 @@
 
 Personal moodboard web app for assembling clothing purchases on a free-form canvas. Paste a product URL → AI extracts metadata + images → draggable card appears on a pannable/zoomable canvas. Interaction feel (spring physics, expand-to-focus, low-latency drag) is a first-class goal, not a polish item.
 
-See also: `moodboard-spec.md` (original product brief), `web/CLAUDE.md`, `worker/CLAUDE.md`.
+See also: `web/CLAUDE.md`, `worker/CLAUDE.md`.
 
 ## Layout
 
@@ -40,7 +40,7 @@ Every command runs from the repo root **or** from inside a workspace — the roo
 | `db:seed:local`             | apply `seed.sql` to local D1                     | —            | ✓                  |
 | `db:studio`                 | drizzle-kit studio UI                            | —            | ✓                  |
 
-**Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "pnpm --filter @fashion-mood/<workspace> run <name>"`. Cross-workspace scripts that should fan out (lint/test) use `pnpm -r --if-present run <name>`. Pass args directly: `pnpm <name> <args>`.
+**Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "pnpm --filter @tack/<workspace> run <name>"`. Cross-workspace scripts that should fan out (lint/test) use `pnpm -r --if-present run <name>`. Pass args directly: `pnpm <name> <args>`.
 
 Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:8787'}/trpc`. Images are served via the worker's `/api/images/*` proxy (not tRPC).
 
@@ -92,6 +92,15 @@ These are load-bearing — break them and the layering collapses.
 - Image bytes never go through tRPC. They stream from R2 via the Hono route `GET /api/images/*`. The frontend resolves `/api/...` URLs against `VITE_API_URL` in `web/src/lib/api.ts:resolveImageUrl`.
 - The `AppRouter` type is imported by the frontend from `../../../worker/src/router` to get end-to-end types — keep that path working.
 
+## Portability / cloud lock-in
+
+The stack binds to Cloudflare (Workers, D1, R2, rate-limit bindings, Durable Objects in Phase 2). Pre-DO lock-in is low — a weekend of work to move to a container + Postgres + S3-compat. Once the DO transport ships, the live-updates layer becomes a rewrite to leave. Keep that gradient in mind when adding code:
+
+- **Don't import CF bindings into services.** Services see `Tx` / `Db` / typed adapters (e.g. `images`) — never `env`, never `c.env.IMAGES.put()`, never `env.PARSE_LIMITER.limit()`. CF-specific APIs (`R2Bucket`, `RateLimit`, `ctx.waitUntil`, `DurableObjectNamespace`) live at the router or Hono-route boundary. This invariant doubles as portability insurance — services drop onto Node/Postgres unchanged.
+- **Don't assume interactive transactions exist.** D1 doesn't have them — the `Tx` accumulator (`tx.stage(...)` + `withTransaction`) is the workaround. Every mutating endpoint (tRPC procedure or Hono route) wraps in `withTransaction`; one block is the atomicity unit. Side effects outside the accumulators (Anthropic calls, R2 uploads, rate-limit tokens, cross-request flows) are NOT rolled back — see `worker/CLAUDE.md` "Atomicity boundaries" for the full enumeration. The same `Tx` shape wraps `db.transaction(cb)` on Postgres or `state.storage.transaction(cb)` on a DO; never reach for a `BEGIN`-style API.
+- **Defer Durable Objects until the feature truly needs single-broadcaster-per-board semantics.** Counters, queues, KV-style state, simple coordination all have portable alternatives. Phase 2's live-updates broadcaster is the one component with no off-CF equivalent — adopting a DO for anything else commits that subsystem to CF for no payoff.
+- **Portable as-is:** Drizzle (multi-dialect), tRPC, Hono (multi-runtime), the cookie-session auth scheme, the `/api/images/*` proxy route. Don't sprinkle CF idioms into these.
+
 ## Running locally
 
 ```bash
@@ -105,6 +114,48 @@ Run `pnpm dev:web` or `pnpm dev:worker` to start only one. Anything that works a
 
 The frontend reads the active board from `localStorage` via `useBoardsStore` (key `activeBoardId`). The seed creates `board-1`, which the boards sidebar will list and the user can select.
 
+## Deploying
+
+Two backend environments (`staging` and `production` in `worker/wrangler.toml`), each with its own Worker, D1, R2, secrets, and `FRONTEND_ORIGIN`. The frontend is **one** Cloudflare Pages project (named `tack`; its assigned subdomain is `tack-cxk.pages.dev` since `tack.pages.dev` was taken) using branch environments, git-flow style:
+
+| Env        | Worker                | Pages branch | URL                               |
+| ---------- | --------------------- | ------------ | --------------------------------- |
+| staging    | `tack-worker-staging` | `main`       | `https://main.tack-cxk.pages.dev` |
+| production | `tack-worker`         | `production` | `https://tack-cxk.pages.dev`      |
+
+`production` is the Pages project's production branch; `main` deploys land as the stable branch-alias preview. Promote by deploying with `--branch production` (or merging `main` → `production` if the repo is connected for CI builds). The rate-limit bindings are commented out in `worker/wrangler.toml` (re-enable when on Workers Paid; code already handles missing bindings).
+
+**One-time setup per worker env** (replace `<env>` with `staging` or `production`):
+
+```bash
+wrangler login                                                      # once per machine
+wrangler d1 create tack-<env>                                       # paste the ID into worker/wrangler.toml under [[env.<env>.d1_databases]]
+wrangler r2 bucket create tack-<env>-images
+wrangler secret put ANTHROPIC_API_KEY --env <env>                   # paste the key when prompted
+pnpm db:migrate:<env>                                               # apply migrations to the remote D1
+pnpm deploy:<env>                                                   # first deploy of the worker
+```
+
+**One-time Pages setup** (once, not per env — run from `worker/` so wrangler resolves):
+
+```bash
+pnpm --filter @tack/worker exec wrangler pages project create tack --production-branch production
+```
+
+If the Pages URLs differ from the table above (custom domain, taken project name), update `FRONTEND_ORIGIN` in `worker/wrangler.toml` per env and redeploy the worker.
+
+**Routine deploys:**
+
+```bash
+pnpm deploy:staging          # ship the staging worker
+pnpm deploy:pages:staging    # build SPA against staging API, deploy to branch `main`
+
+pnpm deploy:production       # ship the prod worker
+pnpm deploy:pages:production # build SPA against prod API, deploy to branch `production`
+```
+
+`pnpm db:migrate:<env>` applies pending Drizzle migrations to the remote D1. Always migrate **before** deploying the worker that references the new schema. Read the destructive-migration rules in `worker/CLAUDE.md` before running any migration in production.
+
 ## DB schema (D1, managed by Drizzle)
 
 Defined in `worker/src/db/schema.ts`. Tables:
@@ -114,7 +165,7 @@ Defined in `worker/src/db/schema.ts`. Tables:
 - `item_images` — N images per item, ordered by `display_order`. `r2_key` points into R2.
 - `board_items` — placement of an item on a board (x, y, width, height, z_index). Unique on `(board_id, item_id)`.
 
-Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pnpm db:migrate:local`. Apply to prod: `pnpm db:migrate`. All work from root or `worker/`.
+Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pnpm db:migrate:local`. Apply to staging/prod: `pnpm db:migrate:staging` / `pnpm db:migrate:production`. All work from root or `worker/`.
 
 ## Testing
 
@@ -123,4 +174,5 @@ Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pn
 ## What's done vs. what's not
 
 - Done: canvas interaction (pan/zoom/drag/expand), URL parse → R2 → board item, optimistic add/delete, position sync, end-to-end types via tRPC.
-- Not yet: auth, multi-board UI, deploy config (D1 `database_id` is still `placeholder-replace-after-create` in `worker/wrangler.toml`), production `VITE_API_URL`.
+- Done: auth, deploy scaffolding (staging + production envs in `worker/wrangler.toml` and `web/.env.*`, deploy scripts).
+- Not yet: multi-board UI, real-time collab (Phase 2 DOs — see `docs/architecture-live.html`), rate-limit bindings re-enabled (require Workers Paid; bindings commented out in `wrangler.toml`).

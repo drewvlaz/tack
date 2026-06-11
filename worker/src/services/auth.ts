@@ -6,10 +6,17 @@ import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import { redeemInvite } from './boardMembers';
 
-// PBKDF2-SHA256, 600k iterations is OWASP 2023 guidance for password storage.
+// PBKDF2-SHA256. OWASP 2023 guidance is 600k iterations, but the Workers
+// runtime hard-caps PBKDF2 at 100k (CPU-exhaustion guard in workerd; no
+// compatibility flag to bypass). 100k is still well above the "acceptable"
+// floor for password storage given the threat model here: invite-only
+// signup (INVITE_EMAILS allowlist) and per-IP rate-limiting on /login when
+// the AUTH_LIMITER binding is re-enabled.
 // 16-byte salt, 32-byte derived key. Stored as a PHC-style string so the
-// algorithm/cost is rotatable without a schema change.
-const PBKDF2_ITERATIONS = 600_000;
+// algorithm/cost is rotatable without a schema change — if/when Workers
+// raises the cap, bump this constant and existing hashes still verify
+// (their stored iteration count is read from the PHC string).
+const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_SALT_BYTES = 16;
 const PBKDF2_KEY_BYTES = 32;
 const PBKDF2_HASH = 'SHA-256';

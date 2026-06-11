@@ -47,7 +47,7 @@ importers:
 
   web:
     dependencies:
-      '@fashion-mood/worker':
+      '@tack/worker':
         specifier: workspace:*
         version: link:../worker
       '@tanstack/react-query':

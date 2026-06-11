@@ -47,6 +47,21 @@ export class ServiceCtx {
 // pass through directly. `withTransaction` commits everything in one
 // `db.batch([...])` at the boundary — D1's only atomic primitive.
 //
+// What this covers: SQL statements staged via `tx.stage(...)` plus R2 deletes
+// staged via `tx.scheduleBlobCleanup(...)`, committed together (callback
+// throw → both drained accumulators stay unwritten).
+//
+// What this does NOT cover (not rolled back on a downstream throw, by design):
+//   - Anthropic API calls during the callback (token cost is not correctness)
+//   - R2 uploads during the callback (orphans reclaimed by the GC sweeper)
+//   - Rate-limit token consumption (runs at the router boundary, before the Tx;
+//     rate limits count attempts, not successes)
+//   - Cross-request flows (parseUrl → addItem; each request is its own unit)
+// Reads inside the callback also pass through directly and may be stale by
+// the time the batch commits — last-write-wins for concurrent mutators on
+// the same row. Add OCC (version column + WHERE version=:expected) if a
+// future feature needs stronger guarantees.
+//
 // On D1 this is a one-batch-at-commit abstraction. On Durable Object SQLite
 // storage (future, for collab) the same shape will wrap a real interactive
 // transaction without changing service signatures.

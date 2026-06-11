@@ -1,4 +1,4 @@
-import type { AppRouter } from '@fashion-mood/worker/router';
+import type { AppRouter } from '@tack/worker/router';
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { inferRouterOutputs } from '@trpc/server';
 

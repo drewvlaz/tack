@@ -78,10 +78,25 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 
 **Resource scoping.** `Tx` and `ServiceCtx` (both in `db/tx.ts`) carry `scope: { userId }`, populated by the router from the authenticated context, and host one _scoped repo_ per owned table (`tx.boards`, `tx.items`, `tx.placements`, `tx.itemImages`). Services touch tables exclusively through these repos — `tx.boards.byIdOrThrow(id)` instead of a hand-written drizzle SELECT, `tx.items.stageInsert(values)` instead of `tx.db.insert(items).values({ ..., ownerId: tx.scope.userId })`. The repo auto-stamps `ownerId` on insert (direct-owned tables) and auto-ANDs the scope filter on every read / UPDATE / DELETE (direct via column, transitive via subquery on parent's `ownerId`). Forgetting to scope is no longer possible from the repo path. `byIdOrThrow` raises `TRPCError NOT_FOUND` on miss (never `FORBIDDEN` — don't leak existence). `tx.db` / `ctx.db` remain accessible as an escape hatch for the few cases the repos don't cover (the `users`/`sessions` tables in `services/auth.ts`); using them on owned tables is a smell.
 
-**Read-then-write stale-check windows** (not partial commits — the write itself is still atomic):
+## Atomicity boundaries
 
-- `setPrimaryImage` SELECTs for ownership before staging the UPDATE. The image could be soft-deleted between the SELECT and the eventual commit. Worst case: primary points at a just-deleted image; the list-time filter resolves it on next read.
+**The unit is one `withTransaction` block — one tRPC procedure or one Hono route.** Both `routers/boards/index.ts` (every mutating procedure) and `routes/auth/index.ts` (signup/login/logout) wrap their work in `withTransaction`. There is no "second class" of write that bypasses the accumulator; if you add a new mutating endpoint (tRPC or Hono), it must wrap too. Within one block, every `tx.stage(...)` and every `tx.scheduleBlobCleanup(...)` either all apply or all no-op (callback throw → both accumulators discarded). The directional invariant is one-way: bytes can outlive rows (orphan R2, GC-reclaimed) but rows can never point at missing bytes.
+
+**What is NOT inside the boundary.** Side effects produced during the callback but not staged through the accumulators are NOT rolled back on a downstream failure. The intentional ones:
+
+- **Anthropic API calls** (`reparseItem`, `parseProductUrl`). If SQL fails after Claude succeeded, tokens are spent. Cost ≠ correctness — acceptable.
+- **R2 uploads** (`reparseItem`, `parseProductUrl`). Bytes land before staging; orphans get the 30-min GC sweep. The symmetric alternative (stage first, upload after) would create broken refs, which is worse.
+- **Rate-limit consumption** (`ctx.parseLimiter.limit(...)` in `routers/parser.ts`, `ctx.authLimiter.limit(...)` in `routes/auth/`). Runs before `withTransaction` starts. A downstream failure does NOT refund — by design; rate limits count attempts.
+- **Cookies / response headers.** Set after `withTransaction` returns; emitted only on success because the throw bubbles to the framework.
+- **Cross-request flows.** `parseUrl` (R2 only, no SQL) and `addItem` (SQL referencing those keys) are two separate atomic units. The GC sweeper's 30-min grace window covers the gap.
+- **Fire-and-forget client patterns.** The frontend's position PATCH on drag-end is intentionally not awaited; correctness rides on the per-request atomicity of each PATCH, not on cross-PATCH ordering.
+
+**Read-then-stage windows** (the write is still atomic; the read just isn't part of the snapshot):
+
+- Reads inside `withTransaction` are eager — they hit the DB immediately and don't see staged writes. By the time the batch commits, the read result may be stale.
+- `setPrimaryImage` SELECTs for ownership before staging the UPDATE. The image could be soft-deleted between SELECT and commit. Worst case: primary points at a just-deleted image; the list-time filter resolves it on next read.
 - `reparseItem` interleaves a Claude call and R2 uploads between its reads and stages. Concurrent reparses for the same item are last-write-wins on `items` columns; image batches may also interleave. Don't fire concurrent reparses for the same item.
+- If a future feature needs stronger guarantees (cross-row invariants under concurrent writers), the standard mitigation is optimistic concurrency control: add a `version` column and `WHERE version = :expected` on every UPDATE, retry on zero row-count. Don't try to invent locking on top of `db.batch`.
 
 **Context shape:** `{ db, images, anthropicKey, parseLimiter, clientIp, userId, sessionId }`. Built in `index.ts` per request from `c.env`; `userId`/`sessionId` come from looking up the `tack_sess` cookie via `services/auth.ts:lookupSession`. If you add a new binding, add it to `Bindings` in `index.ts`, to `Context` in `trpc/context.ts`, and wire it in the `createContext` call.
 
@@ -93,8 +108,8 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 
 ## Bindings (wrangler.toml)
 
-- `DB` — D1 database `fashion-mood`. **Note:** `database_id` is currently `placeholder-replace-after-create` — run `wrangler d1 create fashion-mood` and paste the real ID before deploying.
-- `IMAGES` — R2 bucket `fashion-mood-images`.
+- `DB` — D1 database `tack`. **Note:** `database_id` is currently `placeholder-replace-after-create` — run `wrangler d1 create tack` and paste the real ID before deploying.
+- `IMAGES` — R2 bucket `tack-images`.
 - `ANTHROPIC_API_KEY` — set as a worker secret (or in `.dev.vars` locally, which is gitignored).
 - `PARSE_LIMITER` — first-party rate-limit binding (`[[ratelimits]]` block), 30 requests per 60s per `cf-connecting-ip`. Only `parseUrl` consults it; the rest of the API isn't rate-limited yet.
 - `INVITE_EMAILS` — comma-separated email allowlist for signup. Read by `services/auth.ts:parseAllowlist`. Add yourself to sign up locally; override in `.dev.vars` if you don't want your email in source.
@@ -103,7 +118,7 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 
 CORS is locked to localhost dev origins (`5173`/`5174`) in `index.ts` with `credentials: true` so the session cookie can ride along. Adding production: extend the allowlist with the deployed frontend origin — `credentials: true` requires an explicit origin, never `*`.
 
-Auth is email + password with sessions stored in D1 (`sessions` table) and an opaque session id sent as the `tack_sess` cookie (HttpOnly, SameSite=Lax, Secure in non-dev, 30-day TTL). Hono routes at `/api/auth/{signup,login,logout,me}` (`routes/auth.ts`); tRPC reads the cookie in `createContext` and exposes `ctx.userId` to procedures. Passwords are PBKDF2-SHA256 / 600k iterations (OWASP 2023), stored as a self-describing PHC string (`pbkdf2$600000$<salt>$<hash>`). Signup is gated by the `INVITE_EMAILS` allowlist — open signup is off.
+Auth is email + password with sessions stored in D1 (`sessions` table) and an opaque session id sent as the `tack_sess` cookie (HttpOnly, 30-day TTL). Cookie SameSite/Secure attrs are driven by `ENVIRONMENT`: dev uses `SameSite=Lax` without `Secure` (localhost is same-site, HTTP); staging/prod use `SameSite=None; Secure` because the frontend (`*.pages.dev`) and worker (`*.workers.dev`) are cross-site and browsers won't send `Lax` cookies on cross-site fetch. Hono routes at `/api/auth/{signup,login,logout,me}` (`routes/auth.ts`); tRPC reads the cookie in `createContext` and exposes `ctx.userId` to procedures. Passwords are PBKDF2-SHA256 / 100k iterations (Workers caps PBKDF2 at 100k — OWASP 2023's 600k isn't reachable on this runtime, no compat flag to bypass), stored as a self-describing PHC string (`pbkdf2$100000$<salt>$<hash>`). The iteration count lives in the PHC string, so existing hashes keep verifying if the constant is later bumped. Signup is gated by the `INVITE_EMAILS` allowlist — open signup is off.
 
 Local dev seed creates fixture user `dev@local` with password `tackdev123` (see `seed.sql`); sign in with those to see the seeded board. Real signup requires an email in `INVITE_EMAILS`.
 
