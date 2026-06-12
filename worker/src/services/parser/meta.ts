@@ -10,13 +10,34 @@ export type ParsedMeta = {
   details: ParsedDetail[];
 };
 
+export type ImgTagImage = {
+  url: string;
+  suspect: boolean;
+  // Set when a `variantHint` is supplied to `parseHtml` and the img is inside
+  // a container whose `data-<key>` attribute exposes a variant value:
+  //   - 'match'   value equals the requested variant
+  //   - 'mismatch' value is for a different variant
+  //   - 'none'    img isn't inside any variant container (most pages)
+  variantMatch: 'match' | 'mismatch' | 'none';
+};
+
+export type VariantHint = {
+  // The data-attribute name to look for, e.g. 'data-color' for ?color=cream.
+  attr: string;
+  // The requested value, lowercased for case-insensitive matching.
+  value: string;
+};
+
 export type ParsedHtml = {
   title: string | null;
   brand: string | null;
   description: string | null;
+  // <title> tag text — last-resort title for pages without og:title (often
+  // carries a "| Site Name" suffix, so og/Claude take precedence).
+  docTitle: string | null;
   ogImages: string[];
   jsonLdScripts: string[];
-  imgTagImages: string[];
+  imgTagImages: ImgTagImage[];
 };
 
 export type JsonLdExtract = {
@@ -25,6 +46,7 @@ export type JsonLdExtract = {
   price: number | null;
   currency: string | null;
   inStock: boolean | null;
+  productNode: Record<string, unknown> | null;
 };
 
 const OG_IMAGE_PROPS = new Set([
@@ -40,16 +62,75 @@ const MAX_STRIPPED_HTML_CHARS = 40_000;
 // one mid-resolution variant.
 const MIN_SRCSET_WIDTH = 400;
 
-export async function parseHtml(html: string): Promise<ParsedHtml> {
+// Containers that hold images of OTHER products (recommendation carousels,
+// "you may also like", recently-viewed strips) or pure chrome. <img> tags
+// found inside are tagged `suspect` so ranking can penalize them. Substring
+// match on class/id/data-testid catches the common naming conventions
+// (related-products, RelatedItems, recommendations, upsell-carousel...).
+// Deliberately NOT matching bare "carousel"/"slider" — product galleries
+// use those for their own image strips.
+// Both hyphenated and collapsed variants are listed because substring match
+// can't bridge naming styles: "you-may" matches `you-may-also-like` but not
+// camelCase `YouMayAlsoLike` (which "youmay" catches).
+const SUSPECT_CONTAINER_SELECTORS = [
+  '[class*="related" i]',
+  '[id*="related" i]',
+  '[class*="recommend" i]',
+  '[id*="recommend" i]',
+  '[data-testid*="related" i]',
+  '[data-testid*="recommend" i]',
+  '[class*="upsell" i]',
+  '[class*="cross-sell" i]',
+  '[class*="crosssell" i]',
+  '[class*="recently-viewed" i]',
+  '[class*="recentlyviewed" i]',
+  '[class*="also-like" i]',
+  '[class*="alsolike" i]',
+  '[class*="you-may" i]',
+  '[class*="youmay" i]',
+  '[class*="complete-the-look" i]',
+  '[class*="completethelook" i]',
+  '[class*="wear-it-with" i]',
+  '[class*="wearitwith" i]',
+  // Site chrome whose images are never the product: mega-menus and their
+  // dropdown tiles, cart/side drawers (empty-state art, cross-sells).
+  '[class*="menu" i]',
+  '[class*="dropdown" i]',
+  '[class*="drawer" i]',
+  '[class*="cart" i]',
+  'nav',
+  'header',
+  'footer',
+];
+
+export async function parseHtml(
+  html: string,
+  variantHint?: VariantHint,
+): Promise<ParsedHtml> {
   let title: string | null = null;
   let brand: string | null = null;
   let description: string | null = null;
+  let docTitle: string | null = null;
+  let docTitleBuf: string | null = null;
   const ogImages: string[] = [];
   const jsonLdScripts: string[] = [];
-  const imgTagImages: string[] = [];
+  const imgTagImages: ImgTagImage[] = [];
   let currentScript: string | null = null;
+  // Set by the `<suspect-container> img` descendant handlers, consumed (and
+  // reset) by the plain `img` handler. Handlers for the same element fire in
+  // registration order, so the descendant handlers are registered FIRST.
+  // Descendant selectors let lol-html do the ancestor matching — hand-rolled
+  // depth tracking via onEndTag desyncs on real-world misnested HTML.
+  let imgInSuspectContainer = false;
+  // Variant-context flags, set the same way (descendant selectors run before
+  // the img handler). `imgInVariantContext` is true when the img is inside
+  // any `[<variantHint.attr>]` container — i.e. the page exposes per-variant
+  // image groups. `imgVariantMatches` is true when the specific container's
+  // value equals the requested variant.
+  let imgInVariantContext = false;
+  let imgVariantMatches = false;
 
-  const rewriter = new HTMLRewriter()
+  let rewriter = new HTMLRewriter()
     .on('meta', {
       element(el) {
         const prop = el.getAttribute('property') ?? el.getAttribute('name');
@@ -68,6 +149,21 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
         }
       },
     })
+    .on('title', {
+      element() {
+        docTitleBuf = docTitle === null ? '' : null;
+      },
+      text(chunk) {
+        if (docTitleBuf === null) {
+          return;
+        }
+        docTitleBuf += chunk.text;
+        if (chunk.lastInTextNode) {
+          docTitle = docTitleBuf.trim() || null;
+          docTitleBuf = null;
+        }
+      },
+    })
     .on('script[type="application/ld+json"]', {
       element() {
         currentScript = '';
@@ -82,32 +178,78 @@ export async function parseHtml(html: string): Promise<ParsedHtml> {
           currentScript = null;
         }
       },
-    })
-    .on('img', {
-      element(el) {
-        const srcset = el.getAttribute('srcset');
-        if (srcset) {
-          const picked = largestFromSrcset(srcset);
-          // Drop the candidate when its biggest descriptor is sub-thumbnail —
-          // it's a UI sprite, badge, or social icon, never a hero shot.
-          if (
-            picked &&
-            (picked.width === null || picked.width >= MIN_SRCSET_WIDTH)
-          ) {
-            imgTagImages.push(picked.url);
-          }
-          return;
-        }
-        const src = el.getAttribute('src');
-        if (src) {
-          imgTagImages.push(src);
-        }
+    });
+
+  for (const selector of SUSPECT_CONTAINER_SELECTORS) {
+    rewriter = rewriter.on(`${selector} img`, {
+      element() {
+        imgInSuspectContainer = true;
       },
     });
+  }
+
+  if (variantHint) {
+    // Any container exposing this variant attribute → in-context. lol-html's
+    // `i` modifier doesn't apply to attribute *names*, but HTML attribute
+    // names are already case-insensitive in practice.
+    rewriter = rewriter.on(`[${variantHint.attr}] img`, {
+      element() {
+        imgInVariantContext = true;
+      },
+    });
+    // Container whose value matches the requested variant (case-insensitive).
+    rewriter = rewriter.on(
+      `[${variantHint.attr}="${variantHint.value}" i] img`,
+      {
+        element() {
+          imgVariantMatches = true;
+        },
+      },
+    );
+  }
+
+  rewriter = rewriter.on('img', {
+    element(el) {
+      const suspect = imgInSuspectContainer;
+      const variantMatch: 'match' | 'mismatch' | 'none' = imgInVariantContext
+        ? imgVariantMatches
+          ? 'match'
+          : 'mismatch'
+        : 'none';
+      imgInSuspectContainer = false;
+      imgInVariantContext = false;
+      imgVariantMatches = false;
+      const srcset = el.getAttribute('srcset');
+      if (srcset) {
+        const picked = largestFromSrcset(srcset);
+        // Drop the candidate when its biggest descriptor is sub-thumbnail —
+        // it's a UI sprite, badge, or social icon, never a hero shot.
+        if (
+          picked &&
+          (picked.width === null || picked.width >= MIN_SRCSET_WIDTH)
+        ) {
+          imgTagImages.push({ url: picked.url, suspect, variantMatch });
+        }
+        return;
+      }
+      const src = el.getAttribute('src');
+      if (src) {
+        imgTagImages.push({ url: src, suspect, variantMatch });
+      }
+    },
+  });
 
   await rewriter.transform(new Response(html)).arrayBuffer();
 
-  return { title, brand, description, ogImages, jsonLdScripts, imgTagImages };
+  return {
+    title,
+    brand,
+    description,
+    docTitle,
+    ogImages,
+    jsonLdScripts,
+    imgTagImages,
+  };
 }
 
 export type SrcsetPick = { url: string; width: number | null };
@@ -195,9 +337,10 @@ function collectTopLevelNodes(data: unknown, out: JsonLdNode[]): void {
     return;
   }
   out.push(obj);
-  // WebPage → Product wrapper. mainEntity is the canonical pattern; some
-  // CMS templates use `about` instead.
-  for (const key of ['mainEntity', 'about'] as const) {
+  // Wrapper patterns: WebPage → Product via mainEntity (canonical) or
+  // `about` (some CMS templates), and ProductGroup → Product via hasVariant
+  // (Shopify's newer markup puts image/offers on the variants only).
+  for (const key of ['mainEntity', 'about', 'hasVariant'] as const) {
     const inner = obj[key];
     if (inner && typeof inner === 'object') {
       collectTopLevelNodes(inner, out);
@@ -444,6 +587,7 @@ export function extractFromJsonLd(
     price: pricePair?.price ?? null,
     currency: pricePair?.currency ?? null,
     inStock: pricePair?.inStock ?? null,
+    productNode: product,
   };
 }
 
@@ -483,7 +627,7 @@ export function extractFromMicrodata(html: string): {
 // Path tokens that overwhelmingly indicate non-product UI assets. Matched
 // case-insensitive as bounded words to avoid catching e.g. "icondaria.jpg".
 const BAD_PATH_PATTERN =
-  /(?:^|[/_-])(logo|logos|favicon|sprite|sprites|placeholder|swatch|swatches|chip|chips|spinner|loading|loader|loaders|payment|payments|paypal|stripe-?logo|visa|mastercard|amex|discover|klarna|afterpay|apple-?pay|google-?pay|facebook|twitter|instagram|pinterest|tiktok|youtube|share|social)(?:[/_.-]|$)/i;
+  /(?:^|[/_-])(logo|logos|favicon|sprite|sprites|placeholder|swatch|swatches|chip|chips|spinner|loading|loader|loaders|payment|payments|paypal|stripe-?logo|visa|mastercard|amex|discover|klarna|afterpay|apple-?pay|google-?pay|facebook|twitter|instagram|pinterest|tiktok|youtube|share|social|size[_-]?guide|size[_-]?chart|empty)(?:[/_.-]|$)/i;
 
 const ICON_TOKEN_PATTERN = /(?:^|[/_-])(icon|icons|ico)(?:[/_.-]|$)/i;
 
@@ -547,7 +691,15 @@ type RankEntry = {
   score: number;
   tags: Set<string>;
   firstSeen: number;
+  // Pre-normalization path (query-stripped, lowercased) — resolution
+  // bonuses/penalties must judge what the SITE published, not what our own
+  // size canonicalization rewrote (normalizeImageUrl turns any `_NNNxNNN`
+  // suffix into `_2048x`, which would otherwise award itself the hi-res
+  // bonus on every thumbnail).
+  rawPath: string;
 };
+
+export type RankedImage = { url: string; score: number; tags: string[] };
 
 // Combines multiple discovery sources into one ranked, deduped list.
 // Score = sum of source weights (per unique source) + high-res bonus -
@@ -561,7 +713,7 @@ export function scoreAndRankImages(
   sources: ImageSource[],
   ambientImages: string[],
   maxImages: number,
-): string[] {
+): RankedImage[] {
   const byKey = new Map<string, RankEntry>();
   let counter = 0;
 
@@ -593,6 +745,7 @@ export function scoreAndRankImages(
         score: 0,
         tags: new Set(),
         firstSeen: counter++,
+        rawPath: raw.split(/[?#]/)[0].toLowerCase(),
       };
       byKey.set(key, entry);
     }
@@ -608,13 +761,12 @@ export function scoreAndRankImages(
     }
   }
 
-  // One-time bonuses/penalties per URL.
+  // One-time bonuses/penalties per URL, judged on the as-published path.
   for (const entry of byKey.values()) {
-    const lcPath = entry.parsed.pathname.toLowerCase();
-    if (hasHighResHint(lcPath)) {
+    if (hasHighResHint(entry.rawPath)) {
       entry.score += 1;
     }
-    if (LOW_QUALITY_PATTERN.test(lcPath)) {
+    if (LOW_QUALITY_PATTERN.test(entry.rawPath)) {
       entry.score -= 2;
     }
   }
@@ -628,7 +780,8 @@ export function scoreAndRankImages(
           return false;
         }
       })
-      .slice(0, maxImages);
+      .slice(0, maxImages)
+      .map((url) => ({ url, score: 0, tags: ['ambient'] }));
   }
 
   return [...byKey.values()]
@@ -639,41 +792,7 @@ export function scoreAndRankImages(
       return a.firstSeen - b.firstSeen;
     })
     .slice(0, maxImages)
-    .map((e) => e.url);
-}
-
-// Restricts a candidate pool to URLs that Claude also returned as product
-// images. Returns the intersection (in the pool's original order) when ≥ 2
-// URLs overlap; otherwise returns the pool unchanged (Claude probably
-// hallucinated or saw different URL forms than the static HTML did).
-export function intersectWithClaude(
-  pageUrl: string,
-  pool: string[],
-  claudeUrls: string[],
-): string[] {
-  if (claudeUrls.length === 0) {
-    return pool;
-  }
-  const claudeKeys = new Set<string>();
-  for (const raw of claudeUrls) {
-    try {
-      const parsed = new URL(normalizeImageUrl(raw), pageUrl);
-      if (parsed.protocol === 'http:') {
-        parsed.protocol = 'https:';
-      }
-      claudeKeys.add(dedupeKey(parsed));
-    } catch {
-      // ignore malformed
-    }
-  }
-  const filtered = pool.filter((u) => {
-    try {
-      return claudeKeys.has(dedupeKey(new URL(u)));
-    } catch {
-      return false;
-    }
-  });
-  return filtered.length >= 2 ? filtered : pool;
+    .map((e) => ({ url: e.url, score: e.score, tags: [...e.tags] }));
 }
 
 // URL normalization (existing helpers)
@@ -685,10 +804,18 @@ export function intersectWithClaude(
 const TRANSFORM_SEGMENT = /^(?:[a-z]{1,4}_[\w.-]+)(?:,[a-z]{1,4}_[\w.-]+)*$/;
 
 // Shopify-style image variants encode size as a filename suffix before the
-// extension: `_300x300.jpg`, `_1024x.jpg`, `_800x@2x.jpg`. The `x` is
-// mandatory; `_1.jpg` (a plain SKU index) must not match. Capture group 1 is
-// the file extension we preserve.
-const SHOPIFY_SIZE_SUFFIX = /_\d+x\d*(?:@\d+x)?(\.(?:jpg|jpeg|png|webp))$/i;
+// extension. Two conventions:
+//   - dimension: `_300x300.jpg`, `_1024x.jpg`, `_800x@2x.jpg` (the `x` is
+//     mandatory; `_1.jpg` plain SKU index must not match)
+//   - named:    `_grande.jpg`, `_medium.jpg`, `_1024x1024.jpg` etc. — Shopify
+//     publishes a fixed set of named presets
+// Capture group 1 is the file extension we preserve.
+const SHOPIFY_NAMED_SIZE =
+  'pico|icon|thumb|small|compact|medium|large|grande|original|master';
+const SHOPIFY_SIZE_SUFFIX = new RegExp(
+  `_(?:\\d+x\\d*(?:@\\d+x)?|${SHOPIFY_NAMED_SIZE})(\\.(?:jpg|jpeg|png|webp))$`,
+  'i',
+);
 
 // Single-brace placeholders used by templating layers (Shopify Liquid renders
 // `_{width}x.jpg` and substitutes client-side from a srcset of widths).
@@ -714,10 +841,20 @@ export function normalizeImageUrl(rawUrl: string): string {
   return pathPart.replace(SHOPIFY_SIZE_SUFFIX, `${CANONICAL_SIZE}$1`) + rest;
 }
 
+// Same-image dedupe collapses across:
+//  - Cloudinary-style size-transform segments in the path (`w_640/`, …)
+//  - The Shopify size suffix on the filename (`master.jpg` / `master_2048x.jpg`
+//    / `master_{width}x.jpg` — same source asset)
+// Distinct shots of the same product (different SKU index in the filename)
+// stay distinct because the filename stem is preserved.
 function dedupeKey(parsed: URL): string {
   const segments = parsed.pathname
     .split('/')
     .filter((s) => s && !TRANSFORM_SEGMENT.test(s));
+  const last = segments.length - 1;
+  if (last >= 0) {
+    segments[last] = segments[last].replace(SHOPIFY_SIZE_SUFFIX, '$1');
+  }
   return `${parsed.origin}/${segments.join('/')}`;
 }
 
@@ -804,15 +941,70 @@ export function rebuildFromReference(
   return built.toString();
 }
 
-export function stripHtml(html: string): string {
+// Raw scan for image URLs anywhere in the document — primarily script JSON
+// blobs (Next.js __NEXT_DATA__, Shopify analytics payloads), where SPA
+// retailers keep the real product gallery that never appears in <img> tags
+// or JSON-LD. Decodes JSON-escaped slashes first so embedded URLs match.
+const RAW_IMAGE_URL = /https?:\/\/[^\s"'<>\\)]+\.(?:jpe?g|png|webp|avif)/gi;
+// Generous — mega-menu config JSON alone can carry hundreds of tile URLs
+// before the product gallery appears in the document.
+const MAX_RAW_SCAN_URLS = 1000;
+
+export function extractRawImageUrls(html: string): string[] {
+  const decoded = html.replace(/\\u002[Ff]/g, '/').replace(/\\\//g, '/');
+  const seen = new Set<string>();
+  for (const m of decoded.matchAll(RAW_IMAGE_URL)) {
+    seen.add(m[0]);
+    if (seen.size >= MAX_RAW_SCAN_URLS) {
+      break;
+    }
+  }
+  return [...seen];
+}
+
+// Price-shaped fields in embedded JSON, with enough leading context for a
+// reader to judge what the number belongs to. SPA pages (Uniqlo, Shopify
+// analytics blobs) often carry the price ONLY here — invisible to JSON-LD,
+// microdata, and stripped page text — so these are surfaced to the Claude
+// selection stage as PRICE_SIGNALS for arbitration, never used directly.
+const PRICE_FIELD =
+  /"(?:price|prices|value|amount|current_?price|sale_?price|base_?price|final_?price)"\s*:\s*"?\d[\d,]*(?:\.\d+)?"?/gi;
+const PRICE_SIGNAL_CONTEXT = 70;
+const MAX_PRICE_SIGNALS = 12;
+
+export function extractPriceSignals(html: string): string[] {
+  const signals: string[] = [];
+  const seen = new Set<string>();
+  for (const m of html.matchAll(PRICE_FIELD)) {
+    if (seen.has(m[0])) {
+      continue;
+    }
+    seen.add(m[0]);
+    const start = Math.max(0, (m.index ?? 0) - PRICE_SIGNAL_CONTEXT);
+    const snippet = html
+      .slice(start, (m.index ?? 0) + m[0].length)
+      .replace(/\s+/g, ' ');
+    signals.push(snippet);
+    if (signals.length >= MAX_PRICE_SIGNALS) {
+      break;
+    }
+  }
+  return signals;
+}
+
+export function stripHtml(html: string, maxChars?: number): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<nav[\s\S]*?<\/nav>/gi, '')
     .replace(/<footer[\s\S]*?<\/footer>/gi, '')
     .replace(/<header[\s\S]*?<\/header>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
-    .slice(0, MAX_STRIPPED_HTML_CHARS);
+    .slice(0, maxChars ?? MAX_STRIPPED_HTML_CHARS);
 }

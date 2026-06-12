@@ -100,3 +100,4 @@ These are load-bearing — see the per-workspace `CLAUDE.md` files for the long 
 - tRPC routers in `worker/src/routers/` are thin — parse input, delegate to `worker/src/services/`.
 - Services take `Db` (drizzle) as a parameter, not the request context.
 - Image bytes never go through tRPC — they stream from R2 via `GET /api/images/*`.
+- URL parsing is two-stage: a deterministic extractor (`parser/candidates.ts`) builds a scored, numbered image-candidate pool from og tags, JSON-LD, microdata, raw script-JSON scans, and `<img>` tags (with related/recommendation containers penalized); Claude Haiku then reads a structured evidence document and **selects candidate indices** rather than emitting URLs, so it cannot hallucinate. Static stage works without the API; failures are covered by a fixture-driven test suite (`pnpm test:eval` runs the Claude path against real pages). See `worker/CLAUDE.md` for the spec.

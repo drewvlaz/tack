@@ -69,7 +69,11 @@ export async function callClaude(
 
     lastStatus = res.status;
     if (!RETRYABLE_STATUSES.has(res.status) || attempt === MAX_ATTEMPTS) {
-      throw new Error(`Claude API error: ${res.status}`);
+      const detail = await res
+        .text()
+        .then((t) => t.slice(0, 300))
+        .catch(() => '');
+      throw new Error(`Claude API error: ${res.status} ${detail}`.trim());
     }
     await sleep(BACKOFF_MS * 2 ** (attempt - 1));
   }

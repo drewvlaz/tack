@@ -1,0 +1,18 @@
+{
+  "url": "https://noahny.com/products/denim-dungerees",
+  "title": "Denim Dungaree",
+  "brand": "Noah",
+  "price": 298,
+  "currency": "USD",
+  "structuredPrice": false,
+  "skipStatic": ["brand"],
+  "minImages": 2,
+  "imageMustMatch": ["Denim-Dungarees"],
+  "imageMustNotMatch": [
+    "Linen-Varsity-Jacket",
+    "Oversized-Poplin-Shirt",
+    "Heather-Ringer-Tee",
+    "Swim-Trunks"
+  ],
+  "notes": "Shopify WITHOUT JSON-LD. Price only in embedded analytics JSON (PRICE_SIGNALS path). og:image on cdn.shopify.com, gallery <img srcset> on the page host. Nav/recommendation imgs carry other product names."
+}

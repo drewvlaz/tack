@@ -1,0 +1,12 @@
+{
+  "url": "https://www.everlane.com/products/mens-essential-organic-crew-uniform-white",
+  "title": "Essential Organic Crew",
+  "brand": "Everlane",
+  "price": 38,
+  "currency": "USD",
+  "structuredPrice": true,
+  "minImages": 1,
+  "imageMustMatch": ["ae4c329b_b38f"],
+  "imageMustNotMatch": ["Empty_Bag_State_Image"],
+  "notes": "JSON-LD is ProductGroup with hasVariant Products (price/image on variants only). Image filenames are content hashes, so related products are indistinguishable by URL; hero hash asserted only."
+}
