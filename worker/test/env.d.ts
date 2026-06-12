@@ -5,5 +5,7 @@ declare module 'cloudflare:test' {
     DB: D1Database;
     IMAGES: R2Bucket;
     TEST_MIGRATIONS: D1Migration[];
+    EVAL_ANTHROPIC_API_KEY: string;
+    PARSER_FIXTURES: Record<string, { html: string; expected: unknown }>;
   }
 }

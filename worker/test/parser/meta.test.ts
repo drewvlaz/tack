@@ -3,14 +3,19 @@ import {
   extractFromJsonLd,
   extractFromMicrodata,
   extractTemplateImageUrls,
-  intersectWithClaude,
   normalizeImageUrl,
   parseHtml,
   rebuildFromReference,
   resolveAndDedupeUrls,
   scoreAndRankImages,
   stripHtml,
+  type ImageSource,
 } from '../../src/services/parser/meta';
+
+const rankedUrls = (...args: Parameters<typeof scoreAndRankImages>): string[] =>
+  scoreAndRankImages(...args).map((c) => c.url);
+
+const imgUrls = (imgs: { url: string }[]): string[] => imgs.map((i) => i.url);
 
 describe('parseHtml', () => {
   it('extracts og:title from property attribute', async () => {
@@ -73,6 +78,7 @@ describe('parseHtml', () => {
       title: null,
       brand: null,
       description: null,
+      docTitle: null,
       ogImages: [],
       jsonLdScripts: [],
       imgTagImages: [],
@@ -83,21 +89,67 @@ describe('parseHtml', () => {
     const result = await parseHtml(`
       <img src="https://cdn.test/hero.jpg" alt="x">
     `);
-    expect(result.imgTagImages).toEqual(['https://cdn.test/hero.jpg']);
+    expect(result.imgTagImages).toEqual([
+      {
+        url: 'https://cdn.test/hero.jpg',
+        suspect: false,
+        variantMatch: 'none',
+      },
+    ]);
+  });
+
+  it('tags imgs by variant match/mismatch when given a variantHint', async () => {
+    const result = await parseHtml(
+      `
+        <div data-color="cream">
+          <img src="https://cdn.test/cream-1.jpg">
+          <img src="https://cdn.test/cream-2.jpg">
+        </div>
+        <div data-color="navy">
+          <img src="https://cdn.test/navy-1.jpg">
+        </div>
+        <img src="https://cdn.test/no-context.jpg">
+      `,
+      { attr: 'data-color', value: 'cream' },
+    );
+    expect(result.imgTagImages).toEqual([
+      {
+        url: 'https://cdn.test/cream-1.jpg',
+        suspect: false,
+        variantMatch: 'match',
+      },
+      {
+        url: 'https://cdn.test/cream-2.jpg',
+        suspect: false,
+        variantMatch: 'match',
+      },
+      {
+        url: 'https://cdn.test/navy-1.jpg',
+        suspect: false,
+        variantMatch: 'mismatch',
+      },
+      {
+        url: 'https://cdn.test/no-context.jpg',
+        suspect: false,
+        variantMatch: 'none',
+      },
+    ]);
   });
 
   it('treats <img srcSet> (camelCase, as Next.js renders) the same as srcset', async () => {
     const result = await parseHtml(`
       <img srcSet="https://cdn.test/a-256.jpg 256w, https://cdn.test/a-1920.jpg 1920w">
     `);
-    expect(result.imgTagImages).toEqual(['https://cdn.test/a-1920.jpg']);
+    expect(imgUrls(result.imgTagImages)).toEqual([
+      'https://cdn.test/a-1920.jpg',
+    ]);
   });
 
   it('handles srcset URLs that contain commas (e.g. Cloudinary transforms)', async () => {
     const result = await parseHtml(`
       <img srcset="https://cdn.test/images/f_auto,c_limit,w_256/SKU/p.jpg 256w, https://cdn.test/images/f_auto,c_limit,w_1920/SKU/p.jpg 1920w">
     `);
-    expect(result.imgTagImages).toEqual([
+    expect(imgUrls(result.imgTagImages)).toEqual([
       'https://cdn.test/images/f_auto,c_limit,w_1920/SKU/p.jpg',
     ]);
   });
@@ -107,7 +159,7 @@ describe('parseHtml', () => {
       <img srcset="https://cdn.test/a-256.jpg 256w, https://cdn.test/a-1920.jpg 1920w" src="https://cdn.test/a-fallback.jpg">
       <img srcset="https://cdn.test/b-256.jpg 256w, https://cdn.test/b-1080.jpg 1080w">
     `);
-    expect(result.imgTagImages).toEqual([
+    expect(imgUrls(result.imgTagImages)).toEqual([
       'https://cdn.test/a-1920.jpg',
       'https://cdn.test/b-1080.jpg',
     ]);
@@ -118,7 +170,109 @@ describe('parseHtml', () => {
       <img srcset="https://cdn.test/icon-1x.png 32w, https://cdn.test/icon-2x.png 64w">
       <img srcset="https://cdn.test/hero-1024.jpg 1024w">
     `);
-    expect(result.imgTagImages).toEqual(['https://cdn.test/hero-1024.jpg']);
+    expect(imgUrls(result.imgTagImages)).toEqual([
+      'https://cdn.test/hero-1024.jpg',
+    ]);
+  });
+
+  it('marks images inside related/recommendation containers as suspect', async () => {
+    const result = await parseHtml(`
+      <div class="product-gallery">
+        <img src="https://cdn.test/main-product.jpg">
+      </div>
+      <section class="related-products">
+        <img src="https://cdn.test/other-product-1.jpg">
+        <div><img src="https://cdn.test/other-product-2.jpg"></div>
+      </section>
+      <div id="recommendations">
+        <img src="https://cdn.test/other-product-3.jpg">
+      </div>
+      <img src="https://cdn.test/after-sections.jpg">
+    `);
+    expect(result.imgTagImages).toEqual([
+      {
+        url: 'https://cdn.test/main-product.jpg',
+        suspect: false,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/other-product-1.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/other-product-2.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/other-product-3.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/after-sections.jpg',
+        suspect: false,
+        variantMatch: 'none',
+      },
+    ]);
+  });
+
+  it('matches suspect container classes case-insensitively (CSS modules)', async () => {
+    const result = await parseHtml(`
+      <div class="RelatedItems__wrapper">
+        <img src="https://cdn.test/related.jpg">
+      </div>
+      <div class="YouMayAlsoLike">
+        <img src="https://cdn.test/also.jpg">
+      </div>
+    `);
+    expect(result.imgTagImages).toEqual([
+      {
+        url: 'https://cdn.test/related.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+      { url: 'https://cdn.test/also.jpg', suspect: true, variantMatch: 'none' },
+    ]);
+  });
+
+  it('marks nav and footer images as suspect', async () => {
+    const result = await parseHtml(`
+      <nav><img src="https://cdn.test/nav-banner.jpg"></nav>
+      <img src="https://cdn.test/hero.jpg">
+      <footer><img src="https://cdn.test/footer-badge.jpg"></footer>
+    `);
+    expect(result.imgTagImages).toEqual([
+      {
+        url: 'https://cdn.test/nav-banner.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/hero.jpg',
+        suspect: false,
+        variantMatch: 'none',
+      },
+      {
+        url: 'https://cdn.test/footer-badge.jpg',
+        suspect: true,
+        variantMatch: 'none',
+      },
+    ]);
+  });
+
+  it('does not leak suspect state past an unclosed suspect img tag', async () => {
+    // <img class="related"> matches a suspect selector but is void —
+    // tracking must skip it rather than taint the rest of the document.
+    const result = await parseHtml(`
+      <img class="related-thumb" src="https://cdn.test/thumb.jpg">
+      <img src="https://cdn.test/hero.jpg">
+    `);
+    expect(
+      result.imgTagImages.find((i) => i.url === 'https://cdn.test/hero.jpg')
+        ?.suspect,
+    ).toBe(false);
   });
 
   it('exposes raw JSON-LD script bodies', async () => {
@@ -351,7 +505,7 @@ describe('scoreAndRankImages', () => {
   const base = 'https://shop.example.com/p/bag';
 
   it('drops logos, payment-method icons, swatches, and SVGs', () => {
-    const out = scoreAndRankImages(
+    const out = rankedUrls(
       base,
       [
         {
@@ -376,7 +530,7 @@ describe('scoreAndRankImages', () => {
   });
 
   it('ranks JSON-LD ∩ og:image highest, then og, then img', () => {
-    const out = scoreAndRankImages(
+    const out = rankedUrls(
       base,
       [
         {
@@ -422,17 +576,12 @@ describe('scoreAndRankImages', () => {
       { length: 20 },
       (_, i) => `https://cdn.test/products/p${i}.jpg`,
     );
-    const out = scoreAndRankImages(
-      base,
-      [{ tag: 'jsonld', score: 4, urls }],
-      [],
-      5,
-    );
+    const out = rankedUrls(base, [{ tag: 'jsonld', score: 4, urls }], [], 5);
     expect(out).toHaveLength(5);
   });
 
   it('falls back to ambientImages when no real candidates survive', () => {
-    const out = scoreAndRankImages(
+    const out = rankedUrls(
       base,
       [
         {
@@ -448,7 +597,7 @@ describe('scoreAndRankImages', () => {
   });
 
   it('upgrades http origins to https and dedupes against https-on-same-path', () => {
-    const out = scoreAndRankImages(
+    const out = rankedUrls(
       base,
       [
         {
@@ -466,8 +615,34 @@ describe('scoreAndRankImages', () => {
     expect(out).toEqual(['https://cdn.test/products/bag.jpg']);
   });
 
-  it('rewards high-res hints in the URL path', () => {
+  it('penalizes negative-score sources below positive ones', () => {
     const out = scoreAndRankImages(
+      base,
+      [
+        {
+          tag: 'img',
+          score: 1,
+          urls: ['https://cdn.test/products/gallery.jpg'],
+        },
+        {
+          tag: 'img-suspect',
+          score: -3,
+          urls: ['https://cdn.test/products/related-item.jpg'],
+        },
+      ],
+      [],
+      12,
+    );
+    expect(out.map((c) => c.url)).toEqual([
+      'https://cdn.test/products/gallery.jpg',
+      'https://cdn.test/products/related-item.jpg',
+    ]);
+    expect(out[0].score).toBeGreaterThan(0);
+    expect(out[1].score).toBeLessThan(0);
+  });
+
+  it('rewards high-res hints in the URL path', () => {
+    const out = rankedUrls(
       base,
       [
         {
@@ -484,53 +659,6 @@ describe('scoreAndRankImages', () => {
     );
     // w_2048 → +1 bonus, w_400 → none. Other wins.
     expect(out[0]).toBe('https://cdn.test/products/w_2048/other.jpg');
-  });
-});
-
-describe('intersectWithClaude', () => {
-  const base = 'https://shop.example.com/p/x';
-
-  it('keeps only pool URLs Claude also surfaced (when ≥ 2 overlap)', () => {
-    const pool = [
-      'https://cdn.test/p/a.jpg',
-      'https://cdn.test/p/b.jpg',
-      'https://cdn.test/p/c.jpg',
-    ];
-    const claude = [
-      'https://cdn.test/p/a.jpg',
-      'https://cdn.test/p/c.jpg',
-      'https://cdn.test/p/d.jpg', // not in pool
-    ];
-    expect(intersectWithClaude(base, pool, claude)).toEqual([
-      'https://cdn.test/p/a.jpg',
-      'https://cdn.test/p/c.jpg',
-    ]);
-  });
-
-  it('returns the original pool when fewer than 2 URLs overlap (Claude likely confused)', () => {
-    const pool = [
-      'https://cdn.test/p/a.jpg',
-      'https://cdn.test/p/b.jpg',
-      'https://cdn.test/p/c.jpg',
-    ];
-    const claude = ['https://cdn.test/p/d.jpg'];
-    expect(intersectWithClaude(base, pool, claude)).toEqual(pool);
-  });
-
-  it('intersects across normalized variants (Shopify size suffix)', () => {
-    const pool = ['https://cdn.shopify.com/files/X_2048x.jpg'];
-    const claude = [
-      'https://cdn.shopify.com/files/X_300x300.jpg',
-      'https://cdn.shopify.com/files/Y_2048x.jpg',
-    ];
-    // pool[0] normalizes to X_2048x; claude's X_300x300 also normalizes to
-    // X_2048x → overlap = 1 → returns original pool (below threshold).
-    expect(intersectWithClaude(base, pool, claude)).toEqual(pool);
-  });
-
-  it('returns pool unchanged when Claude returned no URLs', () => {
-    const pool = ['https://cdn.test/p/a.jpg'];
-    expect(intersectWithClaude(base, pool, [])).toEqual(pool);
   });
 });
 
@@ -732,14 +860,15 @@ describe('SSENSE-shaped page', () => {
     const rebuilt = extractTemplateImageUrls(html)
       .map((t) => rebuildFromReference(t, og))
       .filter((u): u is string => u !== null);
-    const ranked = scoreAndRankImages(
+    const sources: ImageSource[] = [
+      { tag: 'jsonld', score: 4, urls: jsonLd.productImages },
+      { tag: 'og', score: 2, urls: parsed.ogImages },
+      { tag: 'rebuilt', score: 3, urls: rebuilt },
+      { tag: 'img', score: 1, urls: imgUrls(parsed.imgTagImages) },
+    ];
+    const ranked = rankedUrls(
       'https://www.ssense.com/x',
-      [
-        { tag: 'jsonld', score: 4, urls: jsonLd.productImages },
-        { tag: 'og', score: 2, urls: parsed.ogImages },
-        { tag: 'rebuilt', score: 3, urls: rebuilt },
-        { tag: 'img', score: 1, urls: parsed.imgTagImages },
-      ],
+      sources,
       jsonLd.ambientImages,
       12,
     ).filter((u) => !/__[A-Z][A-Z0-9_]*__/.test(u));

@@ -2,21 +2,17 @@ import { log } from '../../lib/log';
 import { safeFetch, UnsafeUrlError } from '../../lib/safeFetch';
 import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
-import { extractMetaWithClaude } from './claude';
 import {
-  extractFromJsonLd,
-  extractFromMicrodata,
-  extractTemplateImageUrls,
-  intersectWithClaude,
-  parseHtml,
-  rebuildFromReference,
-  resolveAndDedupeUrls,
-  scoreAndRankImages,
-  stripHtml,
-  type ImageSource,
-  type ParsedDetail,
-  type ParsedMeta,
-} from './meta';
+  extractCandidates,
+  pickDefaultImages,
+  type StaticExtract,
+} from './candidates';
+import {
+  buildEvidence,
+  selectProductMeta,
+  type ClaudeSelection,
+} from './claude';
+import type { ParsedDetail, ParsedMeta } from './meta';
 
 // Thrown when the upstream HTTP fetch fails — either the connection errored
 // (DNS/TLS/blocked subrequest, surfaced as a runtime Error) or the response
@@ -110,26 +106,6 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-// Some CDN-templated URLs in JSON-LD contain a literal placeholder the page's
-// JS would substitute at runtime (e.g. SSENSE's `__IMAGE_PARAMS__`). Server-side
-// fetches of these 404, so drop them rather than store broken externals.
-const PLACEHOLDER_SEGMENT = /__[A-Z][A-Z0-9_]*__|\{\{[^}]+\}\}/;
-
-function hasPlaceholderSegment(url: string): boolean {
-  return PLACEHOLDER_SEGMENT.test(url);
-}
-
-function hostnameOf(raw: string | undefined, base: string): string | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    return new URL(raw, base).hostname;
-  } catch {
-    return null;
-  }
-}
-
 export async function fetchAndParseMeta(
   url: string,
   apiKey: string,
@@ -172,122 +148,88 @@ export async function fetchAndParseMeta(
 
   const html = await readBodyCapped(res, MAX_HTML_BYTES);
 
-  const parsed = await parseHtml(html);
-  const { title, brand, ogImages, jsonLdScripts, imgTagImages } = parsed;
-  let description = parsed.description;
+  // Stage 1 — deterministic extraction: og tags, JSON-LD/microdata price,
+  // and a ranked candidate list combining every image-discovery source
+  // (suspect-section and off-host candidates kept but penalized).
+  const extract = await extractCandidates(html, url);
 
-  // Structured-data first (anchored to schema.org/Product; price+currency
-  // come from the same Offer node so they always agree). Microdata is the
-  // fallback for sites that don't ship JSON-LD.
-  const jsonLd = extractFromJsonLd(jsonLdScripts, url);
-  let price = jsonLd.price;
-  let currency = jsonLd.currency;
-  if (price === null) {
-    const micro = extractFromMicrodata(html);
-    price = micro.price;
-    if (currency === null) {
-      currency = micro.currency;
-    }
-  }
-  let details: ParsedDetail[] = [];
-
-  // Combine image sources. Retailers vary: some put the full gallery in
-  // JSON-LD, some only in og:image, many (e.g. SSENSE) embed it in Next.js
-  // JSON blobs with literal __IMAGE_PARAMS__ placeholders we rebuild using
-  // og:image as a transform reference. IMG tags are filtered to the og:image
-  // host so we don't pull in third-party widgets/ads.
-  const ogHost = hostnameOf(ogImages[0], url);
-  const filteredImgTagImages = ogHost
-    ? imgTagImages.filter((u) => hostnameOf(u, url) === ogHost)
-    : imgTagImages;
-  const ogReference = ogImages[0];
-  const rebuiltFromTemplates = ogReference
-    ? extractTemplateImageUrls(html)
-        .map((t) => rebuildFromReference(t, ogReference))
-        .filter((u): u is string => u !== null)
-    : [];
-
-  // Score-and-rank: JSON-LD Product images carry the highest weight (the
-  // retailer themselves marked these as product photography), og:image is
-  // the next-strongest signal, and <img> tags are the weakest (susceptible
-  // to navigation chrome, recommendation widgets, etc.).
-  const sources: ImageSource[] = [
-    { tag: 'jsonld', score: 4, urls: jsonLd.productImages },
-    { tag: 'og', score: 2, urls: ogImages },
-    { tag: 'rebuilt', score: 3, urls: rebuiltFromTemplates },
-    { tag: 'img', score: 1, urls: filteredImgTagImages },
-  ];
-  let imageUrls = scoreAndRankImages(
-    url,
-    sources,
-    jsonLd.ambientImages,
-    MAX_IMAGES,
-  ).filter((u) => !hasPlaceholderSegment(u));
-
-  // Details (size/care/materials) live in page body, never og tags — so we
-  // always need Claude for them. Claude also serves as a cross-validator
-  // for price and a curator for images.
-  let claudeMeta: ParsedMeta | null = null;
+  // Stage 2 — Claude reads a structured evidence document (og fields,
+  // Product JSON-LD, the numbered candidate list, stripped page text) and
+  // selects candidate INDICES + arbitrates metadata. Index selection means
+  // it can never introduce a URL that wasn't discovered on the page.
+  let selection: ClaudeSelection | null = null;
   try {
-    claudeMeta = await extractMetaWithClaude(stripHtml(html), apiKey);
+    selection = await selectProductMeta(
+      buildEvidence(url, extract, html),
+      extract.candidates.length,
+      apiKey,
+    );
   } catch {
     warnings.push('claude_failed');
   }
 
-  if (claudeMeta) {
-    if (description === null) {
-      description = claudeMeta.description;
-    }
-    if (currency === null) {
-      currency = claudeMeta.currency;
-    }
+  return { meta: mergeSelection(extract, selection), warnings };
+}
+
+// Pure merge of the deterministic extraction with Claude's selection (null
+// when the Claude call failed — static extraction is the fallback).
+export function mergeSelection(
+  extract: StaticExtract,
+  selection: ClaudeSelection | null,
+): ParsedMeta {
+  let { title, brand, description, price, currency } = extract;
+  let details: ParsedDetail[] = [];
+  let imageUrls: string[];
+
+  if (selection) {
+    title ??= selection.title;
+    brand ??= selection.brand;
+    description ??= selection.description;
+    currency ??= selection.currency;
     // Price cross-validation: prefer Claude when structured data is missing,
     // OR when the values disagree significantly AND currencies agree (so
-    // we're not picking a value from a different region/SKU).
+    // we're not picking a value from a different region/SKU). Claude sees
+    // the structured price in its evidence, so a disagreement here is a
+    // deliberate correction (sale price on page, wrong-SKU offer), not a
+    // blind guess.
     if (price === null) {
-      price = claudeMeta.price;
+      price = selection.price;
     } else if (
-      claudeMeta.price !== null &&
-      claudeMeta.currency !== null &&
+      selection.price !== null &&
+      selection.currency !== null &&
       currency !== null &&
-      claudeMeta.currency === currency
+      selection.currency === currency
     ) {
-      const delta = Math.abs(claudeMeta.price - price);
+      const delta = Math.abs(selection.price - price);
       const ratio = price > 0 ? delta / price : 0;
       if (ratio > PRICE_DISCREPANCY_RATIO) {
         log.debug(
-          `parser price mismatch ${price} vs ${claudeMeta.price} (${currency}); preferring Claude`,
+          `parser price mismatch ${price} vs ${selection.price} (${currency}); preferring Claude`,
         );
-        price = claudeMeta.price;
+        price = selection.price;
       }
     }
-    if (imageUrls.length === 0) {
-      // No discovered candidates survived — fall back to Claude's list
-      // directly (last resort).
-      imageUrls = resolveAndDedupeUrls(url, claudeMeta.imageUrls).filter(
-        (u) => !hasPlaceholderSegment(u),
-      );
-    } else if (claudeMeta.imageUrls.length > 0) {
-      // Use Claude's list as a curator: drop discovered URLs Claude
-      // didn't flag as product images. `intersectWithClaude` is
-      // conservative — keeps the original pool when overlap is too small
-      // (Claude likely saw URLs in a form we can't reconcile).
-      imageUrls = intersectWithClaude(url, imageUrls, claudeMeta.imageUrls);
-    }
-    details = claudeMeta.details;
+    details = selection.details;
+    imageUrls =
+      selection.imageIndices.length > 0
+        ? selection.imageIndices.map((i) => extract.candidates[i].url)
+        : pickDefaultImages(extract.candidates, MAX_IMAGES);
+  } else {
+    imageUrls = pickDefaultImages(extract.candidates, MAX_IMAGES);
   }
 
+  // Last resort after og:title and Claude: the <title> tag (usually carries
+  // a "| Site" suffix, hence lowest priority).
+  title ??= extract.docTitle;
+
   return {
-    meta: {
-      title,
-      brand,
-      description,
-      price,
-      currency,
-      imageUrls: imageUrls.slice(0, MAX_IMAGES),
-      details,
-    },
-    warnings,
+    title,
+    brand,
+    description,
+    price,
+    currency,
+    imageUrls: imageUrls.slice(0, MAX_IMAGES),
+    details,
   };
 }
 

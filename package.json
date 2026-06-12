@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.5.2",
   "engines": {
-    "node": "24.7.0"
+    "node": "^24.7.0"
   },
   "scripts": {
     "dev": "concurrently -n web,worker -c blue,magenta \"pnpm dev:web\" \"pnpm dev:worker\"",
@@ -20,6 +20,7 @@
     "test": "pnpm -r --if-present run test",
     "test:web": "pnpm --filter @tack/web run test",
     "test:worker": "pnpm --filter @tack/worker run test",
+    "test:eval": "pnpm --filter @tack/worker run test:eval",
     "deploy": "pnpm --filter @tack/worker run deploy",
     "deploy:staging": "pnpm --filter @tack/worker run deploy:staging",
     "deploy:production": "pnpm --filter @tack/worker run deploy:production",

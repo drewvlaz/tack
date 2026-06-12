@@ -1,0 +1,12 @@
+{
+  "url": "https://www.endclothing.com/us/adidas-dfb-eqt-t-shirt-ky7083.html",
+  "title": "adidas DFB EQT T-Shirt",
+  "brand": "END",
+  "price": 59,
+  "currency": "USD",
+  "structuredPrice": true,
+  "minImages": 2,
+  "imageMustMatch": ["KY7083"],
+  "imageMustNotMatch": ["/catalog/category/", "end-logo"],
+  "notes": "Next.js multi-brand retailer. JSON-LD Product has ONE image; the rest of the gallery (KY7083_6_1 etc.) lives in script JSON (raw-scan same-dir path). <img> tags are nav menu category tiles that must never surface."
+}

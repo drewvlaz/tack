@@ -1,0 +1,12 @@
+{
+  "url": "https://www.uniqlo.com/us/en/products/E487962-000/00",
+  "title": "Boxy Cropped T-Shirt",
+  "brand": "UNIQLO",
+  "price": 19.9,
+  "currency": "USD",
+  "structuredPrice": false,
+  "minImages": 2,
+  "imageMustMatch": ["487962"],
+  "imageMustNotMatch": [],
+  "notes": "Client-rendered React SPA. No JSON-LD/microdata; price exists only as {\"prices\":{\"base\":{\"value\":19.9}}} in script JSON (PRICE_SIGNALS path). Gallery URLs only in scripts (raw-scan path); single og:image."
+}

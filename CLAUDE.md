@@ -73,6 +73,18 @@ Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:87
 - No emojis in code or comments.
 - Comments only when the _why_ is non-obvious (hidden constraint, invariant, workaround). Don't restate what the code does.
 
+## Keeping the docs honest
+
+Treat `CLAUDE.md` (this file), `web/CLAUDE.md`, `worker/CLAUDE.md`, and `README.md` as **part of the design** — not commentary on it. When you change anything they describe, update them in the same change:
+
+- **Trigger.** A new architectural rule, layering invariant, atomicity boundary, deployment script, env binding, table relationship, parsing-pipeline stage/scoring source, or any other behavior the docs already spell out. Renames of files/functions/types referenced in the docs count too.
+- **What to do.** Find the section that names the thing you changed (`rg -n '<symbol>' CLAUDE.md web/CLAUDE.md worker/CLAUDE.md README.md`) and edit it. If a numbered/bulleted list is now wrong, fix the right bullet — don't tack on a "Note:" at the bottom. New behavior usually goes inside an existing section; only add a new section when the existing structure has no home for it.
+- **What NOT to do.** Don't leave dead pointers (renamed functions, deleted scopes, removed scripts). Don't restate what the code already shows ("`foo(bar)` calls `bar`") — the docs are for the WHY, the invariants, and the non-obvious load-bearing details. Don't write a CHANGELOG entry; the doc reflects current state.
+- **Where each lives.** Architectural invariants and cross-workspace concerns → this file. Frontend layering, store/api/hook split, design tokens → `web/CLAUDE.md`. Service rules, atomicity boundaries, parsing flow, DB/migrations → `worker/CLAUDE.md`. Public-facing summary → `README.md`. When a fact lives in two places (e.g. "Anthropic Claude Haiku" model id), update both.
+- **Verification.** After the doc edit, search for the thing's old name — if anything still references it, fix that too.
+
+If you're about to ship a refactor or a new feature and the docs above haven't been touched, pause and ask whether they should be — the answer is usually yes.
+
 ## Architectural invariants
 
 These are load-bearing — break them and the layering collapses.
@@ -169,7 +181,9 @@ Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pn
 
 ## Testing
 
-`check-app.spec.ts` at the repo root is a Playwright smoke check (loads the canvas, dumps console errors, screenshots, counts cards). Run with `pnpm exec playwright test`. There is no broader test suite yet.
+`check-app.spec.ts` at the repo root is a Playwright smoke check (loads the canvas, dumps console errors, screenshots, counts cards). Run with `pnpm exec playwright test`.
+
+Worker has a vitest suite under `worker/test/` (`pnpm test:worker` or root `pnpm test`). The parser has a fixture-driven suite at `worker/test/parser/fixtures/` — `pipeline.test.ts` asserts the deterministic stage offline against saved retailer pages; `eval.live.test.ts` runs the full Claude-included pipeline against the real Anthropic API via `pnpm test:eval` (key from `ANTHROPIC_API_KEY` or `worker/.dev.vars`; never spent on a plain `pnpm test`). See `worker/CLAUDE.md` → "URL parsing flow" for the design and how to add a fixture.
 
 ## What's done vs. what's not
 
