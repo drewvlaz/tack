@@ -170,6 +170,8 @@ pnpm deploy:pages:production # build SPA against prod API, deploy to branch `pro
 
 `deploy:<env>` chains `typegen` → `db:migrate:<env>` → `wrangler deploy --env <env>`, so types and the remote D1 are in sync with the worker that's about to ship. Any step failing fails the chain — a broken migration won't be followed by a deploy that references the new schema. The migration step calls into Drizzle; read the destructive-migration rules in `worker/CLAUDE.md` before running any migration in production.
 
+**CI/CD.** `.github/workflows/deploy-staging.yml` runs on every push to `main` (and via `workflow_dispatch`): lint + test → `pnpm deploy:staging` → `pnpm deploy:pages:staging`. Concurrency group `deploy-staging` with `cancel-in-progress: false` serializes runs so a half-applied D1 migration can't be interrupted. Required repo secrets: `CLOUDFLARE_API_TOKEN` (Workers + Pages edit scope) and `CLOUDFLARE_ACCOUNT_ID`. The worker's `ANTHROPIC_API_KEY` lives as a wrangler secret on the deployed worker, not in GitHub. Production deploys are still manual (`pnpm deploy:production` + `pnpm deploy:pages:production`); add a mirror workflow keyed to the `production` branch when you want automated promotion.
+
 ## DB schema (D1, managed by Drizzle)
 
 Defined in `worker/src/db/schema.ts`. Tables:
