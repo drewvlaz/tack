@@ -1,0 +1,16 @@
+{
+  "url": "https://axelarigato.com/men/footwear/squish/squish-sneaker-f3654003",
+  "title": "Squish Sneaker",
+  "brand": "AXEL ARIGATO",
+  "price": 365,
+  "currency": "USD",
+  "structuredPrice": false,
+  "minImages": 2,
+  "imageMustMatch": ["F3654003"],
+  "imageMustNotMatch": [],
+  "imageLabels": {
+    "positives": ["F3654003"],
+    "negatives": ["/menu-images/", "_store_", "thumbnail_placeholder"]
+  },
+  "notes": "Next.js SPA (Storyblok-backed). No JSON-LD or microdata. Real prices live in a per-currency map in script JSON ({\"prices\":{\"USD\":{\"price\":365,...}, \"EUR\":{\"price\":260,...}, ...}). Static-stage price test skipped via structuredPrice:false; Claude arbitrates from PRICE_SIGNALS using the .com domain + USD evidence. Image candidates are mostly on media.occtoo.com (off-host vs page) — they come through as <img>-tag srcSet entries. The og:image (axel-arigato-og.jpeg) is a brand placeholder, not a product shot; ranking it high is structurally correct (strongest signal absent JSON-LD), and Claude excludes it at selection time via filename inspection."
+}

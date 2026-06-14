@@ -24,21 +24,24 @@ pnpm, activated via corepack (`packageManager` field pins the version). `.npmrc`
 
 Every command runs from the repo root **or** from inside a workspace — the root mirrors each workspace script via `pnpm --filter`. From root, bare names hit the natural target (web for `build`, both for `dev`/`lint`/`test`); `:web` / `:worker` suffixes pin a workspace.
 
-| Script                      | Root (`pnpm <name>`)                             | Web (`web/`) | Worker (`worker/`) |
-| --------------------------- | ------------------------------------------------ | ------------ | ------------------ |
-| `dev`                       | both, concurrently (`concurrently`)              | Vite         | `wrangler dev`     |
-| `dev:web`                   | web only                                         | —            | —                  |
-| `dev:worker`                | worker only                                      | —            | —                  |
-| `build` / `build:web`       | web prod build                                   | ✓            | —                  |
-| `preview`                   | Vite preview                                     | ✓            | —                  |
-| `lint` / `:web` / `:worker` | typecheck + ESLint per workspace                 | ✓            | ✓                  |
-| `test` / `:web` / `:worker` | vitest                                           | —            | ✓                  |
-| `deploy`                    | `wrangler deploy`                                | —            | ✓                  |
-| `cf-typegen`                | `wrangler types`                                 | —            | ✓                  |
-| `db:generate`               | `drizzle-kit generate` (pass `-- --name <desc>`) | —            | ✓                  |
-| `db:migrate` / `:local`     | apply migrations to remote / local D1            | —            | ✓                  |
-| `db:seed:local`             | apply `seed.sql` to local D1                     | —            | ✓                  |
-| `db:studio`                 | drizzle-kit studio UI                            | —            | ✓                  |
+| Script                                          | Root (`pnpm <name>`)                              | Web (`web/`) | Worker (`worker/`) |
+| ----------------------------------------------- | ------------------------------------------------- | ------------ | ------------------ |
+| `dev`                                           | both, concurrently (`concurrently`)               | Vite         | `wrangler dev`     |
+| `dev:web`                                       | web only                                          | —            | —                  |
+| `dev:worker`                                    | worker only                                       | —            | —                  |
+| `build` / `build:web`                           | web prod build                                    | ✓            | —                  |
+| `preview`                                       | Vite preview                                      | ✓            | —                  |
+| `lint` / `:web` / `:worker`                     | typecheck + ESLint per workspace                  | ✓            | ✓                  |
+| `test` / `:web` / `:worker`                     | vitest                                            | ✓            | ✓                  |
+| `parser:eval`                                   | live Claude pipeline against every fixture        | —            | ✓                  |
+| `parser:capture`                                | snapshot a real retailer page as a fixture        | —            | ✓                  |
+| `deploy:staging` / `:production`                | typegen + migrate + `wrangler deploy --env <env>` | —            | ✓                  |
+| `deploy:pages:staging` / `:production`          | build SPA + `wrangler pages deploy` per branch    | ✓ (build)    | ✓ (deploy)         |
+| `typegen`                                       | `wrangler types`                                  | —            | ✓                  |
+| `db:generate`                                   | `drizzle-kit generate` (pass `-- --name <desc>`)  | —            | ✓                  |
+| `db:migrate:local` / `:staging` / `:production` | apply migrations to that D1                       | —            | ✓                  |
+| `db:seed:local`                                 | apply `seed.sql` to local D1                      | —            | ✓                  |
+| `db:studio`                                     | drizzle-kit studio UI                             | —            | ✓                  |
 
 **Adding a new script:** add it to the owning workspace's `package.json`, then mirror at root as `"<name>": "pnpm --filter @tack/<workspace> run <name>"`. Cross-workspace scripts that should fan out (lint/test) use `pnpm -r --if-present run <name>`. Pass args directly: `pnpm <name> <args>`.
 
@@ -144,8 +147,7 @@ wrangler login                                                      # once per m
 wrangler d1 create tack-<env>                                       # paste the ID into worker/wrangler.toml under [[env.<env>.d1_databases]]
 wrangler r2 bucket create tack-<env>-images
 wrangler secret put ANTHROPIC_API_KEY --env <env>                   # paste the key when prompted
-pnpm db:migrate:<env>                                               # apply migrations to the remote D1
-pnpm deploy:<env>                                                   # first deploy of the worker
+pnpm deploy:<env>                                                   # regenerates types, applies migrations, deploys the worker
 ```
 
 **One-time Pages setup** (once, not per env — run from `worker/` so wrangler resolves):
@@ -159,14 +161,14 @@ If the Pages URLs differ from the table above (custom domain, taken project name
 **Routine deploys:**
 
 ```bash
-pnpm deploy:staging          # ship the staging worker
+pnpm deploy:staging          # typegen + db:migrate:staging + wrangler deploy --env staging
 pnpm deploy:pages:staging    # build SPA against staging API, deploy to branch `main`
 
-pnpm deploy:production       # ship the prod worker
+pnpm deploy:production       # typegen + db:migrate:production + wrangler deploy --env production
 pnpm deploy:pages:production # build SPA against prod API, deploy to branch `production`
 ```
 
-`pnpm db:migrate:<env>` applies pending Drizzle migrations to the remote D1. Always migrate **before** deploying the worker that references the new schema. Read the destructive-migration rules in `worker/CLAUDE.md` before running any migration in production.
+`deploy:<env>` chains `typegen` → `db:migrate:<env>` → `wrangler deploy --env <env>`, so types and the remote D1 are in sync with the worker that's about to ship. Any step failing fails the chain — a broken migration won't be followed by a deploy that references the new schema. The migration step calls into Drizzle; read the destructive-migration rules in `worker/CLAUDE.md` before running any migration in production.
 
 ## DB schema (D1, managed by Drizzle)
 

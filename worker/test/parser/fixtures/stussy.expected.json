@@ -8,5 +8,9 @@
   "minImages": 3,
   "imageMustMatch": ["112360_SAND"],
   "imageMustNotMatch": ["Visual_Size_Guide"],
+  "imageLabels": {
+    "positives": ["112360_SAND"],
+    "negatives": ["Visual_Size_Guide"]
+  },
   "notes": "Shopify with full Product JSON-LD gallery. Size-guide image and related-colors swatches must be excluded."
 }

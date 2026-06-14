@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { motion, useMotionValueEvent } from 'framer-motion';
 import { useCallback, useState } from 'react';
 import { canvas, card as cardConfig, zoom as zoomConfig } from '../../config';
@@ -9,6 +10,7 @@ import { useSyncPosition } from '../../hooks/server/useSyncPosition';
 import { useHotkey } from '../../hooks/useHotkey';
 import { resolveImageUrl } from '../../lib/api';
 import { screenToCanvas } from '../../lib/canvasMath';
+import type { CanvasItem } from '../../lib/trpc';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
 import { useRailsStore } from '../../store/rails';
@@ -32,6 +34,7 @@ export default function Canvas() {
     useCanvasGesture(activeBoardId);
   const syncPosition = useSyncPosition();
   const addItem = useAddItem();
+  const queryClient = useQueryClient();
 
   usePanForPanel({
     selectedId,
@@ -82,6 +85,32 @@ export default function Canvas() {
     enabled: !!activeBoardId,
   });
 
+  // Cmd/Ctrl+V outside any input pastes the clipboard URL straight into a new
+  // card. `allowInInputs: false` (default) keeps native paste working in the
+  // URL bar, modal, and any other field — the hotkey only fires when focus is
+  // on the body/canvas. Clipboard read is gated by browser permissions and a
+  // secure context; a denied read is silently ignored.
+  useHotkey(
+    'mod+v',
+    async () => {
+      if (!activeBoardId) {
+        return;
+      }
+      const text = await navigator.clipboard.readText().catch(() => '');
+      const url = text.trim();
+      if (!url) {
+        return;
+      }
+      try {
+        new URL(url);
+      } catch {
+        return;
+      }
+      handleAddUrl(url);
+    },
+    { scope: 'global', enabled: !!activeBoardId, preventDefault: false },
+  );
+
   return (
     <div
       ref={canvasRef}
@@ -116,6 +145,22 @@ export default function Canvas() {
                   height={item.height}
                   zIndex={item.zIndex}
                   isSkeleton
+                  getZoom={() => zoomMV.get()}
+                  onDragEnd={(x, y) => {
+                    // Persist the dragged position onto the cached skeleton
+                    // so `useAddItem.onSuccess` carries it through to the
+                    // real item on swap (and PATCHes the server). Without
+                    // this, the card snaps back to the original drop point
+                    // when the real item arrives.
+                    const key = ['boards', activeBoardId, 'items'];
+                    queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
+                      old.map((i) =>
+                        i.kind === 'skeleton' && i.tempId === item.tempId
+                          ? { ...i, x, y }
+                          : i,
+                      ),
+                    );
+                  }}
                 />
               );
             }

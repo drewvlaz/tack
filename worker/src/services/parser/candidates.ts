@@ -36,10 +36,43 @@ export type StaticExtract = {
 // Claude selection stage has real choices, small enough to bound prompt size.
 export const MAX_CANDIDATES = 20;
 
-// When at least this many positively-scored candidates exist, the no-Claude
-// fallback drops zero/negative-score ones (off-host imgs, suspect-section
-// imgs) entirely.
+// When at least this many candidates clear the confidence threshold, the
+// no-Claude fallback returns only those (and drops the long tail entirely).
 const MIN_CONFIDENT_CANDIDATES = 3;
+
+// Statistical-model framing — the linear scoring used here is structurally a
+// log-linear classifier:
+//
+//     score(x) = Σ_i w_i · f_i(x)
+//     p(x is product image) = σ(score(x) - BIAS)
+//
+// where each `f_i(x) ∈ {0, 1}` indicates whether x was discovered by source i,
+// and `w_i` is `SCORE_*` below. `BIAS` is the score below which we don't
+// consider a candidate "confident". It is chosen empirically so:
+//
+//   - score=1 (a single same-host <img> tag, weakest positive signal)
+//     → p ≈ 0.38 — below threshold; will not pick on its own
+//   - score=2 (og:image or two img sources)        → p ≈ 0.62
+//   - score=4 (Product.image in JSON-LD)           → p ≈ 0.92
+//   - score=5 (variant-match container)            → p ≈ 0.97
+//
+// The decision rule for the no-Claude fallback then becomes "keep candidates
+// with p ≥ KEEP_PROB_THRESHOLD when there are at least MIN_CONFIDENT of them;
+// otherwise widen and ultimately fall back to penalized ones." This kills the
+// historical failure mode where the static pick padded K=12 with score=1
+// fillers (cross-sells, marketing tiles) on pages whose true gallery was
+// already saturated at score=5.
+//
+// Calibration is done against `test/parser/fixtures/*.expected.json` labels —
+// see `precisionRecall` in `test/parser/score.ts`. Bump BIAS up to be more
+// conservative (cut more fillers), down to be more inclusive (recall over
+// precision); same for the threshold.
+const SCORE_TO_LOGODDS_BIAS = 1.5;
+const KEEP_PROB_THRESHOLD = 0.6;
+
+export function probability(score: number): number {
+  return 1 / (1 + Math.exp(-(score - SCORE_TO_LOGODDS_BIAS)));
+}
 
 // Source weights. JSON-LD Product images are retailer-declared product
 // photography (strongest); template-rebuilt gallery URLs next; og:image is a
@@ -276,16 +309,27 @@ export async function extractCandidates(
 }
 
 // Deterministic image pick used when the Claude selection stage fails or
-// returns nothing usable: prefer positively-scored candidates, widen to
-// zero-score ones when too few, and only as a last resort fall back to the
-// penalized (suspect) tail.
+// returns nothing usable. Two-stage gate:
+//   1. Take everything at or above the confidence threshold (p ≥ 0.6) —
+//      candidates with multiple positive sources or one strong source.
+//      This implicitly cuts at the score-distribution gap because the
+//      threshold sits between "single weak signal" (p≈0.38) and "single
+//      moderate signal" (p≈0.62). On the Lyndon Watchcoat page, this
+//      drops the picks from 12 (6 correct + 6 filler) to exactly 6 correct.
+//   2. If fewer than MIN_CONFIDENT confident candidates exist (sparse pages —
+//      hand-rolled CMSes, no og/JSON-LD), widen to anything non-negative,
+//      and finally to penalized candidates as the last resort. The widening
+//      preserves the previous behavior on pages where the confidence band
+//      was always weak.
 export function pickDefaultImages(
   candidates: ImageCandidate[],
   maxImages: number,
 ): string[] {
-  const positive = candidates.filter((c) => c.score > 0);
-  if (positive.length >= MIN_CONFIDENT_CANDIDATES) {
-    return positive.slice(0, maxImages).map((c) => c.url);
+  const confident = candidates.filter(
+    (c) => probability(c.score) >= KEEP_PROB_THRESHOLD,
+  );
+  if (confident.length >= MIN_CONFIDENT_CANDIDATES) {
+    return confident.slice(0, maxImages).map((c) => c.url);
   }
   const nonNegative = candidates.filter((c) => c.score >= 0);
   const pool = nonNegative.length > 0 ? nonNegative : candidates;

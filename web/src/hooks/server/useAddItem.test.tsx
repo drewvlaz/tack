@@ -8,16 +8,18 @@ import { useAddItem } from './useAddItem';
 
 vi.mock('../../api/boards', () => ({
   addItem: vi.fn(),
+  patchBoardItem: vi.fn(),
 }));
 
 vi.mock('../../api/parse', () => ({
   parseUrl: vi.fn(),
 }));
 
-import { addItem } from '../../api/boards';
+import { addItem, patchBoardItem } from '../../api/boards';
 import { parseUrl } from '../../api/parse';
 
 const addItemMock = vi.mocked(addItem);
+const patchBoardItemMock = vi.mocked(patchBoardItem);
 const parseUrlMock = vi.mocked(parseUrl);
 
 const BOARD_ID = 'board-1';
@@ -77,6 +79,7 @@ function makeBoardItem(overrides: Partial<BoardItem> = {}): BoardItem {
 beforeEach(() => {
   useToastsStore.setState({ toasts: [] });
   vi.clearAllMocks();
+  patchBoardItemMock.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -141,7 +144,13 @@ describe('useAddItem', () => {
   it('onSuccess replaces the skeleton with the real item via tempId', async () => {
     const client = makeClient();
     parseUrlMock.mockResolvedValue(makeParseResult());
-    const real = makeBoardItem({ id: 'real-1', title: 'Real Title' });
+    // Server echoes the position it was given (mirrors real worker behavior).
+    const real = makeBoardItem({
+      id: 'real-1',
+      title: 'Real Title',
+      x: 42,
+      y: 99,
+    });
     addItemMock.mockResolvedValue(real);
 
     const { result } = renderHook(() => useAddItem(), {
@@ -152,8 +161,8 @@ describe('useAddItem', () => {
       await result.current.mutateAsync({
         url: 'https://example.com/p/1',
         boardId: BOARD_ID,
-        x: 0,
-        y: 0,
+        x: 42,
+        y: 99,
       });
     });
 
@@ -162,6 +171,69 @@ describe('useAddItem', () => {
     expect(items[0]).toEqual({ ...real, kind: 'real' });
     // No skeletons left over.
     expect(items.some((i) => i.kind === 'skeleton')).toBe(false);
+    // Position matched server → no follow-up PATCH.
+    expect(patchBoardItemMock).not.toHaveBeenCalled();
+  });
+
+  it('carries a skeleton drag-during-load through to the real item and PATCHes the server', async () => {
+    const client = makeClient();
+
+    // Hold parseUrl so we can simulate a drag while the skeleton is on screen.
+    let resolveParse: (value: ParseResult) => void = () => {};
+    parseUrlMock.mockReturnValue(
+      new Promise<ParseResult>((res) => {
+        resolveParse = res;
+      }),
+    );
+    // Server only knows the original drop position (mutationFn ran with it).
+    const real = makeBoardItem({ id: 'real-1', x: 10, y: 20 });
+    addItemMock.mockResolvedValue(real);
+
+    const { result } = renderHook(() => useAddItem(), {
+      wrapper: makeWrapper(client),
+    });
+
+    act(() => {
+      result.current.mutate({
+        url: 'https://example.com/p/1',
+        boardId: BOARD_ID,
+        x: 10,
+        y: 20,
+      });
+    });
+
+    // Wait for the skeleton to land in the cache, then simulate Canvas's
+    // onDragEnd handler writing the dragged coords back to the skeleton.
+    await waitFor(() => {
+      const items = client.getQueryData<CanvasItem[]>([...QUERY_KEY]) ?? [];
+      expect(items.some((i) => i.kind === 'skeleton')).toBe(true);
+    });
+    const draggedX = 500;
+    const draggedY = 700;
+    act(() => {
+      client.setQueryData<CanvasItem[]>([...QUERY_KEY], (old = []) =>
+        old.map((i) =>
+          i.kind === 'skeleton' ? { ...i, x: draggedX, y: draggedY } : i,
+        ),
+      );
+    });
+
+    // Let the mutation resolve.
+    resolveParse(makeParseResult());
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const items = client.getQueryData<CanvasItem[]>([...QUERY_KEY]) ?? [];
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'real',
+      id: 'real-1',
+      x: draggedX,
+      y: draggedY,
+    });
+    expect(patchBoardItemMock).toHaveBeenCalledWith('real-1', {
+      x: draggedX,
+      y: draggedY,
+    });
   });
 
   it('onError restores the previous list and shows an error toast', async () => {

@@ -128,7 +128,7 @@ Local dev seed creates fixture user `dev@local` with password `tackdev123` (see 
 
 The grace period exists for the `parseUrl` → `addItem` flow: `parseUrl` writes R2 blobs and returns their refs; the frontend then calls `addItem` which inserts the rows. Between those two calls, the blob is orphan-ish — sweeping it would break the add. The 30-min window is well beyond any realistic gap.
 
-Regenerate Cloudflare types after binding changes: `pnpm cf-typegen`.
+Regenerate Cloudflare types after binding changes: `pnpm typegen`.
 
 ## Database (Drizzle + D1)
 
@@ -147,7 +147,8 @@ Use Drizzle's relational query API (`db.query.boardItems.findMany({ with: { item
 ```bash
 pnpm db:generate --name describe_change   # write a new migration from schema diff
 pnpm db:migrate:local                     # apply to local D1
-pnpm db:migrate                           # apply to remote D1
+pnpm db:migrate:staging                   # apply to staging D1
+pnpm db:migrate:production                # apply to production D1
 pnpm db:seed:local                        # apply seed.sql (board-1 + 3 items)
 pnpm db:studio                            # drizzle-kit studio UI
 ```
@@ -175,7 +176,7 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
 1. `safeFetch(url)` with a browser-like User-Agent. Manually walks redirects and re-validates each `Location` against the SSRF policy. Throws on non-2xx.
 2. Body capped at 4MB via a streaming reader — pathological responses abort rather than OOMing the isolate.
 3. **Stage 1 — deterministic extraction** (`parser/candidates.ts:extractCandidates`). Produces a `StaticExtract { title, docTitle, brand, description, price, currency, productNode, candidates, priceSignals, requestedVariant }`:
-   - `parseHtml` is a single HTMLRewriter pass that reads og:title / og:site_name / og:description / og:image, the `<title>` tag (`docTitle` — last-resort title fallback), every `<script type="application/ld+json">` body, and every `<img>` tag's largest srcset entry or src. Each `<img>` is tagged `suspect: true` when found inside a related/recommendation container (descendant selectors like `[class*="related" i] img`, `[class*="recommend" i] img`, `[class*="menu" i] img`, `[class*="drawer" i] img`, `nav img`, `footer img`, etc. — lol-html handles ancestor matching, no hand-rolled depth counter).
+   - `parseHtml` is a single HTMLRewriter pass that reads og:title / og:site_name / og:description / og:image, the `<title>` tag (`docTitle` — last-resort title fallback), every `<script type="application/ld+json">` body, and every `<img>` tag's largest srcset entry or src (falling back to `data-srcset` / `data-src` for lazyload libraries that hide the real URL until scroll). Each `<img>` is tagged `suspect: true` when found inside a related/recommendation container (descendant selectors like `[class*="related" i] img`, `[class*="recommend" i] img`, `[class*="menu" i] img`, `[class*="drawer" i] img`, `nav img`, `footer img`, etc. — lol-html handles ancestor matching, no hand-rolled depth counter).
    - `extractFromJsonLd` walks `@graph` / `mainEntity` / `about` / `hasVariant` wrappers and prefers the Product node whose `url` matches the page, falling back to the first. Returns its full JSON node so Claude can read it later. Currency/price come from the same Offer (AggregateOffer prefers lowPrice — sale); OutOfStock offers are skipped; thousand-separator strings tolerated.
    - `extractFromMicrodata` is the fallback price/currency scan for sites without JSON-LD.
    - **Image candidate scoring** combines six sources, weight = source contribution; a URL appearing in multiple sources sums them; high-res hints (`_2048w`, `w_2048`, `_2048x`) add +1, low-quality hints (`thumb`, `cart`, `tile`, …) subtract 2:
@@ -190,7 +191,7 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
      - `img-variant-match` 5 / `img-variant-mismatch` −6 — when the page URL carries a variant query (`?color=X` / `?colour=X`) AND the markup exposes per-variant `<div data-color="...">` containers, `<img>`s inside the matching container get a strong positive signal; mismatched-variant imgs are filtered out entirely whenever any match candidates exist (the structured sources almost always reflect the default variant, not the one being viewed)
    - Plausibility filter drops SVG/data: URLs and paths matching `logo|favicon|sprite|swatch|payment|paypal|visa|…|size_guide|empty`. Dedupe key is origin + path with Cloudinary-style transform segments stripped AND the Shopify size suffix (`_300x300`, `_2048x`, `_grande`, `_medium`, named presets) collapsed onto the bare filename — so `master.jpg`, `master_2048x.jpg`, and `master_grande.jpg` all dedupe to one entry, inheriting tags (including `img-variant-mismatch`) from whichever variant container they appeared in. Result is the top `MAX_CANDIDATES = 20` by score with stable first-seen tie-break, with placeholder-template URLs dropped.
    - **`priceSignals`** — `extractPriceSignals` regex-pulls every `"price"|"prices"|"value"|"amount"|"current_price"|…` occurrence in the HTML with ~70 chars of leading context (capped at 12). Surfaces SPA prices buried in JSON blobs (e.g. Uniqlo's `{"prices":{"base":{"value":19.9}}}`) to the Claude stage as evidence — never trusted directly.
-   - **`requestedVariant`** — `extractVariantHint(pageUrl)` reads `?color=X` / `?colour=X` from the URL and maps to the corresponding `data-<key>` attribute name. When set, `parseHtml` is invoked with the hint and registers two extra descendant selectors — `[<attr>] img` (in any variant container) and `[<attr>="<value>" i] img` (matching) — so each `<img>` is tagged `variantMatch: 'match' | 'mismatch' | 'none'`. The hint is surfaced both to scoring (above) and to the Claude evidence document. Add new query-key → attr mappings to `VARIANT_QUERY_KEYS` in `candidates.ts` if a retailer uses something other than `color`/`colour`.
+   - **`requestedVariant`** — `extractVariantHint(pageUrl)` reads `?color=X` / `?colour=X` from the URL and maps to the corresponding `data-<key>` attribute name. When set, `parseHtml` is invoked with the hint and registers extra descendant selectors — `[<attr>] img` (in any variant container) plus one `[<attr>="<form>" i] img` per slug form returned by `variantValueCandidates(value)` (the input, plus space/hyphen/underscore swaps, so a `?color=brown+melange` request matches gallery containers spelled `brown melange`, `brown-melange`, or `brown_melange`). Each `<img>` is tagged `variantMatch: 'match' | 'mismatch' | 'none'`. The hint is surfaced both to scoring (above) and to the Claude evidence document. Add new query-key → attr mappings to `VARIANT_QUERY_KEYS` in `candidates.ts` if a retailer uses something other than `color`/`colour`.
 
 4. **Stage 2 — Claude Haiku selection** (`parser/claude.ts`). `buildEvidence` assembles a structured evidence document — `PAGE_URL`, `OG_TITLE`/`OG_SITE_NAME`/`OG_DESCRIPTION`, `REQUESTED_VARIANT` (when the URL carries `?color=X` / `?colour=X`), `STRUCTURED_PRICE` (or "none"), `PRICE_SIGNALS` (the harvested snippets, when any), `JSON_LD_PRODUCT` (the selected node serialized, capped ~8k chars), the **numbered** `IMAGE_CANDIDATES` list with source tags (and explicit `suspect: related-products section` / `variant: match` / `variant: mismatch` annotations), then `PAGE_TEXT` (`stripHtml` — also strips `<svg>`/`<noscript>`/`<iframe>`/HTML comments — sized to fit the ~40k-char budget). The system prompt instructs the model to return JSON with `image_indices` (NOT URLs — by construction it cannot hallucinate a URL). Indices are normalized: clamped, deduped, non-integers dropped. The JSON parser tolerates ```json fences and prose preamble (strips them, falls back to the largest `{…}`slice).`mergeSelection`(pure, in`parser/index.ts`) fills metadata gaps (Claude's value wins only when og missed); arbitrates price (structured-data first; Claude wins only on same-currency disagreements >5%, an informed correction since Claude saw the structured price in evidence); maps `image_indices`to URLs in Claude's order. If Claude fails or selects nothing,`pickDefaultImages`falls back to the deterministic ranking (positive-score candidates preferred; widens to zero-score only when too few exist; suspect tail is last resort).`docTitle`is the very last fallback for`title`.
 
@@ -204,13 +205,48 @@ Cap: `MAX_IMAGES = 12` per item, `MAX_CANDIDATES = 20` shown to Claude, `IMAGE_F
 
 **Why this shape.** The model is no longer asked to extract image URLs from blind stripped text (it would hallucinate, then a downstream intersection step would drop legitimate candidates and keep invented ones — the historical source of both _missing_ images and _wrong_ images). It picks from a list. The static stage is unit-testable without an API key; the Claude stage is bounded by the candidate pool.
 
-**Parser tests.** `test/parser/fixtures/` holds saved real retailer pages (`<site>.html` + `<site>.expected.json`) — currently Stussy (Shopify w/ full JSON-LD), Noah (Shopify w/o JSON-LD, price in analytics JSON), Everlane (Shopify ProductGroup + hasVariant), END (Next.js Magento — one JSON-LD image, rest in script JSON), Uniqlo (React SPA — no JSON-LD, no microdata, price only in script JSON), California Arts (Shopify multi-color with `?color=cream` URL — exercises variant-hint selection). Expectations carry `imageMustMatch` (SKU fragments that must appear), `imageMustNotMatch` (related-product SKUs that must NOT appear), `structuredPrice` (false → static test skips the price assertion; live eval still checks), `skipStatic` (fields only Claude can produce). `pipeline.test.ts` runs the deterministic stage against every fixture offline; `eval.live.test.ts` runs the full pipeline against the real Anthropic API — `pnpm test:eval` from the worker or root (gated by `EVAL=1` in the script; key from `ANTHROPIC_API_KEY` or `worker/.dev.vars`; never spent on a plain `pnpm test`). When parsing quality regresses on a site, capture the fixture and add expectations rather than hand-testing:
+### Statistical model
+
+The deterministic image scorer is structurally a **log-linear binary classifier** over the candidate pool. Naming the model out loud lets us reason about it (calibrate the bias, threshold on probabilities, measure precision/recall) instead of just tweaking weights blindly.
+
+```
+score(x) = Σ_i w_i · f_i(x)            // additive contribution per source
+p(x is product image) = σ(score(x) - bias)
+```
+
+- `f_i(x) ∈ {0, 1}` is a binary feature per discovery source (`jsonld`, `og`, `rebuilt`, `script-samedir`, `img`, `img-offhost`, `img-variant-match`, `img-variant-mismatch`, `img-suspect`, `script`) plus two filename-derived features (`hi_res_hint`, `low_quality_hint`). Hi-res adds +1; low-quality subtracts 2.
+- `w_i` is `SCORE_*` in `services/parser/candidates.ts`. Variant-match is the highest single positive (5); variant-mismatch is the strongest negative (-6) and removes the URL entirely when matches exist.
+- `bias` (`SCORE_TO_LOGODDS_BIAS = 1.5`) anchors the sigmoid so a single same-host `<img>` (s=1) is _below_ the decision threshold (p≈0.38) while a single og:image (s=2) is _above_ it (p≈0.62).
+- Decision rule for the no-Claude fallback (`pickDefaultImages`): take everything with `p ≥ 0.6`; if fewer than `MIN_CONFIDENT_CANDIDATES = 3`, widen to non-negative; last resort, fall back to penalized candidates. This is what stopped the K=12 fallback from padding picks with score=1 cross-sells.
+
+The Claude stage still sees the full top-20 pool, scored and tagged — the probability framing is for the _fallback_, not for what Claude reads.
+
+**Pipeline diagram** (each numbered stage produces the input for the next):
+
+1. `parseHtml(html, variantHint?)` — single HTMLRewriter pass — emits og fields, every `<title>`/JSON-LD script body, and an `imgTagImages` array each tagged `{ suspect, variantMatch: 'match'|'mismatch'|'none' }`.
+2. `extractFromJsonLd` / `extractFromMicrodata` / `extractTemplateImageUrls` / `extractRawImageUrls` — each turns raw text into a list of `ImageSource` URLs with a `tag` and `score` weight.
+3. `scoreAndRankImages` — for each URL, dedupe by origin+normalized-path, sum source weights, apply hi-res/low-quality bonuses, and rank by score (stable on first-seen). Returns the top `MAX_CANDIDATES = 20`.
+4. `extractCandidates` (`services/parser/candidates.ts`) — orchestrates 1-3, then applies a hard variant filter (drop all `img-variant-mismatch` whenever any `img-variant-match` survives) and the placeholder-segment drop.
+5. `mergeSelection` (`services/parser/index.ts`) — combines the static extract with the Claude selection (or `null` → falls through to `pickDefaultImages`). Arbitrates price disagreement (Claude wins only on same-currency >5% deltas). Returns up to `MAX_IMAGES = 12` URLs in Claude's order.
+
+**Calibration loop** — `test/parser/fixtures/*.expected.json` carry an `imageLabels: { positives, negatives }` block. `test/parser/score.ts` computes:
+
+- `P@K` (precision @ K) — of the top-K _labeled_ candidates, what fraction are positive.
+- `R@K` (recall @ K) — of the labeled positives in the pool, what fraction are in the top-K.
+- `AP` (average precision over the labeled-candidate sequence) — the primary ranking-quality metric. Range [0, 1]; 1.0 = every positive precedes every negative.
+
+The static suite prints a per-fixture metrics line on every run and asserts floors via `METRIC_FLOORS` in `score.ts`. Bumping `SCORE_TO_LOGODDS_BIAS` or `KEEP_PROB_THRESHOLD` or any `SCORE_*` weight should be done against this scoreboard, not by eyeballing one URL.
+
+**Parser tests.** `test/parser/fixtures/` holds saved real retailer pages (`<site>.html` + `<site>.expected.json`) — currently Stussy (Shopify w/ full JSON-LD), Noah (Shopify w/o JSON-LD, price in analytics JSON), Everlane (Shopify ProductGroup + hasVariant), END (Next.js Magento — one JSON-LD image, rest in script JSON), Uniqlo (React SPA — no JSON-LD, no microdata, price only in script JSON), California Arts cream shirt (Shopify multi-color `?color=cream` URL — single-word variant hint), California Arts Lyndon Watchcoat (Shopify multi-color `?color=brown+melange` URL — multi-word slug normalization + lazyload `data-src` imgs in the matching container), Outerknown (Shopify with a malformed `"image": "https:files/..."` JSON-LD URL the parser must reject so it doesn't dominate the ranking), Allbirds (custom Shopify storefront — title/brand in og, price SPA-only — and PDP material icons that only Claude can exclude), Thursday Boots (classic Shopify with a double-encoded apostrophe `Men&amp;#39;s` in og:title — exercises the decode-until-stable loop), and Taylor Stitch (Shopify with multiple og:image tags, brand only in og:site_name). Expectations carry `imageMustMatch` (SKU fragments that must appear), `imageMustNotMatch` (related-product SKUs that must NOT appear), `imageLabels` (positive/negative URL substrings labeling the full candidate pool for precision/recall/AP), `structuredPrice` (false → static test skips the price assertion; live eval still checks), `skipStatic` (fields only Claude can produce). `pipeline.test.ts` runs the deterministic stage against every fixture offline; `eval.live.test.ts` runs the full pipeline against the real Anthropic API — `pnpm test:eval` from the worker or root (gated by `EVAL=1` in the script; key from `ANTHROPIC_API_KEY` or `worker/.dev.vars`; never spent on a plain `pnpm test`). When parsing quality regresses on a site, capture the fixture and add expectations rather than hand-testing:
 
 ```bash
-UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-curl -sL -A "$UA" 'https://...' -o worker/test/parser/fixtures/<name>.html
-# then write worker/test/parser/fixtures/<name>.expected.json
+pnpm parser:capture <name> 'https://...'     # writes fixture HTML + stub .expected.json
+# fill in the stub with title/brand/SKU substrings, then:
+pnpm test:worker                              # static suite — no API key needed
+pnpm parser:eval                              # live Claude pipeline (needs ANTHROPIC_API_KEY in worker/.dev.vars)
 ```
+
+`pnpm parser:eval` is the continuous eval entry point: it loops every fixture through the full extract → Claude-selection → merge pipeline and prints a per-fixture scorecard, so the test/iterate cycle is one command after each parser change. Add a fixture, run it, fix what regresses, repeat.
 
 Fixtures are read by `vitest.config.ts` under Node and injected as the `PARSER_FIXTURES` binding (the workers pool has no filesystem).
 
@@ -228,5 +264,5 @@ All scripts work from the repo root (mirrored as `pnpm <name>`) or from `worker/
 - `deploy` — `wrangler deploy`
 - `lint` — `tsc --noEmit && eslint .`
 - `test` / `test:watch` — `vitest`
-- `cf-typegen` — regenerate `worker-configuration.d.ts` from `wrangler.toml`
+- `typegen` — regenerate `worker-configuration.d.ts` from `wrangler.toml`
 - `db:*` — see Migrations section above

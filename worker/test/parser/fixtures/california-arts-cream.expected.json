@@ -13,5 +13,22 @@
     "CA-FEB-2662951",
     "CA-FEB-2662961"
   ],
+  "imageLabels": {
+    "positives": [
+      "CA-FEB-2663061",
+      "CA-FEB-2663391",
+      "CA-FEB-2663421",
+      "CA-FEB-2663451"
+    ],
+    "negatives": [
+      "CA-ECOM-FALL-PT2",
+      "CA-Ecom-220edit",
+      "CA-Ecom-222edit",
+      "CA-MARCH-26",
+      "CA-FEB-265",
+      "Asset_",
+      "black_and_white"
+    ]
+  },
   "notes": "Shopify multi-color product, URL requests ?color=cream. og:image and JSON-LD Product.image both point at the DEFAULT variant (blue/white stripe — CA-FEB-2663461, ...2662881, ...2662951, ...2662961). The cream gallery (CA-FEB-2663061/2663391/2663421/2663451) lives in a <div data-color=\"cream\"> container. Variant-hint extraction from the URL plus data-color descendant matching steers selection to cream."
 }

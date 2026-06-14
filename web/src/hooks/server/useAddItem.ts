@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { addItem } from '../../api/boards';
+import { addItem, patchBoardItem } from '../../api/boards';
 import { parseUrl } from '../../api/parse';
 import { describeAddItemError } from '../../lib/errors';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
@@ -76,13 +76,29 @@ export function useAddItem() {
       }
 
       const queryKey = ['boards', ctx.boardId, 'items'];
+      // The skeleton may have been dragged while parseUrl was in flight; its
+      // current cached position is what the user actually wants. The server
+      // only knows the original drop position (mutationFn ran with the
+      // pre-drag args), so fire a follow-up PATCH when the two diverge.
+      const cached = queryClient.getQueryData<CanvasItem[]>(queryKey) ?? [];
+      const skeleton = cached.find(
+        (i): i is SkeletonItem =>
+          i.kind === 'skeleton' && i.tempId === ctx.tempId,
+      );
+      const x = skeleton?.x ?? newItem.x;
+      const y = skeleton?.y ?? newItem.y;
+
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) =>
           item.kind === 'skeleton' && item.tempId === ctx.tempId
-            ? { ...newItem, kind: 'real' }
+            ? { ...newItem, kind: 'real', x, y }
             : item,
         ),
       );
+
+      if (x !== newItem.x || y !== newItem.y) {
+        patchBoardItem(newItem.id, { x, y }).catch(() => {});
+      }
     },
 
     onError: (err, _vars, ctx) => {
