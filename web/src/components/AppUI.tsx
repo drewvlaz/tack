@@ -1,4 +1,5 @@
 import { AnimatePresence } from 'framer-motion';
+import { Moon, Share2, Sun, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useBoardItems } from '../hooks/server/useBoardItems';
 import { useBoards } from '../hooks/server/useBoards';
@@ -68,15 +69,7 @@ export default function AppUI() {
             title="Share"
             className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M4 7a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM10 4a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM10 12a2 2 0 1 0 0-2 2 2 0 0 0 0 2zM5.5 6l3-1.5M5.5 8l3 1.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <Share2 size={13} strokeWidth={1.6} aria-hidden />
           </button>
         )}
         {activeBoardId && (
@@ -86,15 +79,7 @@ export default function AppUI() {
             title="Trash"
             className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M2.5 4h9M5.5 4V2.8a.8.8 0 0 1 .8-.8h1.4a.8.8 0 0 1 .8.8V4M3.7 4l.6 7a1 1 0 0 0 1 .9h3.4a1 1 0 0 0 1-.9l.6-7"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <Trash2 size={13} strokeWidth={1.6} aria-hidden />
           </button>
         )}
         <button
@@ -102,7 +87,11 @@ export default function AppUI() {
           aria-label="Toggle dark mode"
           className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
         >
-          {isDark ? '☀︎' : '☽'}
+          {isDark ? (
+            <Sun size={14} strokeWidth={1.6} aria-hidden />
+          ) : (
+            <Moon size={14} strokeWidth={1.6} aria-hidden />
+          )}
         </button>
       </div>
 

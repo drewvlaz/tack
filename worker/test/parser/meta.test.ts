@@ -32,6 +32,19 @@ describe('parseHtml', () => {
     expect(result.title).toBe('Linen Overshirt');
   });
 
+  it('decodes HTML entities in og fields and <title>', async () => {
+    const result = await parseHtml(`
+      <title>Nike Vomero Plus Men&#x27;s Road Running Shoes</title>
+      <meta property="og:title" content="Nike Vomero Plus Men&#x27;s Road Running Shoes">
+      <meta property="og:site_name" content="Shorts &amp; Trunks">
+      <meta property="og:description" content="Caf&#233; cotton tee &mdash; classic fit">
+    `);
+    expect(result.title).toBe("Nike Vomero Plus Men's Road Running Shoes");
+    expect(result.brand).toBe('Shorts & Trunks');
+    expect(result.description).toBe('Café cotton tee — classic fit');
+    expect(result.docTitle).toBe("Nike Vomero Plus Men's Road Running Shoes");
+  });
+
   it('first og:title wins when there are duplicates', async () => {
     const result = await parseHtml(`
       <meta property="og:title" content="First">

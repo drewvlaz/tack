@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { AuthFetchError } from '../../api/auth';
 import { useAcceptInvite } from '../../hooks/server/useAcceptInvite';
@@ -214,7 +215,11 @@ function LoggedOutInvite({
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               aria-pressed={showPassword}
             >
-              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              {showPassword ? (
+                <EyeOff size={14} strokeWidth={1.6} aria-hidden />
+              ) : (
+                <Eye size={14} strokeWidth={1.6} aria-hidden />
+              )}
             </IconButton>
           }
         />
@@ -256,30 +261,3 @@ function Card({
   );
 }
 
-function EyeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path
-        d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <circle cx="7" cy="7" r="1.6" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path
-        d="M2 2l10 10M5.2 5.2A6.8 6.8 0 0 0 1 7s2.2 4 6 4c1 0 1.9-.2 2.7-.6M8.7 8.7a1.6 1.6 0 0 1-2.4-2.1M11 9.4c1.4-1 2-2.4 2-2.4s-2.2-4-6-4c-.6 0-1.2.1-1.8.3"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

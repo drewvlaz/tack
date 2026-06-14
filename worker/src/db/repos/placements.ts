@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  max,
   type SQL,
 } from 'drizzle-orm';
 import type { Db } from '../client';
@@ -145,6 +146,25 @@ export class PlacementsReadRepo {
   async listTrashIdsForBoard(boardId: string): Promise<string[]> {
     const rows = await this.listIdsForBoardIncludingTrashed(boardId);
     return rows.filter((r) => r.deletedAt !== null).map((r) => r.id);
+  }
+
+  // Highest zIndex among active placements on the board, or null if empty.
+  // Used by addBoardItem to drop new cards on top of the existing stack.
+  async maxZIndexForBoard(boardId: string): Promise<number | null> {
+    const rows = await this.db
+      .select({ max: max(schema.boardItems.zIndex) })
+      .from(schema.boardItems)
+      .where(
+        and(
+          eq(schema.boardItems.boardId, boardId),
+          inArray(
+            schema.boardItems.boardId,
+            accessibleActiveBoardIds(this.db, this.scope),
+          ),
+          isNull(schema.boardItems.deletedAt),
+        ),
+      );
+    return rows[0]?.max ?? null;
   }
 
   // Second-pass image hydration. Drizzle's relational query API doesn't

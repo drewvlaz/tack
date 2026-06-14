@@ -1,3 +1,4 @@
+import { RotateCw, X } from 'lucide-react';
 import { useReparseItem } from '../../hooks/server/useReparseItem';
 
 type TopBarProps = {
@@ -21,27 +22,12 @@ export default function TopBar({ id, boardId, onClose }: TopBarProps) {
         title="Re-fetch from source URL"
         className={`${buttonClass} right-16`}
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
+        <RotateCw
+          size={12}
+          strokeWidth={1.75}
+          aria-hidden
           className={reparseItem.isPending ? 'animate-spin' : ''}
-        >
-          <path
-            d="M10 4.5a4 4 0 1 0 .5 3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-          <path
-            d="M7.5 4.5H10V2"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        />
       </button>
 
       <button
@@ -49,14 +35,7 @@ export default function TopBar({ id, boardId, onClose }: TopBarProps) {
         aria-label="Close"
         className={`${buttonClass} right-4`}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M2.5 2.5l7 7M9.5 2.5l-7 7"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
+        <X size={13} strokeWidth={1.75} aria-hidden />
       </button>
     </>
   );

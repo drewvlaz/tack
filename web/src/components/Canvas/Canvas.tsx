@@ -114,6 +114,7 @@ export default function Canvas() {
                   initialY={item.y}
                   width={item.width}
                   height={item.height}
+                  zIndex={item.zIndex}
                   isSkeleton
                 />
               );

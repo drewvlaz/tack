@@ -1,4 +1,5 @@
 import { format, formatDistanceToNow } from 'date-fns';
+import { LogOut, Pencil, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBoards } from '../hooks/server/useBoards';
 import { useCreateBoard } from '../hooks/server/useCreateBoard';
@@ -126,14 +127,7 @@ export default function BoardsSidebar() {
           aria-label="New board"
           className="text-fg-muted ring-border/60 hover:text-fg hover:ring-border flex h-7 w-7 items-center justify-center rounded-full ring-1 transition-colors"
         >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <path
-              d="M5.5 1v9M1 5.5h9"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
-          </svg>
+          <Plus size={12} strokeWidth={1.75} aria-hidden />
         </button>
       </header>
 
@@ -342,14 +336,7 @@ function BoardGroup({
                     aria-label={`Rename ${board.name}`}
                     className="text-fg-subtle hover:text-fg flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                   >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path
-                        d="M7.5 1.5l2 2-6 6H1.5v-2l6-6z"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    <Pencil size={11} strokeWidth={1.6} aria-hidden />
                   </button>
                 )}
                 {onDelete && canDelete && (
@@ -358,14 +345,7 @@ function BoardGroup({
                     aria-label={`Delete ${board.name}`}
                     className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                   >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path
-                        d="M2 2l6 6M8 2l-6 6"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                      />
-                    </svg>
+                    <X size={12} strokeWidth={1.75} aria-hidden />
                   </button>
                 )}
                 {onLeave && (
@@ -375,15 +355,7 @@ function BoardGroup({
                     title="Leave board"
                     className="text-fg-subtle hover:text-fg mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                   >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path
-                        d="M6 1H2v9h4M5 5.5h5M8 3.5l2 2-2 2"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    <LogOut size={11} strokeWidth={1.6} aria-hidden />
                   </button>
                 )}
               </>

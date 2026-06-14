@@ -1,5 +1,7 @@
+import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { useState } from 'react';
 import { useSetPrimaryImage } from '../../hooks/server/useSetPrimaryImage';
+import { useHotkey } from '../../hooks/useHotkey';
 import Pulse from '../shared/Pulse';
 import ImageLightbox from './ImageLightbox';
 
@@ -44,10 +46,21 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
     setHeroIdx(0);
   }
 
+  const canCycle = images.length > 1;
+  const cycle = (dir: 1 | -1) =>
+    setHeroIdx((i) => (i + dir + images.length) % images.length);
+
+  // Arrow keys cycle the hero. Modal scope while the lightbox is open so we
+  // beat the panel-level Escape/Delete handlers; panel scope otherwise.
+  useHotkey(['ArrowLeft', 'ArrowRight'], (e) => cycle(e.key === 'ArrowLeft' ? -1 : 1), {
+    scope: lightboxOpen ? 'modal' : 'panel',
+    enabled: canCycle,
+  });
+
   return (
     <>
       <div
-        className="bg-surface-muted relative"
+        className="bg-surface-muted group/hero relative"
         style={{ aspectRatio: heroAspect }}
       >
         {heroUrl ? (
@@ -62,6 +75,18 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
         ) : null}
         {!heroLoaded && <Pulse className="absolute inset-0" />}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/20 to-transparent" />
+        {canCycle && (
+          <>
+            <CycleButton side="left" onClick={() => cycle(-1)} />
+            <CycleButton side="right" onClick={() => cycle(1)} />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium tracking-wider text-white tabular-nums opacity-0 transition-opacity group-hover/hero:opacity-100"
+            >
+              {heroIdx + 1} / {images.length}
+            </span>
+          </>
+        )}
       </div>
 
       {images.length > 1 && (
@@ -91,6 +116,9 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
         src={heroUrl}
         alt={alt}
         onClose={() => setLightboxOpen(false)}
+        index={heroIdx}
+        total={images.length}
+        onCycle={canCycle ? cycle : undefined}
       />
     </>
   );
@@ -141,9 +169,39 @@ function ThumbButton({
             : 'opacity-0 group-hover/thumb:opacity-100 focus:opacity-100'
         } ${onSetPrimary ? 'cursor-pointer hover:bg-black/70' : 'cursor-default'}`}
       >
-        <StarIcon filled={isPrimary} />
+        <Star
+          size={11}
+          strokeWidth={1.4}
+          fill={isPrimary ? 'currentColor' : 'none'}
+          aria-hidden
+        />
       </button>
     </div>
+  );
+}
+
+function CycleButton({
+  side,
+  onClick,
+}: {
+  side: 'left' | 'right';
+  onClick: () => void;
+}) {
+  const Icon = side === 'left' ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      aria-label={side === 'left' ? 'Previous image' : 'Next image'}
+      className={`absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-all hover:bg-black/70 group-hover/hero:opacity-100 focus-visible:opacity-100 ${
+        side === 'left' ? 'left-3' : 'right-3'
+      }`}
+    >
+      <Icon size={16} strokeWidth={1.75} aria-hidden />
+    </button>
   );
 }
 
@@ -169,16 +227,3 @@ function Thumbnail({ url }: { url: string }) {
   );
 }
 
-function StarIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
-      <path
-        d="M6 1.2l1.49 3.02 3.34.49-2.42 2.36.57 3.32L6 8.83l-2.98 1.57.57-3.32L1.17 4.71l3.34-.49z"
-        fill={filled ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

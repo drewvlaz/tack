@@ -13,7 +13,6 @@ import { fetchAndParseMeta, mapLimit } from './parser';
 
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 400;
-const INITIAL_Z_INDEX = 0;
 const IMAGE_FETCH_CONCURRENCY = 4;
 
 // ---------- reads ----------
@@ -121,6 +120,11 @@ export async function addBoardItem(
     }
   }
 
+  // Drop the new card on top of the existing stack so it isn't hidden
+  // behind cards the user previously brought to front.
+  const maxZ = await tx.placements.maxZIndexForBoard(boardId);
+  const zIndex = (maxZ ?? 0) + 1;
+
   const now = nowSec();
   const placementId = genId();
   const imageIds = input.images.map(() => genId());
@@ -142,7 +146,7 @@ export async function addBoardItem(
     y: input.y,
     width: DEFAULT_CARD_WIDTH,
     height: DEFAULT_CARD_HEIGHT,
-    zIndex: INITIAL_Z_INDEX,
+    zIndex,
     createdAt: now,
     updatedAt: now,
   });
@@ -180,7 +184,7 @@ export async function addBoardItem(
     y: input.y,
     width: DEFAULT_CARD_WIDTH,
     height: DEFAULT_CARD_HEIGHT,
-    zIndex: INITIAL_Z_INDEX,
+    zIndex,
   };
 }
 

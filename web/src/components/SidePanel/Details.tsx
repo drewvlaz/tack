@@ -1,5 +1,6 @@
 import { format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowUpRight, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import type { BoardItem } from '../../lib/trpc';
 
@@ -79,22 +80,13 @@ export default function Details({ item }: DetailsProps) {
             className="text-fg-muted hover:text-fg flex w-full items-center justify-between text-[11px] font-medium tracking-[0.14em] uppercase transition-colors"
           >
             <span>Details</span>
-            <motion.svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="none"
+            <motion.span
+              className="inline-flex"
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             >
-              <path
-                d="M2.5 4l2.5 2.5L7.5 4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </motion.svg>
+              <ChevronDown size={11} strokeWidth={1.75} aria-hidden />
+            </motion.span>
           </button>
           <AnimatePresence initial={false}>
             {expanded && (
@@ -133,15 +125,7 @@ export default function Details({ item }: DetailsProps) {
               className="text-fg-muted hover:text-fg inline-flex items-center gap-1.5 transition-colors"
             >
               <span>View on {sourceHost}</span>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path
-                  d="M3 7l4-4M3.5 3h3.5v3.5"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <ArrowUpRight size={11} strokeWidth={1.75} aria-hidden />
             </a>
           </>
         )}
