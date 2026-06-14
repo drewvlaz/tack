@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { spring } from '../../config';
 import { useHotkey } from '../../hooks/useHotkey';
+import BookmarkletLink from '../Import/BookmarkletLink';
 import UrlInputRow from '../shared/UrlInputRow';
 
 type AddUrlModalProps = {
@@ -71,7 +72,7 @@ export default function AddUrlModal({
                 close();
               }
             }}
-            className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] items-center gap-2 rounded-xl px-4 py-3 shadow-2xl ring-1"
+            className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] flex-col gap-3 rounded-xl px-4 py-3 shadow-2xl ring-1"
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{
@@ -88,6 +89,7 @@ export default function AddUrlModal({
               isPending={isPending}
               inputRef={inputRef}
             />
+            <BookmarkletLink />
           </motion.form>
         </motion.div>
       )}

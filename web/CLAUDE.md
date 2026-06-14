@@ -89,9 +89,17 @@ For position sync (`useSyncPosition`) the mutation is fire-and-forget — Framer
 - Don't open the expanded view on a skeleton (no real id yet).
 - Don't PATCH position on a skeleton (no row exists).
 
+Skeleton drag during load: the user can move the skeleton card before the real item arrives. `Canvas.tsx` passes `onDragEnd` to the skeleton Card that writes the new x/y back onto the cached `SkeletonItem`. `useAddItem.onSuccess` reads the cached position when swapping in the real item; if it differs from the server-returned coords, it also fires a follow-up `patchBoardItem` so the server learns where the card ended up. Without this, the swap snaps the card back to the original drop point.
+
+## Bookmarklet drop-zone (`/import`)
+
+When a site bot-blocks the worker beyond what the Wayback fallback can rescue (luxury retailers on Akamai BM / DataDome), the user clicks a "Save to Tack" bookmarklet on the product page. The bookmarklet (`lib/bookmarklet.ts`) opens `/import` in a new tab, then `postMessage`s `{ type: 'tack:import', url, html }` after we ack `tack:ready` from the receiver. `App.tsx` routes `/import` → `Import/ImportScreen.tsx` (inside `AuthGate`), which shows a board picker and runs `useAddItem` with the harvested `html` — that flag routes the mutation through `api/parse.ts:parseFromHtml` instead of `parseUrl`, and the worker skips the live fetch. `BookmarkletLink` in `AddUrlModal` lets the user drag the generated bookmarklet onto their bookmark bar. Origin is baked in at generation time (`window.location.origin`) so a dev-grabbed bookmarklet returns to localhost.
+
 ## Images
 
 Backend returns image URLs like `/api/images/items/{uuid}`. Resolve them with `resolveImageUrl()` from `lib/api.ts` before passing to `<img src>` — it prepends `VITE_API_URL` for dev and leaves absolute URLs alone.
+
+Canvas cards lazy-load their image. `Card.tsx` gates the `<img>` mount on `useInView` (`react-intersection-observer`, 300px rootMargin, triggerOnce) so off-screen cards don't fetch on first paint. `Canvas.tsx` seeds `initiallyVisible` by intersecting each item's rect against `getVisibleCanvasRect(...)` (`lib/canvasMath.ts`) so on-screen cards mount their `<img>` synchronously — also raising those to `fetchpriority="high"`. Status is a tiny FSM (`'idle' | 'requested' | 'loaded'`) — sticky once promoted, so panning a loaded card off-screen never unsets its src. Side-panel thumbnails (`Hero.tsx`) live in a normal scroller and use native `loading="lazy"`. (We tried `content-visibility: auto` on the card div to also skip layout/paint of off-screen cards; it implies `contain: paint`, which clipped the resize handles that protrude outside the card box. Skip until the card can be restructured so handles live outside the contained subtree.)
 
 ## Canvas coordinate math
 

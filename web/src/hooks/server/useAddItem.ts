@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { addItem, patchBoardItem } from '../../api/boards';
-import { parseUrl } from '../../api/parse';
+import { parseFromHtml, parseUrl } from '../../api/parse';
 import { describeAddItemError } from '../../lib/errors';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
 import { useCanvasStore } from '../../store/canvas';
@@ -11,16 +11,22 @@ type AddItemArgs = {
   boardId: string;
   x: number;
   y: number;
+  // Bookmarklet input. When set, the worker skips the live fetch and runs
+  // the parse pipeline against this pre-rendered DOM — the rescue path for
+  // sites that bot-block the worker (Akamai, DataDome).
+  html?: string;
 };
 
 export function useAddItem() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ url, boardId, x, y }: AddItemArgs) => {
-      const parsed = await parseUrl(url);
+    mutationFn: async ({ url, boardId, x, y, html }: AddItemArgs) => {
+      const parsed = html
+        ? await parseFromHtml(url, html)
+        : await parseUrl(url);
       if (parsed.warnings.length > 0) {
-        console.warn('parseUrl warnings:', parsed.warnings, 'for', url);
+        console.warn('parse warnings:', parsed.warnings, 'for', url);
       }
 
       return addItem(boardId, {
