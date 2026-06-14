@@ -28,5 +28,6 @@ export type SkeletonItem = {
   y: number;
   width: number;
   height: number;
+  zIndex: number;
 };
 export type CanvasItem = RealItem | SkeletonItem;

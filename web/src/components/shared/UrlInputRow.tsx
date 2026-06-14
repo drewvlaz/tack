@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react';
 import { type Ref } from 'react';
 
 type Props = {
@@ -36,15 +37,7 @@ export default function UrlInputRow({
         {isPending ? (
           <span className="border-surface block h-3 w-3 animate-spin rounded-full border-2 border-t-transparent" />
         ) : (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2 6h8M6 2l4 4-4 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
         )}
       </button>
     </>

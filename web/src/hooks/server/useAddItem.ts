@@ -3,6 +3,7 @@ import { addItem } from '../../api/boards';
 import { parseUrl } from '../../api/parse';
 import { describeAddItemError } from '../../lib/errors';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
+import { useCanvasStore } from '../../store/canvas';
 import { useToastsStore } from '../../store/toasts';
 
 type AddItemArgs = {
@@ -41,6 +42,15 @@ export function useAddItem() {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<CanvasItem[]>(queryKey);
 
+      // Drop optimistically on top: max of persisted zIndex and any local
+      // bringToFront overrides the user has applied this session.
+      const zIndices = useCanvasStore.getState().zIndices;
+      const maxZ = (previous ?? []).reduce((acc, item) => {
+        const z =
+          item.kind === 'real' ? (zIndices[item.id] ?? item.zIndex) : item.zIndex;
+        return z > acc ? z : acc;
+      }, 0);
+
       const skeleton: SkeletonItem = {
         kind: 'skeleton',
         tempId: `skeleton-${Date.now()}`,
@@ -49,6 +59,7 @@ export function useAddItem() {
         y,
         width: 220,
         height: 280,
+        zIndex: maxZ + 1,
       };
 
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) => [

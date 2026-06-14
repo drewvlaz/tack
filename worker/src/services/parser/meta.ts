@@ -103,6 +103,60 @@ const SUSPECT_CONTAINER_SELECTORS = [
   'footer',
 ];
 
+// HTMLRewriter (lol-html on Workers) hands back attribute values and text
+// chunks with HTML entities intact — `getAttribute('content')` on
+// `<meta property="og:title" content="Men&#x27;s Shoes">` returns the literal
+// string `Men&#x27;s Shoes`, not `Men's Shoes`. We decode here so titles,
+// descriptions, and `<title>` text don't render entities to the user.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  ndash: '–',
+  mdash: '—',
+  hellip: '…',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
+  laquo: '«',
+  raquo: '»',
+  middot: '·',
+  bull: '•',
+  deg: '°',
+  euro: '€',
+  pound: '£',
+  yen: '¥',
+  cent: '¢',
+};
+
+export function decodeEntities(s: string): string {
+  return s.replace(
+    /&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g,
+    (m, body: string) => {
+      if (body[0] === '#') {
+        const isHex = body[1] === 'x' || body[1] === 'X';
+        const code = parseInt(body.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+        if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) {
+          return m;
+        }
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return m;
+        }
+      }
+      return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+    },
+  );
+}
+
 export async function parseHtml(
   html: string,
   variantHint?: VariantHint,
@@ -139,11 +193,11 @@ export async function parseHtml(
           return;
         }
         if (prop === 'og:title') {
-          title ??= content;
+          title ??= decodeEntities(content);
         } else if (prop === 'og:site_name') {
-          brand ??= content;
+          brand ??= decodeEntities(content);
         } else if (prop === 'og:description') {
-          description ??= content;
+          description ??= decodeEntities(content);
         } else if (OG_IMAGE_PROPS.has(prop)) {
           ogImages.push(content);
         }
@@ -159,7 +213,8 @@ export async function parseHtml(
         }
         docTitleBuf += chunk.text;
         if (chunk.lastInTextNode) {
-          docTitle = docTitleBuf.trim() || null;
+          const trimmed = docTitleBuf.trim();
+          docTitle = trimmed ? decodeEntities(trimmed) : null;
           docTitleBuf = null;
         }
       },

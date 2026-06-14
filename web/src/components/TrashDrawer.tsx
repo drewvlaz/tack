@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { X } from 'lucide-react';
 import { useState } from 'react';
 import { spring } from '../config';
 import { useEmptyTrash } from '../hooks/server/useEmptyTrash';
@@ -67,14 +68,7 @@ export default function TrashDrawer({
                   aria-label="Close trash"
                   className="text-fg-subtle hover:text-fg flex h-7 w-7 items-center justify-center rounded-full transition-colors"
                 >
-                  <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
-                    <path
-                      d="M2 2l6 6M8 2l-6 6"
-                      stroke="currentColor"
-                      strokeWidth="1.4"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                  <X size={13} strokeWidth={1.75} aria-hidden />
                 </button>
               </header>
 
