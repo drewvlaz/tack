@@ -5,6 +5,18 @@ export const ParseUrlBody = z.object({
   url: SafeUrl,
 });
 
+// Bookmarklet input. The HTML comes from the user's own browser (post-render
+// DOM of a page they're viewing), so we skip safeFetch entirely. URL still
+// must pass SSRF policy — that's the parse base for relative URLs and the
+// item's sourceUrl. HTML is capped at 4MB (same ceiling as the live fetch).
+export const ParseFromHtmlBody = z.object({
+  url: SafeUrl,
+  html: z
+    .string()
+    .min(1)
+    .max(4 * 1024 * 1024),
+});
+
 export const StoredImageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('r2'),
@@ -25,10 +37,15 @@ export const ItemDetailSchema = z.object({
 
 // Soft failures from the parser pipeline. A hard fetch failure throws and the
 // router returns a tRPC error; these communicate degraded-but-usable results.
+//
+// `parsed_from_archive`: the live site blocked us (403/429 — typically Akamai/
+// DataDome on luxury retailers); we recovered by parsing the Wayback Machine's
+// most recent snapshot of the same URL. Prices may be stale by days/weeks.
 export const ParseWarningSchema = z.enum([
   'claude_failed',
   'image_fetch_failed',
   'no_images',
+  'parsed_from_archive',
 ]);
 
 export const ParseResultSchema = z.object({

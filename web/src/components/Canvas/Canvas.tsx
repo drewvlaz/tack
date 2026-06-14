@@ -9,7 +9,11 @@ import { useBoardItems } from '../../hooks/server/useBoardItems';
 import { useSyncPosition } from '../../hooks/server/useSyncPosition';
 import { useHotkey } from '../../hooks/useHotkey';
 import { resolveImageUrl } from '../../lib/api';
-import { screenToCanvas } from '../../lib/canvasMath';
+import {
+  getVisibleCanvasRect,
+  rectsIntersect,
+  screenToCanvas,
+} from '../../lib/canvasMath';
 import type { CanvasItem } from '../../lib/trpc';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
@@ -22,6 +26,11 @@ import ZoomBar from './ZoomBar';
 // Drop new cards slightly above viewport center so the title is readable below
 // the user's gaze rather than directly under the cursor.
 const ADD_CARD_Y_BIAS = 200;
+
+// Matches the IntersectionObserver `rootMargin` Card uses for its lazy gate —
+// keeps the initial-mount seed in agreement with what IO would have decided one
+// tick later, avoiding a placeholder flash for cards near the viewport edge.
+const LAZY_LOAD_MARGIN_PX = 300;
 
 export default function Canvas() {
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
@@ -131,68 +140,93 @@ export default function Canvas() {
       >
         {activeBoardId &&
           !isLoading &&
-          items.map((item) => {
-            if (item.kind === 'skeleton') {
+          (() => {
+            // One visible-canvas-rect for the whole items map; used to seed
+            // `initiallyVisible` on each Card so cards on screen at mount
+            // request their image immediately (and at fetchpriority=high)
+            // instead of waiting a frame for IntersectionObserver to tick.
+            // pan/zoom MVs don't trigger re-renders, so this snapshot reflects
+            // the moment Cards first mount.
+            const visibleRect = getVisibleCanvasRect(
+              panX.get(),
+              panY.get(),
+              zoomMV.get(),
+              window.innerWidth,
+              window.innerHeight,
+              LAZY_LOAD_MARGIN_PX,
+            );
+            return items.map((item) => {
+              if (item.kind === 'skeleton') {
+                return (
+                  <Card
+                    key={item.tempId}
+                    id={item.tempId}
+                    title=""
+                    imageUrl=""
+                    initialX={item.x}
+                    initialY={item.y}
+                    width={item.width}
+                    height={item.height}
+                    zIndex={item.zIndex}
+                    isSkeleton
+                    getZoom={() => zoomMV.get()}
+                    onDragEnd={(x, y) => {
+                      // Persist the dragged position onto the cached skeleton
+                      // so `useAddItem.onSuccess` carries it through to the
+                      // real item on swap (and PATCHes the server). Without
+                      // this, the card snaps back to the original drop point
+                      // when the real item arrives.
+                      const key = ['boards', activeBoardId, 'items'];
+                      queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
+                        old.map((i) =>
+                          i.kind === 'skeleton' && i.tempId === item.tempId
+                            ? { ...i, x, y }
+                            : i,
+                        ),
+                      );
+                    }}
+                  />
+                );
+              }
+              const initiallyVisible = rectsIntersect(visibleRect, {
+                x: item.x,
+                y: item.y,
+                width: item.width,
+                height: item.height,
+              });
               return (
                 <Card
-                  key={item.tempId}
-                  id={item.tempId}
-                  title=""
-                  imageUrl=""
+                  key={item.id}
+                  id={item.id}
+                  title={item.title ?? ''}
+                  imageUrl={resolveImageUrl(item.images[0]?.url) ?? ''}
                   initialX={item.x}
                   initialY={item.y}
                   width={item.width}
                   height={item.height}
-                  zIndex={item.zIndex}
-                  isSkeleton
+                  zIndex={zIndices[item.id] ?? item.zIndex}
+                  initiallyVisible={initiallyVisible}
                   getZoom={() => zoomMV.get()}
-                  onDragEnd={(x, y) => {
-                    // Persist the dragged position onto the cached skeleton
-                    // so `useAddItem.onSuccess` carries it through to the
-                    // real item on swap (and PATCHes the server). Without
-                    // this, the card snaps back to the original drop point
-                    // when the real item arrives.
-                    const key = ['boards', activeBoardId, 'items'];
-                    queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
-                      old.map((i) =>
-                        i.kind === 'skeleton' && i.tempId === item.tempId
-                          ? { ...i, x, y }
-                          : i,
-                      ),
+                  onTap={() => setSelectedId(item.id)}
+                  onBringToFront={() => {
+                    const realItems = items.filter(
+                      (i): i is typeof item => i.kind === 'real',
                     );
+                    const newZ = bringToFront(item.id, realItems);
+                    if (newZ !== null) {
+                      syncPosition.mutate({ id: item.id, zIndex: newZ });
+                    }
                   }}
+                  onDragEnd={(x, y) =>
+                    syncPosition.mutate({ id: item.id, x, y })
+                  }
+                  onResizeEnd={(next) =>
+                    syncPosition.mutate({ id: item.id, ...next })
+                  }
                 />
               );
-            }
-            return (
-              <Card
-                key={item.id}
-                id={item.id}
-                title={item.title ?? ''}
-                imageUrl={resolveImageUrl(item.images[0]?.url) ?? ''}
-                initialX={item.x}
-                initialY={item.y}
-                width={item.width}
-                height={item.height}
-                zIndex={zIndices[item.id] ?? item.zIndex}
-                getZoom={() => zoomMV.get()}
-                onTap={() => setSelectedId(item.id)}
-                onBringToFront={() => {
-                  const realItems = items.filter(
-                    (i): i is typeof item => i.kind === 'real',
-                  );
-                  const newZ = bringToFront(item.id, realItems);
-                  if (newZ !== null) {
-                    syncPosition.mutate({ id: item.id, zIndex: newZ });
-                  }
-                }}
-                onDragEnd={(x, y) => syncPosition.mutate({ id: item.id, x, y })}
-                onResizeEnd={(next) =>
-                  syncPosition.mutate({ id: item.id, ...next })
-                }
-              />
-            );
-          })}
+            });
+          })()}
       </motion.div>
 
       {!activeBoardId && (

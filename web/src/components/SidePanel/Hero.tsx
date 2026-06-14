@@ -224,6 +224,8 @@ function Thumbnail({ url }: { url: string }) {
         alt=""
         className={`h-full w-full object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
         draggable={false}
+        loading="lazy"
+        decoding="async"
         onLoad={() => setLoaded(true)}
       />
     </div>

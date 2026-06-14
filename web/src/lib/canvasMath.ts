@@ -17,3 +17,35 @@ export function screenToCanvas(
 ): { x: number; y: number } {
   return { x: (screenX - panX) / zoom, y: (screenY - panY) / zoom };
 }
+
+export type Rect = { x: number; y: number; width: number; height: number };
+
+// The visible canvas-space rect, expanded by `marginScreenPx` of screen-space
+// padding (converted to canvas units). The margin makes lazy-load look-ahead
+// match the IntersectionObserver `rootMargin` we use on the same cards — so the
+// initial-mount seed agrees with what IO would have decided one tick later.
+export function getVisibleCanvasRect(
+  panX: number,
+  panY: number,
+  zoom: number,
+  viewportW: number,
+  viewportH: number,
+  marginScreenPx: number,
+): Rect {
+  const margin = marginScreenPx / zoom;
+  return {
+    x: (0 - panX) / zoom - margin,
+    y: (0 - panY) / zoom - margin,
+    width: viewportW / zoom + margin * 2,
+    height: viewportH / zoom + margin * 2,
+  };
+}
+
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}

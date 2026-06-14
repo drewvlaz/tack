@@ -52,6 +52,7 @@ describe('ParseWarningSchema', () => {
       'claude_failed',
       'image_fetch_failed',
       'no_images',
+      'parsed_from_archive',
     ]);
   });
 });

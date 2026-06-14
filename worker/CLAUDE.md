@@ -8,13 +8,13 @@ Hono on Cloudflare Workers. Exposes a tRPC API plus one Hono route for streaming
 src/
 ├── index.ts             Hono app — mounts /trpc/*, /api/auth/*, /api/images/*, and the `scheduled` cron entry point. Pure glue; logic lives in the handlers it imports.
 ├── scheduled.ts         Entry point for cron triggers — invokes services/gc.sweepOrphanR2Blobs via `ctx.waitUntil`.
-├── router.ts            Root tRPC AppRouter (boards, items, parseUrl)
+├── router.ts            Root tRPC AppRouter (boards, items, parseUrl, parseFromHtml)
 ├── routers/             tRPC routers — thin, parse input, delegate to services. A router file (or its `index.ts`) holds ONLY exposed procedures + the router export; non-procedure helpers (e.g. wire mappers) go in sibling files inside a router directory.
 │   ├── boards/
 │   │   ├── index.ts     boards router — exposed procedures only
 │   │   └── wire.ts      toBoardItemWire (domain → wire mapper)
 │   ├── items.ts
-│   └── parser.ts        parseUrl procedure
+│   └── parser.ts        parseUrl + parseFromHtml procedures (shared rate-limit + error-mapping helpers)
 ├── services/            All real logic. Mutations take `tx: Tx`, reads take `db`.
 │   ├── boards.ts        listBoards, createBoard, deleteBoard, renameBoard
 │   ├── boardItems.ts    listBoardItems, addBoardItem, patchBoardItem, deleteBoardItem, restoreBoardItem, purgeBoardItem, emptyBoardTrash, stagePurge
@@ -22,7 +22,7 @@ src/
 │   ├── images.ts        storeImage, deleteStoredImage, loadImage, content-type clamp
 │   ├── gc.ts            sweepOrphanR2Blobs (called from the scheduled handler)
 │   └── parser/
-│       ├── index.ts     fetchAndParseMeta, parseProductUrl
+│       ├── index.ts     fetchAndParseMeta, parseHtmlMeta, parseProductUrl, parseProductFromHtml, fetchHtmlWithArchiveFallback (Wayback rescue)
 │       ├── meta.ts      og tag / json-ld / price regex extractors
 │       └── claude.ts    Product-meta system prompt + JSON normalization. HTTP via `lib/anthropic.ts`.
 ├── routes/             Hono routes — same rule as `routers/`: a route file (or its `index.ts`) holds ONLY the exposed handler/Hono app; non-handler helpers live in sibling files inside a route directory.
@@ -173,7 +173,7 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
 
 `services/parser/index.ts:parseProductUrl` is the orchestrator. Order:
 
-1. `safeFetch(url)` with a browser-like User-Agent. Manually walks redirects and re-validates each `Location` against the SSRF policy. Throws on non-2xx.
+1. `safeFetch(url)` with a browser-like User-Agent. Manually walks redirects and re-validates each `Location` against the SSRF policy. Throws on non-2xx. **Wayback fallback:** when the live fetch ends in a `403`/`429`/`451` or a network-level failure (TLS/DNS rejection — Akamai BM, DataDome, etc. fingerprint-block the Worker before headers matter), `fetchHtmlWithArchiveFallback` queries `archive.org/wayback/available?url=…` and, if a `status: "200"` snapshot exists, fetches `https://web.archive.org/web/<timestamp>id_/<url>` (the `id_` flag returns raw archived bytes — no banner injection, no URL rewriting, so JSON-LD / og / image URLs still point at the original CDN). The original page URL stays the parse base so relative URLs resolve correctly. Surfaces a `parsed_from_archive` warning; prices may be stale by days/weeks. Live response statuses outside the fallback set (404, 5xx, etc.) skip Wayback and surface the original `ParseFetchError`.
 2. Body capped at 4MB via a streaming reader — pathological responses abort rather than OOMing the isolate.
 3. **Stage 1 — deterministic extraction** (`parser/candidates.ts:extractCandidates`). Produces a `StaticExtract { title, docTitle, brand, description, price, currency, productNode, candidates, priceSignals, requestedVariant }`:
    - `parseHtml` is a single HTMLRewriter pass that reads og:title / og:site_name / og:description / og:image, the `<title>` tag (`docTitle` — last-resort title fallback), every `<script type="application/ld+json">` body, and every `<img>` tag's largest srcset entry or src (falling back to `data-srcset` / `data-src` for lazyload libraries that hide the real URL until scroll). Each `<img>` is tagged `suspect: true` when found inside a related/recommendation container (descendant selectors like `[class*="related" i] img`, `[class*="recommend" i] img`, `[class*="menu" i] img`, `[class*="drawer" i] img`, `nav img`, `footer img`, etc. — lol-html handles ancestor matching, no hand-rolled depth counter).
@@ -195,7 +195,9 @@ IDs: use `genId()` from `lib/id.ts` (nanoid).
 
 4. **Stage 2 — Claude Haiku selection** (`parser/claude.ts`). `buildEvidence` assembles a structured evidence document — `PAGE_URL`, `OG_TITLE`/`OG_SITE_NAME`/`OG_DESCRIPTION`, `REQUESTED_VARIANT` (when the URL carries `?color=X` / `?colour=X`), `STRUCTURED_PRICE` (or "none"), `PRICE_SIGNALS` (the harvested snippets, when any), `JSON_LD_PRODUCT` (the selected node serialized, capped ~8k chars), the **numbered** `IMAGE_CANDIDATES` list with source tags (and explicit `suspect: related-products section` / `variant: match` / `variant: mismatch` annotations), then `PAGE_TEXT` (`stripHtml` — also strips `<svg>`/`<noscript>`/`<iframe>`/HTML comments — sized to fit the ~40k-char budget). The system prompt instructs the model to return JSON with `image_indices` (NOT URLs — by construction it cannot hallucinate a URL). Indices are normalized: clamped, deduped, non-integers dropped. The JSON parser tolerates ```json fences and prose preamble (strips them, falls back to the largest `{…}`slice).`mergeSelection`(pure, in`parser/index.ts`) fills metadata gaps (Claude's value wins only when og missed); arbitrates price (structured-data first; Claude wins only on same-currency disagreements >5%, an informed correction since Claude saw the structured price in evidence); maps `image_indices`to URLs in Claude's order. If Claude fails or selects nothing,`pickDefaultImages`falls back to the deterministic ranking (positive-score candidates preferred; widens to zero-score only when too few exist; suspect tail is last resort).`docTitle`is the very last fallback for`title`.
 
-5. For each resolved image URL: fetch bytes (concurrency capped at 4), validate content-type against an image allowlist, validate size between 10KB and 10MB, write to R2 under `items/{userId}/{nanoid}`, return a `StoredImage` ref. Failures drop the URL rather than persisting a broken external.
+5. For each resolved image URL: fetch bytes (concurrency capped at 4), validate content-type against an image allowlist, validate size between 10KB and 10MB, write to R2 under `items/{userId}/{nanoid}`, return a `StoredImage` ref. Failures drop the URL rather than persisting a broken external — except in `storeImage` itself, where a non-OK fetch falls back to `{ kind: 'external', url }` so the user's browser still renders the image with its real fingerprint (the Worker can't fetch e.g. Akamai-gated CDN bytes, but the browser can).
+
+**Bookmarklet path** (`parseProductFromHtml` → `parseHtmlMeta`). When the live URL is bot-blocked beyond what Wayback can rescue, the user clicks a "Save to Tack" bookmarklet on the product page; the frontend POSTs the rendered DOM + URL to the `parseFromHtml` tRPC procedure, which runs the same extract → Claude → image-store pipeline minus the network fetch. The user's browser already passed whatever challenge the site mounted, so the harvested HTML is post-render (every JSON-LD blob, every `srcset` the page would show). Same rate-limit and same Claude budget as `parseUrl`. See `web/CLAUDE.md` → "Bookmarklet drop-zone" for the frontend half.
 
 Claude returns JSON only — the system prompt lives in `services/parser/claude.ts`; the HTTP call is `lib/anthropic.ts:callClaude` (auto-retries 429/5xx with backoff, three attempts). The model ID is pinned: `claude-haiku-4-5-20251001`. Bump intentionally.
 
