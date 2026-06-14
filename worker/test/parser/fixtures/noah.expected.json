@@ -14,5 +14,22 @@
     "Heather-Ringer-Tee",
     "Swim-Trunks"
   ],
+  "imageLabels": {
+    "positives": ["P151SS26_Denim-Dungarees", "SS26_P151SS26"],
+    "negatives": [
+      "OW110SS26_Linen-Varsity-Jacket",
+      "S157SS26_Oversized-Poplin-Shirt",
+      "KN251SS26_Heather-Ringer-Tee",
+      "SH080SS26_Swim-Trunks",
+      "P137FW25_BOOT_CUT_JEANS",
+      "Group_2",
+      "NOAH_SS263441",
+      "Noah_NewSpace",
+      "459915_5158",
+      "Screen-Shot-2024",
+      "0I0A5812",
+      "PASTE-040"
+    ]
+  },
   "notes": "Shopify WITHOUT JSON-LD. Price only in embedded analytics JSON (PRICE_SIGNALS path). og:image on cdn.shopify.com, gallery <img srcset> on the page host. Nav/recommendation imgs carry other product names."
 }

@@ -99,28 +99,33 @@ export class BoardsReadRepo {
   // 'editor', or null (no access). Used by `requireOwner` / `requireEditor`
   // and by services that branch on role (e.g. listMembers shape).
   async roleFor(boardId: string): Promise<BoardRole | null> {
-    const board = await this.db.query.boards.findFirst({
-      where: and(
-        eq(schema.boards.id, boardId),
-        isNull(schema.boards.deletedAt),
-      ),
-      columns: { id: true, ownerId: true },
-    });
-    if (!board) {
+    // UNIQUE(board_id, user_id) on board_members guarantees at most one
+    // joined row, so a single LEFT JOIN resolves both roles in one query.
+    const [row] = await this.db
+      .select({
+        ownerId: schema.boards.ownerId,
+        memberId: schema.boardMembers.id,
+      })
+      .from(schema.boards)
+      .leftJoin(
+        schema.boardMembers,
+        and(
+          eq(schema.boardMembers.boardId, schema.boards.id),
+          eq(schema.boardMembers.userId, this.scope.userId),
+          isNull(schema.boardMembers.deletedAt),
+        ),
+      )
+      .where(
+        and(eq(schema.boards.id, boardId), isNull(schema.boards.deletedAt)),
+      )
+      .limit(1);
+    if (!row) {
       return null;
     }
-    if (board.ownerId === this.scope.userId) {
+    if (row.ownerId === this.scope.userId) {
       return 'owner';
     }
-    const member = await this.db.query.boardMembers.findFirst({
-      where: and(
-        eq(schema.boardMembers.boardId, boardId),
-        eq(schema.boardMembers.userId, this.scope.userId),
-        isNull(schema.boardMembers.deletedAt),
-      ),
-      columns: { id: true },
-    });
-    return member ? 'editor' : null;
+    return row.memberId !== null ? 'editor' : null;
   }
 
   // Editor or owner can mutate placements / items on the board. Throws

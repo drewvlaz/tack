@@ -11,7 +11,15 @@ import {
   type ClaudeSelection,
 } from '../../src/services/parser/claude';
 import { fixtures } from './fixtures';
-import { formatScorecard, scoreImages, scoreMeta } from './score';
+import {
+  formatMetrics,
+  formatScorecard,
+  labelCandidates,
+  metricChecks,
+  rankingMetrics,
+  scoreImages,
+  scoreMeta,
+} from './score';
 
 const baseExtract = (over: Partial<StaticExtract> = {}): StaticExtract => ({
   title: null,
@@ -149,11 +157,16 @@ describe('extractCandidates', () => {
 });
 
 describe('pickDefaultImages', () => {
-  it('drops non-positive candidates when 3+ positive ones exist', () => {
+  it('returns only confident candidates (p ≥ 0.6) when 3+ exist, cutting the low-confidence tail', () => {
+    // Three candidates clear the threshold (score ≥ 2 → p ≥ 0.62) — the
+    // score=1 and score=0 long tail is dropped even though it has higher
+    // score than the suspect bottom. This is the Lyndon failure mode in
+    // miniature: a strong head, a noisy tail of single-img-tag fillers.
     const candidates = [
       { url: 'https://cdn.test/a.jpg', score: 6, tags: ['jsonld', 'og'] },
       { url: 'https://cdn.test/b.jpg', score: 4, tags: ['jsonld'] },
-      { url: 'https://cdn.test/c.jpg', score: 1, tags: ['img'] },
+      { url: 'https://cdn.test/c.jpg', score: 2, tags: ['og'] },
+      { url: 'https://cdn.test/d.jpg', score: 1, tags: ['img'] },
       { url: 'https://cdn.test/off.jpg', score: 0, tags: ['img-offhost'] },
       { url: 'https://cdn.test/sus.jpg', score: -3, tags: ['img-suspect'] },
     ];
@@ -164,14 +177,19 @@ describe('pickDefaultImages', () => {
     ]);
   });
 
-  it('widens to zero-score candidates when too few are positive', () => {
+  it('widens to non-negative candidates when fewer than 3 are confident', () => {
+    // Only one confident candidate (og:2 → p≈0.62). The widening pulls in
+    // the score-1 img and zero-score off-host — kept because we have no
+    // better signal on this sparse page.
     const candidates = [
       { url: 'https://cdn.test/a.jpg', score: 2, tags: ['og'] },
+      { url: 'https://cdn.test/b.jpg', score: 1, tags: ['img'] },
       { url: 'https://cdn.test/off.jpg', score: 0, tags: ['img-offhost'] },
       { url: 'https://cdn.test/sus.jpg', score: -3, tags: ['img-suspect'] },
     ];
     expect(pickDefaultImages(candidates, 12)).toEqual([
       'https://cdn.test/a.jpg',
+      'https://cdn.test/b.jpg',
       'https://cdn.test/off.jpg',
     ]);
   });
@@ -341,6 +359,9 @@ describe.skipIf(fixtures.length === 0)('fixtures (static extraction)', () => {
         ...(fixture.expected.skipStatic?.includes('brand')
           ? { brand: undefined }
           : {}),
+        ...(fixture.expected.skipStatic?.includes('imageMustNotMatch')
+          ? { imageMustNotMatch: undefined }
+          : {}),
       };
       const checks = [
         ...scoreMeta(meta, staticExpected),
@@ -351,6 +372,24 @@ describe.skipIf(fixtures.length === 0)('fixtures (static extraction)', () => {
           { ...fixture.expected, imageMustNotMatch: [] },
         ).map((c) => ({ ...c, name: `pool: ${c.name}` })),
       ];
+
+      // Continuous-quality metrics over the ranked candidate pool. Always
+      // print the per-fixture line so the suite output reads like an eval
+      // dashboard; convert each metric check into a pass/fail Check below.
+      const labeled = labelCandidates(
+        extract.candidates,
+        fixture.expected.imageLabels,
+      );
+      const metrics = rankingMetrics(labeled);
+      console.log(formatMetrics(fixture.name, metrics));
+      for (const m of metricChecks(metrics)) {
+        checks.push({
+          name: m.name,
+          pass: m.pass,
+          detail: `${m.value?.toFixed(3) ?? 'n/a'} < ${m.threshold}`,
+        });
+      }
+
       const failed = checks.filter((c) => !c.pass);
       if (failed.length > 0) {
         console.log(formatScorecard(fixture.name, checks));

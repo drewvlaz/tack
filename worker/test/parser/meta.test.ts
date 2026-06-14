@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractFromJsonLd,
   extractFromMicrodata,
+  extractPriceSignals,
   extractTemplateImageUrls,
   normalizeImageUrl,
   parseHtml,
@@ -887,6 +888,50 @@ describe('SSENSE-shaped page', () => {
     ).filter((u) => !/__[A-Z][A-Z0-9_]*__/.test(u));
     const skuCount = ranked.filter((u) => /\/SKU_\d\//.test(u)).length;
     expect(skuCount).toBe(4);
+  });
+});
+
+describe('extractPriceSignals', () => {
+  it('surfaces "price"/"prices" matches unconditionally', () => {
+    const out = extractPriceSignals(
+      '...something..."prices":{"USD":{"currency":"USD","price":365}}',
+    );
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.some((s) => s.includes('"price":365'))).toBe(true);
+  });
+
+  it('keeps nested "value" when the leading context names price', () => {
+    // Uniqlo-shape: the only price field is the nested `"value":N`, but the
+    // outer `"prices":{` in the same window proves the value is a price.
+    const out = extractPriceSignals(
+      '{"prices":{"base":{"currency":{"code":"USD","symbol":"$"},"value":19.9}}}',
+    );
+    expect(out.length).toBe(1);
+    expect(out[0]).toContain('"value":19.9');
+  });
+
+  it('drops generic "value" matches without price context (size tables, analytics)', () => {
+    // Axel Arigato-shape: a size table with `"value":"24.6"` (cm) entries
+    // that have nothing to do with prices. Without the gate these would
+    // hijack all 12 PRICE_SIGNALS slots before the real prices were seen.
+    const sizeTable =
+      '"body":[{"_uid":"size-row","value":"24.6"},{"_uid":"size-eu","value":"39"},{"_uid":"size-us","value":"7"}]';
+    expect(extractPriceSignals(sizeTable)).toEqual([]);
+  });
+
+  it('size-table noise no longer crowds out real price fields downstream', () => {
+    // 20 `"value":N` size-table entries followed by the real per-currency
+    // price block. Before the gate, the first 12 PRICE_SIGNAL slots were
+    // poisoned and never reached the actual prices.
+    const noise = Array.from(
+      { length: 20 },
+      (_, i) => `{"_uid":"row-${i}","value":"${i + 24}"}`,
+    ).join(',');
+    const real =
+      '"prices":{"USD":{"currency":"USD","price":365},"EUR":{"currency":"EUR","price":260}}';
+    const out = extractPriceSignals(`${noise},${real}`);
+    expect(out.some((s) => s.includes('"price":365'))).toBe(true);
+    expect(out.some((s) => s.includes('"price":260'))).toBe(true);
   });
 });
 

@@ -1,0 +1,17 @@
+{
+  "url": "https://www.taylorstitch.com/products/yosemite-shirt-in-burnt-toffee-plaid-2308",
+  "title": "Yosemite Shirt",
+  "brand": "Taylor Stitch",
+  "imageMustMatch": ["Yosemite_Burnt_Toffee_Plaid"],
+  "imageMustNotMatch": [],
+  "imageLabels": {
+    "positives": ["Yosemite_Burnt_Toffee_Plaid"],
+    "negatives": [
+      "ts_product_measuring_guide",
+      "Q323_Nav",
+      "Q323_Help",
+      "Navigation_Blocs"
+    ]
+  },
+  "notes": "Shopify, multiple og:image tags (one per shot). Brand isn't in og:site_name (page returns a 404 if name lookup is off) so confirm via static og pass; price lives only in script JSON, so live eval picks it up."
+}

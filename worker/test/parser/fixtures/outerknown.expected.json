@@ -1,0 +1,23 @@
+{
+  "url": "https://outerknown.com/products/seventyseven-cord-utility-shorts-island-leaf",
+  "title": "Seventyseven Cord Utility Shorts",
+  "brand": "Outerknown",
+  "price": 98,
+  "currency": "USD",
+  "structuredPrice": true,
+  "minImages": 2,
+  "imageMustMatch": [
+    "Seventyseven_Cord_Utility_Short_Island_Leaf",
+    "1670002_Seventyseven_Cord_Utiliity_Shorts_ILF_0627"
+  ],
+  "imageMustNotMatch": ["Tawny_Wood"],
+  "skipStatic": ["imageMustNotMatch"],
+  "imageLabels": {
+    "positives": [
+      "Seventyseven_Cord_Utility_Short_Island_Leaf",
+      "1670002_Seventyseven_Cord_Utiliity_Shorts_ILF"
+    ],
+    "negatives": ["Tawny_Wood", "Washed_Marine"]
+  },
+  "notes": "Shopify. JSON-LD ships a malformed image URL (`https:files/...` — no slashes) that resolves into a non-existent path on the storefront domain. Parser must reject these schemed-but-non-authoritative URLs. The legitimate gallery (Island_Leaf shots) is in <img> tags; the Tawny_Wood color is a separate variant whose images are also in the markup."
+}

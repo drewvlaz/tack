@@ -30,10 +30,25 @@ export type FixtureExpectation = {
   // Substrings (e.g. SKUs of products in the page's related carousel) that
   // must NOT appear in any selected image URL.
   imageMustNotMatch?: string[];
-  // Fields that only Claude can produce on this page (e.g. "brand" when
-  // there's no og:site_name) — skipped by the static no-Claude test, still
-  // asserted by the live eval.
-  skipStatic?: ('title' | 'brand')[];
+  // Fields the static no-Claude test can't reasonably resolve and are deferred
+  // to the live Claude eval:
+  //   - 'title' / 'brand': field is missing from og tags / JSON-LD on the page.
+  //   - 'imageMustNotMatch': the unwanted images are indistinguishable from
+  //     the wanted ones by structural signal alone (e.g. an unrequested
+  //     colorway's photos sit in plain <img> tags alongside the requested
+  //     ones). Claude reads the page text/URL slug and can disambiguate.
+  skipStatic?: ('title' | 'brand' | 'imageMustNotMatch')[];
+  // Labels over the extractCandidates pool, used to compute
+  // precision/recall/average-precision as continuous quality metrics
+  // (complement to the binary imageMustMatch/imageMustNotMatch gates above).
+  // Each entry is a URL substring; a candidate URL matching a `positives`
+  // entry is labeled positive, one matching a `negatives` entry is labeled
+  // negative, and candidates matched by both — or neither — are unlabeled
+  // and excluded from metrics.
+  imageLabels?: {
+    positives?: string[];
+    negatives?: string[];
+  };
   notes?: string;
 };
 

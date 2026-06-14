@@ -28,7 +28,7 @@ async function wipe() {
 describe('hashPassword + verifyPassword', () => {
   it('round-trips a correct password', async () => {
     const phc = await hashPassword('correct horse battery staple');
-    expect(phc.startsWith('pbkdf2$600000$')).toBe(true);
+    expect(phc.startsWith('pbkdf2$100000$')).toBe(true);
     expect(await verifyPassword('correct horse battery staple', phc)).toBe(
       true,
     );

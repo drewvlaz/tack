@@ -1,0 +1,20 @@
+{
+  "url": "https://www.allbirds.com/products/mens-cruiser-medium-grey",
+  "title": "Cruiser",
+  "brand": "Allbirds",
+  "minImages": 4,
+  "imageMustMatch": ["A11559_25Q3_Cruiser"],
+  "imageMustNotMatch": ["PDP_Materials"],
+  "skipStatic": ["imageMustNotMatch"],
+  "imageLabels": {
+    "positives": ["A11559_25Q3_Cruiser"],
+    "negatives": [
+      "PDP_Materials",
+      "25Q2_TreeCollection_Site_Cruiser-Men_PDPStyling",
+      "25Q2_BAU_Site_Moonshot_BrandMessage",
+      "preview_images/",
+      "A12622_26Q1_Runner-NZ"
+    ]
+  },
+  "notes": "Custom Shopify storefront. Title in og:title, brand in og:site_name. Price is not in JSON-LD/microdata — lives in the script JSON only, so the static stage skips it (only the live Claude eval can resolve)."
+}

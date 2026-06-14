@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useSetPrimaryImage } from '../../hooks/server/useSetPrimaryImage';
 import { useHotkey } from '../../hooks/useHotkey';
@@ -40,15 +40,20 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
     setHeroLoaded(true);
   }
 
-  function handleSetPrimary(imageId: string) {
-    setPrimary.mutate({ id, imageId, boardId });
-    // After reorder the primary becomes index 0; refocus the hero there.
-    setHeroIdx(0);
-  }
-
   const canCycle = images.length > 1;
   const cycle = (dir: 1 | -1) =>
     setHeroIdx((i) => (i + dir + images.length) % images.length);
+
+  // setPrimary re-sorts so the chosen image lands at index 0 — keep heroIdx
+  // pointing at it so the rail keeps showing the picture the user just promoted.
+  function promoteActive() {
+    const img = images[heroIdx];
+    if (!img) {
+      return;
+    }
+    setPrimary.mutate({ id, imageId: img.id, boardId });
+    setHeroIdx(0);
+  }
 
   // Arrow keys cycle the hero. Modal scope while the lightbox is open so we
   // beat the panel-level Escape/Delete handlers; panel scope otherwise.
@@ -56,6 +61,8 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
     scope: lightboxOpen ? 'modal' : 'panel',
     enabled: canCycle,
   });
+
+  const activeIsCover = heroIdx === 0;
 
   return (
     <>
@@ -74,39 +81,32 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
           />
         ) : null}
         {!heroLoaded && <Pulse className="absolute inset-0" />}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/20 to-transparent" />
         {canCycle && (
           <>
             <CycleButton side="left" onClick={() => cycle(-1)} />
             <CycleButton side="right" onClick={() => cycle(1)} />
-            <span
-              aria-hidden
-              className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium tracking-wider text-white tabular-nums opacity-0 transition-opacity group-hover/hero:opacity-100"
-            >
-              {heroIdx + 1} / {images.length}
-            </span>
           </>
         )}
       </div>
 
-      {images.length > 1 && (
-        <div className="border-border bg-surface-raised border-b px-7 py-3">
-          <div className="flex gap-2 overflow-x-auto">
-            {images.map((img, i) => {
-              const isPrimary = i === 0;
-              return (
-                <ThumbButton
-                  key={img.id}
-                  url={img.url}
-                  active={i === heroIdx}
-                  isPrimary={isPrimary}
-                  onSelect={() => setHeroIdx(i)}
-                  onSetPrimary={
-                    isPrimary ? null : () => handleSetPrimary(img.id)
-                  }
-                />
-              );
-            })}
+      {canCycle && (
+        <div className="px-7 pt-4 pb-1">
+          <CaptionRow
+            index={heroIdx + 1}
+            total={images.length}
+            activeIsCover={activeIsCover}
+            onPromote={promoteActive}
+          />
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1.5">
+            {images.map((img, i) => (
+              <ThumbButton
+                key={img.id}
+                url={img.url}
+                active={i === heroIdx}
+                label={`Show frame ${i + 1}`}
+                onSelect={() => setHeroIdx(i)}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -124,58 +124,63 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
   );
 }
 
+type CaptionRowProps = {
+  index: number;
+  total: number;
+  activeIsCover: boolean;
+  onPromote: () => void;
+};
+
+function CaptionRow({
+  index,
+  total,
+  activeIsCover,
+  onPromote,
+}: CaptionRowProps) {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return (
+    <div className="text-fg-subtle flex items-center justify-between text-[10px] font-medium tracking-[0.16em] uppercase">
+      <span className="tabular-nums">
+        Frame {pad(index)} <span aria-hidden>/</span> {pad(total)}
+      </span>
+      {activeIsCover ? (
+        <span className="text-fg-muted">Cover</span>
+      ) : (
+        <button
+          type="button"
+          onClick={onPromote}
+          className="text-fg-muted hover:text-fg rounded-sm tracking-[0.16em] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-focus"
+        >
+          Set as cover
+        </button>
+      )}
+    </div>
+  );
+}
+
 type ThumbButtonProps = {
   url: string;
   active: boolean;
-  isPrimary: boolean;
+  label: string;
   onSelect: () => void;
-  onSetPrimary: (() => void) | null;
 };
 
-function ThumbButton({
-  url,
-  active,
-  isPrimary,
-  onSelect,
-  onSetPrimary,
-}: ThumbButtonProps) {
+function ThumbButton({ url, active, label, onSelect }: ThumbButtonProps) {
   return (
-    <div
-      className={`group/thumb relative shrink-0 overflow-hidden rounded-md ring-1 transition-all ${
-        active ? 'ring-fg/40' : 'ring-border/60'
-      }`}
-      style={{ width: 56, height: 56 }}
-    >
+    <div className="relative shrink-0">
       <button
         type="button"
         onClick={onSelect}
-        className={`block h-full w-full transition-opacity ${active ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
-        aria-label="Show this image"
+        aria-label={label}
+        aria-pressed={active}
+        className={`ring-border/60 block h-14 w-14 overflow-hidden rounded-md ring-1 outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-focus ${active ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
       >
         <Thumbnail url={url} />
       </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSetPrimary?.();
-        }}
-        disabled={!onSetPrimary}
-        aria-label={isPrimary ? 'Primary image' : 'Set as primary image'}
-        title={isPrimary ? 'Primary image' : 'Set as primary'}
-        className={`absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white transition-opacity ${
-          isPrimary
-            ? 'opacity-100'
-            : 'opacity-0 group-hover/thumb:opacity-100 focus:opacity-100'
-        } ${onSetPrimary ? 'cursor-pointer hover:bg-black/70' : 'cursor-default'}`}
-      >
-        <Star
-          size={11}
-          strokeWidth={1.4}
-          fill={isPrimary ? 'currentColor' : 'none'}
-          aria-hidden
-        />
-      </button>
+      <span
+        aria-hidden
+        className={`bg-focus pointer-events-none absolute -bottom-1 left-1/2 h-0.5 w-5 -translate-x-1/2 rounded-full transition-opacity ${active ? 'opacity-100' : 'opacity-0'}`}
+      />
     </div>
   );
 }
@@ -196,9 +201,7 @@ function CycleButton({
         onClick();
       }}
       aria-label={side === 'left' ? 'Previous image' : 'Next image'}
-      className={`absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-all hover:bg-black/70 group-hover/hero:opacity-100 focus-visible:opacity-100 ${
-        side === 'left' ? 'left-3' : 'right-3'
-      }`}
+      className={`absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white opacity-0 outline-none transition-all hover:bg-black/70 group-hover/hero:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-focus ${side === 'left' ? 'left-3' : 'right-3'}`}
     >
       <Icon size={16} strokeWidth={1.75} aria-hidden />
     </button>
@@ -226,4 +229,3 @@ function Thumbnail({ url }: { url: string }) {
     </div>
   );
 }
-

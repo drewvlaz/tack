@@ -8,5 +8,20 @@
   "minImages": 1,
   "imageMustMatch": ["ae4c329b_b38f"],
   "imageMustNotMatch": ["Empty_Bag_State_Image"],
+  "imageLabels": {
+    "positives": ["ae4c329b_b38f"],
+    "negatives": [
+      "how_to_measure",
+      "OCS100_Modal",
+      "OCSBlended_Modal",
+      "OrganicCotton_Modal",
+      "EverbetterFactory_Modal",
+      "LP_Desktop_Image",
+      "HP_About_Desktop",
+      "HP_Large_Tile",
+      "Site_Nav_Image",
+      "Empty_Bag_State_Image"
+    ]
+  },
   "notes": "JSON-LD is ProductGroup with hasVariant Products (price/image on variants only). Image filenames are content hashes, so related products are indistinguishable by URL; hero hash asserted only."
 }

@@ -1,0 +1,36 @@
+{
+  "url": "https://california-arts.com/collections/coats-jackets/products/lyndonoversizedwatchcoat?color=brown+melange",
+  "title": "Lyndon Oversized Watchcoat",
+  "brand": "California Arts",
+  "price": 798,
+  "currency": "USD",
+  "structuredPrice": true,
+  "minImages": 4,
+  "imageMustMatch": ["CA-AUG--13942", "CA-AUG--14072"],
+  "imageMustNotMatch": [
+    "CA-AUG--15472",
+    "CA-AUG--15102",
+    "CA-AUG--15212",
+    "CA-AUG--11262",
+    "CA-AUG--11282"
+  ],
+  "imageLabels": {
+    "positives": [
+      "CA-AUG--13942",
+      "CA-AUG--13952",
+      "CA-AUG--14072",
+      "CA-AUG--14123",
+      "CA-AUG--14232",
+      "CA-AUG--14352"
+    ],
+    "negatives": [
+      "CA-FW-PART2",
+      "Merlot_",
+      "GLOVES",
+      "CAholiday",
+      "Asset_",
+      "black_and_white"
+    ]
+  },
+  "notes": "Shopify multi-color product, URL requests ?color=brown+melange (decodes to 'brown melange'). og:image and JSON-LD Product.image both point at the DEFAULT (black) variant (CA-AUG--15472). The brown-melange gallery (CA-AUG--13942/13952/14072/14123/14232/14352) is inside <div data-color=\"brown melange\"> (space-separated), but the page ALSO has a parallel <div data-color=\"brown-melange\"> (hyphenated) for the SSLD lightbox containing the same brown-melange shots. The hint extractor reads ?color=brown+melange as 'brown melange' so only the space-form container matches; the hyphenated container's images are wrongly tagged as variant-mismatch. Black/khaki shots must NOT appear in the picked images."
+}

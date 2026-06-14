@@ -136,7 +136,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   cent: '¢',
 };
 
-export function decodeEntities(s: string): string {
+function decodeEntitiesOnce(s: string): string {
   return s.replace(
     /&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g,
     (m, body: string) => {
@@ -155,6 +155,33 @@ export function decodeEntities(s: string): string {
       return NAMED_ENTITIES[body.toLowerCase()] ?? m;
     },
   );
+}
+
+// Some retailers double-encode in their meta tags — Thursday Boots' og:title
+// ships `Men&amp;#39;s`, which after one pass becomes `Men&#39;s` (still an
+// entity). Recurse until a pass is a no-op, bounded to a tiny depth so a
+// pathological input can't blow the stack. Stable on plain text (no `&…;` →
+// no replacements → fixed point at depth 1).
+export function decodeEntities(s: string, depth = 3): string {
+  if (depth === 0) {
+    return s;
+  }
+  const next = decodeEntitiesOnce(s);
+  return next === s ? s : decodeEntities(next, depth - 1);
+}
+
+// Surface forms of one variant value the page might publish. Retailers
+// slug-normalize the same colorway inconsistently across DOM surfaces — a
+// gallery container may say `data-color="brown melange"` while the lightbox
+// sibling says `data-color="brown-melange"`. Returns the original plus
+// space/hyphen/underscore swaps. Deduped; single-word inputs collapse to one.
+export function variantValueCandidates(value: string): string[] {
+  const out = new Set<string>([value]);
+  const sep = /[\s\-_]+/g;
+  out.add(value.replace(sep, ' '));
+  out.add(value.replace(sep, '-'));
+  out.add(value.replace(sep, '_'));
+  return [...out];
 }
 
 export async function parseHtml(
@@ -252,15 +279,21 @@ export async function parseHtml(
         imgInVariantContext = true;
       },
     });
-    // Container whose value matches the requested variant (case-insensitive).
-    rewriter = rewriter.on(
-      `[${variantHint.attr}="${variantHint.value}" i] img`,
-      {
+    // Container whose value matches the requested variant. Retailers slug
+    // multi-word variant values inconsistently — same product, parallel DOMs:
+    //   <div data-color="brown melange">  (gallery)
+    //   <div data-color="brown-melange">  (lightbox)
+    // lol-html only does literal attribute matching, so each surface form
+    // gets its own selector. Slugify helpers collapse spaces ↔ hyphens ↔
+    // underscores; the requested value's case is already lowercased by
+    // `extractVariantHint`.
+    for (const candidate of variantValueCandidates(variantHint.value)) {
+      rewriter = rewriter.on(`[${variantHint.attr}="${candidate}" i] img`, {
         element() {
           imgVariantMatches = true;
         },
-      },
-    );
+      });
+    }
   }
 
   rewriter = rewriter.on('img', {
@@ -274,7 +307,13 @@ export async function parseHtml(
       imgInSuspectContainer = false;
       imgInVariantContext = false;
       imgVariantMatches = false;
-      const srcset = el.getAttribute('srcset');
+      // Lazyload libraries (lazysizes, vanilla-lazyload, Shopify's own
+      // `lazyload` class) hide the real URL in `data-src` / `data-srcset`
+      // until the img scrolls into view — leaving `src` blank or pointing
+      // at a 1×1 spacer. Read those as a fallback so server-side parsing
+      // sees the same image a browser would.
+      const srcset =
+        el.getAttribute('srcset') ?? el.getAttribute('data-srcset');
       if (srcset) {
         const picked = largestFromSrcset(srcset);
         // Drop the candidate when its biggest descriptor is sub-thumbnail —
@@ -287,7 +326,7 @@ export async function parseHtml(
         }
         return;
       }
-      const src = el.getAttribute('src');
+      const src = el.getAttribute('src') ?? el.getAttribute('data-src');
       if (src) {
         imgTagImages.push({ url: src, suspect, variantMatch });
       }
@@ -776,6 +815,16 @@ export function scoreAndRankImages(
     if (!raw) {
       return;
     }
+    // Reject URLs that *look* absolute (start with `http:` / `https:`) but
+    // are missing the `//` authority marker. Per the URL spec, `https:foo/bar`
+    // with an https-base resolves as a relative path, producing nonsense like
+    // `outerknown.com/products/files/...` (Outerknown's JSON-LD ships
+    // `"image": "https:files/<sku>.jpg"`). The schemed form is a strong
+    // intent signal — the merchant meant absolute — so treat it as broken
+    // rather than silently inventing a path on the storefront domain.
+    if (/^https?:[^/]/i.test(raw)) {
+      return;
+    }
     let parsed: URL;
     try {
       parsed = new URL(normalizeImageUrl(raw), pageUrl);
@@ -1022,8 +1071,18 @@ export function extractRawImageUrls(html: string): string[] {
 // analytics blobs) often carry the price ONLY here — invisible to JSON-LD,
 // microdata, and stripped page text — so these are surfaced to the Claude
 // selection stage as PRICE_SIGNALS for arbitration, never used directly.
+//
+// `value` and `amount` are kept in the alternation to catch nested price
+// objects like Uniqlo's `{"prices":{"base":{"value":19.9}}}` — but they
+// also fire on unrelated JSON (size tables, analytics events). When the
+// field name is one of these weak ones, require a price-related token in
+// the leading-context window before emitting; that filters the noise while
+// preserving the legitimate nested-price case (its window contains the
+// outer `"prices":{` wrapper).
 const PRICE_FIELD =
-  /"(?:price|prices|value|amount|current_?price|sale_?price|base_?price|final_?price)"\s*:\s*"?\d[\d,]*(?:\.\d+)?"?/gi;
+  /"(price|prices|value|amount|current_?price|sale_?price|base_?price|final_?price)"\s*:\s*"?\d[\d,]*(?:\.\d+)?"?/gi;
+const WEAK_PRICE_FIELD = /^(value|amount)$/i;
+const PRICE_CONTEXT_TOKEN = /price/i;
 const PRICE_SIGNAL_CONTEXT = 70;
 const MAX_PRICE_SIGNALS = 12;
 
@@ -1034,11 +1093,16 @@ export function extractPriceSignals(html: string): string[] {
     if (seen.has(m[0])) {
       continue;
     }
+    const idx = m.index ?? 0;
+    const start = Math.max(0, idx - PRICE_SIGNAL_CONTEXT);
+    if (
+      WEAK_PRICE_FIELD.test(m[1]) &&
+      !PRICE_CONTEXT_TOKEN.test(html.slice(start, idx))
+    ) {
+      continue;
+    }
     seen.add(m[0]);
-    const start = Math.max(0, (m.index ?? 0) - PRICE_SIGNAL_CONTEXT);
-    const snippet = html
-      .slice(start, (m.index ?? 0) + m[0].length)
-      .replace(/\s+/g, ' ');
+    const snippet = html.slice(start, idx + m[0].length).replace(/\s+/g, ' ');
     signals.push(snippet);
     if (signals.length >= MAX_PRICE_SIGNALS) {
       break;

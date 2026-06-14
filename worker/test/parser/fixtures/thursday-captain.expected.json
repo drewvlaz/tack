@@ -1,0 +1,16 @@
+{
+  "url": "https://thursdayboots.com/products/mens-captain-brandy",
+  "title": "Captain",
+  "brand": "Thursday",
+  "price": 199,
+  "currency": "USD",
+  "structuredPrice": true,
+  "minImages": 1,
+  "imageMustMatch": ["Men-Captain-Brandy"],
+  "imageMustNotMatch": [],
+  "imageLabels": {
+    "positives": ["Men-Captain-Brandy"],
+    "negatives": []
+  },
+  "notes": "Shopify, classic JSON-LD with offers + single image. og:title carries a double-encoded apostrophe (`Men&amp;#39;s`); decodeEntities must loop until stable so the title doesn't render `&#39;s`."
+}
