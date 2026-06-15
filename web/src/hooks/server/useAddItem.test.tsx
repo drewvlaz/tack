@@ -8,18 +8,18 @@ import { useAddItem } from './useAddItem';
 
 vi.mock('../../api/boards', () => ({
   addItem: vi.fn(),
-  patchBoardItem: vi.fn(),
+  patchBoardItems: vi.fn(),
 }));
 
 vi.mock('../../api/parse', () => ({
   parseUrl: vi.fn(),
 }));
 
-import { addItem, patchBoardItem } from '../../api/boards';
+import { addItem, patchBoardItems } from '../../api/boards';
 import { parseUrl } from '../../api/parse';
 
 const addItemMock = vi.mocked(addItem);
-const patchBoardItemMock = vi.mocked(patchBoardItem);
+const patchBoardItemsMock = vi.mocked(patchBoardItems);
 const parseUrlMock = vi.mocked(parseUrl);
 
 const BOARD_ID = 'board-1';
@@ -79,7 +79,7 @@ function makeBoardItem(overrides: Partial<BoardItem> = {}): BoardItem {
 beforeEach(() => {
   useToastsStore.setState({ toasts: [] });
   vi.clearAllMocks();
-  patchBoardItemMock.mockResolvedValue({ ok: true });
+  patchBoardItemsMock.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -172,7 +172,7 @@ describe('useAddItem', () => {
     // No skeletons left over.
     expect(items.some((i) => i.kind === 'skeleton')).toBe(false);
     // Position matched server → no follow-up PATCH.
-    expect(patchBoardItemMock).not.toHaveBeenCalled();
+    expect(patchBoardItemsMock).not.toHaveBeenCalled();
   });
 
   it('carries a skeleton drag-during-load through to the real item and PATCHes the server', async () => {
@@ -230,10 +230,9 @@ describe('useAddItem', () => {
       x: draggedX,
       y: draggedY,
     });
-    expect(patchBoardItemMock).toHaveBeenCalledWith('real-1', {
-      x: draggedX,
-      y: draggedY,
-    });
+    expect(patchBoardItemsMock).toHaveBeenCalledWith([
+      { id: 'real-1', patch: { x: draggedX, y: draggedY } },
+    ]);
   });
 
   it('onError restores the previous list and shows an error toast', async () => {

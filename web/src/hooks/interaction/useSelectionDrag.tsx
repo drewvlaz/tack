@@ -9,13 +9,15 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { usePatchPositions } from '../server/usePatchPositions';
+import { usePatchItems } from '../server/usePatchItems';
 import { useSelectionStore } from '../../store/selection';
 
-// Each Card registers its motion values here so the coordinator can drive
+// Drag targets register their position MVs here so the coordinator can drive
 // them in lockstep during a group drag. The registry lives in a ref so
-// register/unregister doesn't churn React state.
-export type CardMVHandles = {
+// register/unregister doesn't churn React state. Targets are addressed by an
+// opaque id — the coordinator doesn't care what they represent, only that the
+// selection store keys them.
+export type DragTargetHandles = {
   x: MotionValue<number>;
   y: MotionValue<number>;
   springX: MotionValue<number>;
@@ -23,7 +25,7 @@ export type CardMVHandles = {
 };
 
 type SelectionDragApi = {
-  register: (id: string, handles: CardMVHandles) => () => void;
+  register: (id: string, handles: DragTargetHandles) => () => void;
   driveDelta: (originId: string, dx: number, dy: number) => void;
   commit: () => void;
 };
@@ -31,11 +33,11 @@ type SelectionDragApi = {
 const SelectionDragContext = createContext<SelectionDragApi | null>(null);
 
 export function SelectionDragProvider({ children }: { children: ReactNode }) {
-  const registry = useRef(new Map<string, CardMVHandles>());
-  const patchPositions = usePatchPositions();
+  const registry = useRef(new Map<string, DragTargetHandles>());
+  const patchItems = usePatchItems();
 
   const register = useCallback(
-    (id: string, handles: CardMVHandles) => {
+    (id: string, handles: DragTargetHandles) => {
       registry.current.set(id, handles);
       return () => {
         registry.current.delete(id);
@@ -89,8 +91,8 @@ export function SelectionDragProvider({ children }: { children: ReactNode }) {
     if (patches.length === 0) {
       return;
     }
-    patchPositions.mutate(patches);
-  }, [patchPositions]);
+    patchItems.mutate(patches);
+  }, [patchItems]);
 
   const api = useMemo<SelectionDragApi>(
     () => ({ register, driveDelta, commit }),
@@ -114,12 +116,13 @@ export function useSelectionDrag(): SelectionDragApi {
   return ctx;
 }
 
-// Card-side hook: registers this card's motion values with the coordinator
-// for the lifetime of the component. Returns nothing — the registration is
-// the side effect.
-export function useRegisterCardMVs(
+// Target-side hook: publishes this target's position MVs to the group-drag
+// coordinator for the lifetime of the component. Pass `id = null` to opt out
+// (e.g. skeleton cards with no persistent id). Returns nothing — the
+// registration is the side effect.
+export function useRegisterDragTarget(
   id: string | null,
-  handles: CardMVHandles,
+  handles: DragTargetHandles,
 ): void {
   const api = useContext(SelectionDragContext);
   useEffect(() => {

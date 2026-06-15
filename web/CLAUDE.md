@@ -7,15 +7,15 @@ React 19 + Vite frontend. Renders the canvas, talks to the worker via tRPC, owns
 ```
 src/
 ├── api/           Pure async fns wrapping tRPC client. No React, no hooks.
-│   ├── boards.ts  getItems, patchBoardItem, addItem, deleteItem
+│   ├── boards.ts  getItems, addItem, patchBoardItems, deleteItems, trash + collab ops
 │   └── parse.ts   parseUrl
 ├── components/    PascalCase.tsx. View layer. Subcomponents nest under their parent folder.
 │   ├── AppUI.tsx            Screen-space overlay (BoardsSidebar + SidePanel)
 │   ├── BoardsSidebar.tsx    Left rail: list, create, rename, delete boards
 │   ├── Canvas/
-│   │   ├── Canvas.tsx       Pan/zoom container; renders Cards + UrlBar + ZoomBar
-│   │   ├── Card.tsx         Draggable card on the canvas
-│   │   ├── UrlBar.tsx       URL input → useAddItem
+│   │   ├── Canvas.tsx       Pan/zoom container; composes hooks + iterates items into <CanvasCard />
+│   │   ├── CanvasCard.tsx   Adapter — reads selection store + query cache, wires Card with per-item callbacks
+│   │   ├── Card.tsx         View-only draggable card; agnostic of stores and queries
 │   │   └── ZoomBar.tsx      Zoom controls bound to canvas zoom MV
 │   ├── SidePanel/
 │   │   ├── SidePanel.tsx    Right rail: details for the selected item
@@ -32,20 +32,20 @@ src/
 │   │   ├── useBoards.ts, useCreateBoard.ts, useDeleteBoard.ts, useRenameBoard.ts
 │   │   ├── useBoardItems.ts   useQuery — items on a board
 │   │   ├── useAddItem.ts      useMutation — parseUrl → addItem with optimistic skeleton
-│   │   ├── useDeleteItem.ts   useMutation — optimistic removal (single)
-│   │   ├── useDeleteItems.ts  useMutation — optimistic batch removal (multi-select delete)
-│   │   ├── usePatchPositions.ts useMutation — fire-and-forget batch x/y patch (group drag)
-│   │   ├── useReparseItem.ts  useMutation — re-fetch item from source URL
-│   │   └── useSyncPosition.ts useMutation — PATCH x/y on drag end (fire-and-forget, single)
+│   │   ├── useDeleteItems.ts  useMutation — optimistic batch removal (handles N=1 as well as multi-select)
+│   │   ├── usePatchItems.ts   useMutation — fire-and-forget batch patch of x/y/width/height/zIndex (handles single-card drag and group commit; array shape is required either way)
+│   │   └── useReparseItem.ts  useMutation — re-fetch item from source URL
 │   └── interaction/    Gesture hooks (Framer Motion + use-gesture)
 │       ├── useCanvasGesture.ts Pan + zoom wiring; Space-held → pan, otherwise marquee owns drag
-│       ├── useCardGesture.ts   Per-card drag gesture (selection-aware: routes deltas to group when in multi-select)
+│       ├── useCardGesture.ts   Generic draggable-with-springs gesture (onTap/onDragStart/onDragMove/onDragEnd); knows nothing about selection
 │       ├── useCardResize.ts    Per-card resize gesture
 │       ├── useMarquee.ts       Drag-to-create selection rectangle (mouse/pen only; touch falls through to pan)
-│       └── useSelectionDrag.tsx Group-drag coordinator: registers card MV handles, drives all selected at once, commits via patchItemsMany
+│       ├── useSelectionDrag.tsx Group-drag coordinator: drag targets publish position MVs via useRegisterDragTarget, coordinator drives all selected in lockstep + commits via patchItemsMany
+│       ├── useDotGridSync.ts   Recomputes canvas background-size/position from pan/zoom MVs
+│       └── useAddUrlFlow.ts    URL-add modal state + 'a' / 'mod+v' hotkeys + drop-at-viewport-center handler
 ├── store/         Zustand. INTERACTION STATE ONLY.
 │   ├── canvas.ts     zIndices, bringToFront
-│   ├── selection.ts  ids (multi-select), primaryId (SidePanel focus), has/replace/toggle/add/remove/set/union/subtract/clear
+│   ├── selection.ts  ids (multi-select), primaryId (SidePanel focus), has/replace/toggle/add/set/clear
 │   └── theme.ts
 ├── lib/
 │   ├── trpc.ts    tRPC client + exported types from AppRouter
@@ -82,7 +82,7 @@ Marquee containment uses `rectContains(outer, inner)` from `lib/canvasMath.ts`. 
 
 The `MarqueeOverlay` renders OUTSIDE the transformed `<motion.div>` (screen space) — that keeps the dashed stroke 1.5px at any zoom level. It mounts/unmounts instantly (no animation), matching `prefers-reduced-motion`.
 
-Group drag is coordinated by `useSelectionDrag.tsx`: each Card registers its motion-value handles in a ref-backed registry; when the user drags any card that's part of a multi-select, the gesture handler forwards the canvas-space delta to all other registered handles and skips React renders during the drag. On release, the coordinator reads every selected card's final position and fires one `boards.patchItemsMany` call (atomic). Group delete uses `boards.deleteItemsMany` with optimistic cache filtering. Both wrap one `withTransaction` on the worker — all-or-nothing, matching the user contract.
+Group drag is coordinated by `useSelectionDrag.tsx`: each Card publishes its position MVs via `useRegisterDragTarget(id, handles)` — the Card itself stays selection-agnostic. Selection-aware decisions live one level up in `CanvasCard.tsx`: its `onDragMove` callback reads selection from the store live and, when this card is in a multi-select, forwards the canvas-space delta to the coordinator (which drives all other registered targets). `onDragEnd` similarly chooses between a single-card commit (`patchItems.mutate([{id, patch}])`) and the coordinator's batch commit (`selectionDrag.commit()` → one `boards.patchItemsMany` call). Both paths go through the same `usePatchItems` hook with array-wrapped input. Group delete uses `boards.deleteItemsMany` with optimistic cache filtering. Each batch wraps one `withTransaction` on the worker — all-or-nothing, matching the user contract.
 
 ## tRPC client
 
@@ -104,7 +104,7 @@ All mutations follow the same shape (see `useAddItem.ts` as the canonical exampl
 2. `onSuccess` — replace optimistic value with server response (do not invalidate — we already have the data).
 3. `onError` — restore previous snapshot from context.
 
-For position sync (`useSyncPosition`) the mutation is fire-and-forget — Framer Motion is already showing the final position, so we don't even need optimistic update logic; we just persist.
+For position/size sync (`usePatchItems`) the mutation is fire-and-forget — Framer Motion is already showing the final position/size, so we don't even need optimistic update logic; we just persist. Both single-card commits and group commits go through the same hook with an array-wrapped input; the worker batches each call inside one `withTransaction`.
 
 ## Skeleton cards
 
@@ -113,7 +113,7 @@ For position sync (`useSyncPosition`) the mutation is fire-and-forget — Framer
 - Don't open the expanded view on a skeleton (no real id yet).
 - Don't PATCH position on a skeleton (no row exists).
 
-Skeleton drag during load: the user can move the skeleton card before the real item arrives. `Canvas.tsx` passes `onDragEnd` to the skeleton Card that writes the new x/y back onto the cached `SkeletonItem`. `useAddItem.onSuccess` reads the cached position when swapping in the real item; if it differs from the server-returned coords, it also fires a follow-up `patchBoardItem` so the server learns where the card ended up. Without this, the swap snaps the card back to the original drop point.
+Skeleton drag during load: the user can move the skeleton card before the real item arrives. `CanvasCard.tsx` (`SkeletonCanvasCard`) passes `onDragEnd` to the skeleton Card that writes the new x/y back onto the cached `SkeletonItem`. `useAddItem.onSuccess` reads the cached position when swapping in the real item; if it differs from the server-returned coords, it also fires a follow-up `patchBoardItems([{id, patch: {x, y}}])` so the server learns where the card ended up. Without this, the swap snaps the card back to the original drop point.
 
 ## Bookmarklet drop-zone (`/import`)
 
@@ -134,7 +134,7 @@ const x = (-panX.get() + window.innerWidth / 2 - cardWidth / 2) / zoom;
 const y = (-panY.get() + window.innerHeight / 2 - 200) / zoom;
 ```
 
-This is in `Canvas.tsx:handleAddUrl` — copy that pattern if you add another "drop at center" affordance.
+This is in `hooks/interaction/useAddUrlFlow.ts:handleAddUrl` — copy that pattern if you add another "drop at center" affordance.
 
 ## Design system
 
@@ -166,4 +166,4 @@ All scripts work from the repo root (mirrored as `pnpm <name>` or `<name>:web`) 
 - `dev` — Vite dev server
 - `build` — `tsc -b && vite build`
 - `preview` — Vite preview of the production build
-- `lint` — `tsc --noEmit && eslint .`
+- `lint` — `tsc -b && eslint .` (the web workspace uses TS project references — `tsc --noEmit` would silently typecheck nothing because the root tsconfig has `"files": []`; build mode is required to walk into `tsconfig.app.json`)

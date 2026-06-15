@@ -236,10 +236,6 @@
         margin: 0 0 20px;
         box-shadow: var(--shadow);
       }
-      pre.diagram {
-        font-size: 12px;
-        line-height: 1.4;
-      }
 
       code {
         font-family:
@@ -433,6 +429,51 @@
         color: var(--fg);
         font-weight: 500;
       }
+
+      /* Mermaid containers. Mermaid renders an SVG; we size it to fit. */
+      .diagram {
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px 16px;
+        margin: 0 0 22px;
+        box-shadow: var(--shadow);
+        overflow-x: auto;
+      }
+      .diagram .mermaid {
+        text-align: center;
+      }
+      .diagram .mermaid svg {
+        max-width: 100%;
+        height: auto;
+        display: inline-block;
+      }
+      /* Pre-render placeholder — Mermaid replaces .mermaid content with SVG
+         on init; this just keeps the surface from collapsing before then. */
+      .diagram .mermaid:not([data-processed]) {
+        min-height: 80px;
+        display: grid;
+        place-items: center;
+        color: var(--fg-subtle);
+        font-size: 12px;
+        font-family:
+          'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
+      }
+
+      .event-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 18px;
+        row-gap: 2px;
+        font-size: 13.5px;
+        margin: 8px 0 4px;
+      }
+      .event-grid code {
+        color: var(--fg);
+      }
+      .event-grid .desc {
+        color: var(--fg-muted);
+      }
     </style>
   </head>
   <body>
@@ -448,7 +489,8 @@
             <ol class="sub">
               <li><a href="#seq-mutation">Persistent mutation</a></li>
               <li><a href="#seq-cursor">Cursor broadcast</a></li>
-              <li><a href="#seq-drag">Collaborative drag</a></li>
+              <li><a href="#seq-drag">Drag &amp; resize</a></li>
+              <li><a href="#seq-trash">Trash / restore / replace</a></li>
               <li><a href="#seq-connect">Connect + sync</a></li>
               <li><a href="#seq-reconnect">Reconnect</a></li>
               <li><a href="#seq-kick">Kick (revoked)</a></li>
@@ -465,8 +507,11 @@
           <p class="subtitle">
             How shared-board edits propagate in real time once the
             Durable Object transport lands. Phase 1 (shared boards with
-            refresh-to-see) is already in HEAD; this document scopes
-            what comes next.
+            refresh-to-see) is in HEAD; this document scopes the live
+            transport on top of it, including the surface added since
+            Phase 1 shipped — multi-select batch ops, soft-delete /
+            trash, reparse, primary-image, and the bookmarklet import
+            path.
           </p>
         </header>
 
@@ -474,40 +519,67 @@
           <h2>Overview</h2>
           <p class="lede">
             Two transports out of the browser, two classes of message,
-            one Durable Object per board acting as broadcaster.
+            one Durable Object per board acting as broadcaster. The DO
+            is purely a fan-out hub — D1 stays the only source of truth.
           </p>
 
           <div class="legend">
             <div class="item">
               <span class="tag persistent">Persistent</span>
               <p>
-                Server-originated, broadcast <em>after</em> the D1 commit
-                lands. <code>add</code> · <code>patch</code> ·
-                <code>delete</code> · <code>restore</code> ·
-                <code>members.changed</code> · <code>kick</code>.
-                Carries a <code>clientMsgId</code> so the originator can
-                suppress its own echo.
+                Server-originated, broadcast <em>after</em> the
+                <code>db.batch()</code> commit lands. Every persistent
+                event carries a <code>clientMsgId</code> so the
+                originating tab can suppress its own echo.
               </p>
+              <div class="event-grid" style="margin-top: 10px">
+                <code>add</code>
+                <span class="desc">new placement (URL parse or bookmarklet)</span>
+                <code>patch</code>
+                <span class="desc">geometry / z / primaryImageId — single or batch</span>
+                <code>delete</code>
+                <span class="desc">soft-delete one or more placements</span>
+                <code>restore</code>
+                <span class="desc">undo soft-delete from the trash drawer</span>
+                <code>purge</code>
+                <span class="desc">hard-delete from trash (R2 cleanup)</span>
+                <code>replace</code>
+                <span class="desc">reparse — full placement payload</span>
+                <code>members.changed</code>
+                <span class="desc">invite accepted / member removed</span>
+                <code>kick</code>
+                <span class="desc">targeted to the revoked user's sockets</span>
+              </div>
             </div>
             <div class="item">
               <span class="tag ephemeral">Ephemeral</span>
               <p>
                 Client-originated, fanned out immediately by the DO,
-                never persisted. <code>cursor</code> · <code>drag</code>
-                · <code>ping</code>. Lost messages are lost — the next
+                never persisted. Lost messages are lost — the next
                 throttled emit covers the gap.
               </p>
+              <div class="event-grid" style="margin-top: 10px">
+                <code>cursor</code>
+                <span class="desc">pointer position, ~30Hz</span>
+                <code>drag</code>
+                <span class="desc">in-flight placement move, ~60Hz (one or many ids)</span>
+                <code>resize</code>
+                <span class="desc">in-flight width/height, ~60Hz</span>
+                <code>ping</code>
+                <span class="desc">presence keepalive</span>
+              </div>
             </div>
           </div>
 
           <p>
-            tRPC remains the only durable write path. The Durable Object
-            holds zero persistent state — on restart, peers reconnect
-            and resync via <code>boards.getItems</code>. R2 cleanup and
-            DO broadcast both live in the same <code>Tx</code>
-            accumulator (<code>scheduleBlobCleanup</code> /
+            tRPC remains the only durable write path. The Durable
+            Object holds zero persistent state — on restart, peers
+            reconnect and resync via <code>boards.getItems</code>.
+            Inside <code>withTransaction</code>, R2 cleanup and DO
+            broadcast both ride the same <code>Tx</code> accumulator
+            (<code>scheduleBlobCleanup</code> /
             <code>scheduleBroadcast</code>) and drain only after
-            <code>db.batch()</code> commits — if SQL throws, neither
+            <code>db.batch()</code> commits. If SQL throws, neither
             runs.
           </p>
         </section>
@@ -525,12 +597,12 @@
           <h3>The constraint</h3>
           <p>
             A Worker invocation has no shared memory with its siblings.
-            If Alice's WS connection lives on isolate <code>A</code> and
-            Bob's lives on isolate <code>B</code>, there is no
-            in-process place to keep "the list of connections for board
-            X." Without a stateful coordinator, every broadcast would
-            need an external message bus and the latency budget for
-            cursors evaporates.
+            If Alice's WS connection lives on isolate <code>A</code>
+            and Bob's lives on isolate <code>B</code>, there is no
+            in-process place to keep "the list of connections for
+            board X." Without a stateful coordinator, every broadcast
+            would need an external message bus and the latency budget
+            for cursors evaporates.
           </p>
 
           <h3>What a DO gives us</h3>
@@ -546,9 +618,10 @@
             <li>
               <strong>Hibernation API.</strong> Cursor traffic is
               bursty-with-long-idles.
-              <code>state.acceptWebSocket()</code> hands the socket back
-              to the platform between messages and only wakes the DO on
-              inbound traffic. Idle peers don't keep an isolate hot.
+              <code>state.acceptWebSocket()</code> hands the socket
+              back to the platform between messages and only wakes the
+              DO on inbound traffic. Idle peers don't keep an isolate
+              hot.
             </li>
             <li>
               <strong>Serialized writes.</strong> Method calls on a DO
@@ -611,10 +684,10 @@
             </li>
             <li>
               <strong>Hibernation footguns.</strong> Per-socket data
-              must go through <code>serializeAttachment</code>; instance
-              fields don't survive between messages. Easy to get wrong
-              on first attempt — documented as an invariant in the
-              implementation plan.
+              must go through <code>serializeAttachment</code>;
+              instance fields don't survive between messages. Easy to
+              get wrong on first attempt — documented as an invariant
+              in the implementation plan.
             </li>
             <li>
               <strong>Cost.</strong> DOs bill on requests + duration.
@@ -639,114 +712,127 @@
           <p class="lede">
             Two browsers, one Hono worker with a tRPC handler and a WS
             upgrade route, one DO per board, D1 + R2 as the durable
-            substrate.
+            substrate. After migration 0009 the canonical product
+            record is the placement (<code>board_items</code>) — there
+            is no separate <code>items</code> table.
           </p>
-          <pre class="diagram">┌──────────────────────────────────────────────────────────────────────────┐
-│  Browser (Alice)                       Browser (Bob)                     │
-│  ┌──────────────────────┐              ┌──────────────────────┐          │
-│  │ React + TanStack Q   │              │ React + TanStack Q   │          │
-│  │  - useBoardItems     │              │  - useBoardItems     │          │
-│  │  - useAddItem        │              │  - useAddItem        │          │
-│  │  - useSyncPosition   │              │  - useSyncPosition   │          │
-│  │  - useBoardLive ←─┐  │              │  - useBoardLive ←─┐  │          │
-│  │  - presence store │  │              │  - presence store │  │          │
-│  │  - sentMsgIds Set │  │              │  - sentMsgIds Set │  │          │
-│  └─────┬──────┬──────┼──┘              └─────┬──────┬──────┼──┘          │
-│   tRPC │   WS │ (in) │                  tRPC │   WS │ (in) │             │
-│  (POST)│ (out)│      │                 (POST)│ (out)│      │             │
-└────────┼──────┼──────┼─────────────────────┼──────┼──────┼───────────────┘
-         │      │      │                     │      │      │
-         ▼      ▼      │                     ▼      ▼      │
-┌──────────────────────┴──────────────────────────────────┴────────────────┐
-│  Cloudflare Worker (Hono)                                                │
-│  ┌─────────────────────────────┐   ┌────────────────────────────────┐    │
-│  │ tRPC handler                │   │ GET /api/boards/:id/live       │    │
-│  │  - protectedProcedure       │   │  - cookie → session            │    │
-│  │  - withTransaction(tx)      │   │  - boards.requireEditor()      │    │
-│  │       ↓                     │   │  - forward upgrade to DO       │    │
-│  │    stage SQL                │   └──────────────┬─────────────────┘    │
-│  │    scheduleBlobCleanup      │                  │ Upgrade              │
-│  │    scheduleBroadcast  ◄─────┼──── after        │                      │
-│  │       ↓                     │     SQL commit   │                      │
-│  │    db.batch([...])          │                  │                      │
-│  │    R2 deletes               │                  │                      │
-│  │    DO.publish(msg) ─────────┼──────────┐       │                      │
-│  └─────────────────────────────┘          │       │                      │
-│                                           ▼       ▼                      │
-│                       ┌───────────────────────────────────────────┐      │
-│                       │ BoardDO (one per board, named by boardId) │      │
-│                       │  - hibernation API                        │      │
-│                       │  - state.getWebSockets() = live sockets   │      │
-│                       │  - publish(msg): fan out to all sockets   │      │
-│                       │  - webSocketMessage: relay ephemeral msgs │      │
-│                       │  - no durable storage (D1 is source)      │      │
-│                       └────────────────────┬──────────────────────┘      │
-│                                            │                             │
-│  ┌──────────────────────┐ ┌─────────────────┴─────────────┐              │
-│  │ D1 (SQLite)          │ │ R2 (images)                   │              │
-│  │  boards,             │ │  items/{userId}/{nanoid}      │              │
-│  │  board_items,        │ │                               │              │
-│  │  board_item_images,  │ │                               │              │
-│  │  board_members,      │ │                               │              │
-│  │  board_invites,      │ │                               │              │
-│  │  users, sessions     │ │                               │              │
-│  └──────────────────────┘ └───────────────────────────────┘              │
-└──────────────────────────────────────────────────────────────────────────┘</pre>
+
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Clients
+    direction LR
+    A["Alice — React + TanStack Query<br/>useBoardLive · presence store · sentMsgIds"]
+    B["Bob — React + TanStack Query<br/>useBoardLive · presence store · sentMsgIds"]
+  end
+
+  subgraph WorkerBox["Cloudflare Worker (Hono)"]
+    direction TB
+    Auth["/api/auth/*<br/>signup · login · logout · me"]
+    tRPC["tRPC /trpc<br/>protectedProcedure<br/>withTransaction(tx, scope):<br/>stage SQL · scheduleBlobCleanup · scheduleBroadcast<br/>commit → R2 cleanup → DO.publish"]
+    Live["GET /api/boards/:id/live<br/>cookie → session<br/>requireEditor → forward upgrade"]
+    Imgs["GET /api/images/*<br/>R2 stream"]
+  end
+
+  DO["BoardDO (one per boardId)<br/>hibernation API · state.getWebSockets()<br/>publish(msg) → fanout<br/>webSocketMessage → relay ephemerals<br/>NO durable storage"]
+
+  D1[("D1 (SQLite)<br/>boards · board_items · board_item_images<br/>board_members · board_invites<br/>users · sessions")]
+  R2[("R2<br/>items/userId/nanoid")]
+  Claude["Anthropic Claude Haiku<br/>(parseUrl · parseFromHtml · reparseItem)"]
+
+  A <-->|tRPC POST| tRPC
+  B <-->|tRPC POST| tRPC
+  A -. WS .-> Live
+  B -. WS .-> Live
+  Live -. upgrade .-> DO
+  tRPC -- after commit --> DO
+  DO -. WS push .-> A
+  DO -. WS push .-> B
+  tRPC <--> D1
+  tRPC --> R2
+  Imgs --> R2
+  tRPC --> Claude
+  Auth --> D1
+            </pre>
+          </div>
+
+          <p>
+            <strong>What's new since Phase 1.</strong> The collab
+            surface (<code>invite</code>, <code>acceptInvite</code>,
+            <code>listMembers</code>, <code>removeMember</code>,
+            <code>leave</code>) already lives in the boards router and
+            is reflected in the <code>board_members</code> /
+            <code>board_invites</code> tables. The persistent message
+            set also expanded — <code>patchItemsMany</code> /
+            <code>deleteItemsMany</code> for multi-select; trash
+            lifecycle (<code>delete</code> →
+            <code>restore</code> | <code>purge</code> |
+            <code>emptyTrash</code>); <code>setPrimaryImage</code> and
+            <code>reparseItem</code>. Each tRPC procedure remains one
+            <code>withTransaction</code> block and stages exactly one
+            broadcast.
+          </p>
         </section>
 
         <section id="sequences" class="major">
           <h2>Sequences</h2>
           <p class="lede">
-            Six flows. The first three carry the main load (mutations,
-            cursors, drag). The last three handle lifecycle (connect,
-            reconnect, kick).
+            Seven flows. The first three carry the main load
+            (mutations, cursors, drag/resize). The next three handle
+            lifecycle (trash, connect, reconnect). The last revokes
+            access mid-session.
           </p>
 
           <h3 id="seq-mutation">
             <span class="marker persistent">Persistent</span>
-            Mutation (Alice adds item, Bob sees it)
+            Mutation (add, patch, delete — single or batch)
           </h3>
           <p>
             tRPC stages SQL, then schedules the broadcast on the same
             <code>Tx</code> accumulator. The broadcast carries the
             originator's <code>clientMsgId</code>, which Alice's
             browser uses to suppress the echo of its own optimistic
-            update.
+            update. Group ops (<code>patchItemsMany</code>,
+            <code>deleteItemsMany</code>) carry an array under the
+            same single broadcast — one atomic batch, one message.
           </p>
-          <pre class="diagram">Alice                  Worker (tRPC)         BoardDO           Bob
-  │  parseUrl(url)         │                    │              │
-  │ ─────────────────────► │                    │              │
-  │                        │  fetch+claude+R2   │              │
-  │  ParseResult           │                    │              │
-  │ ◄───────────────────── │                    │              │
-  │                        │                    │              │
-  │  addItem({..., clientMsgId=K})              │              │
-  │ ─────────────────────► │                    │              │
-  │                        │  withTx:           │              │
-  │                        │    boards.req...   │              │
-  │                        │    stage inserts   │              │
-  │                        │    schedBroadcast  │              │
-  │                        │  ──── db.batch ──► │              │
-  │                        │  ──── R2 cleanup ► │              │
-  │                        │  DO.publish({type:'add',          │
-  │                        │              clientMsgId:K, ...}) │
-  │                        │ ─────────────────► │              │
-  │  BoardItem             │                    │  WS push:    │
-  │ ◄───────────────────── │                    │  {add, K, item}
-  │                        │                    │ ───────────► │
-  │  WS push:              │                    │              │
-  │  {add, K, item}        │                    │              │
-  │ ◄──────────────────────┴──────────────────  │              │
-  │                                             │              │
-  │  clientMsgId K is in sentMsgIds             │              │
-  │  → suppress echo, keep optimistic state     │              │
-  │                                             │              │
-  │                                             │  Bob's clientMsgIds
-  │                                             │  has no K
-  │                                             │  → setQueryData(items)
-  │                                             │     splices in item
-  │                                             │  → Card mounts,
-  │                                             │     spring animates</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Alice
+  participant W as Worker · tRPC
+  participant DO as BoardDO
+  actor Bob
+
+  Alice->>W: parseUrl(url) — or parseFromHtml from bookmarklet
+  W->>W: fetch + Claude + R2 upload<br/>(NOT in withTransaction — blobs land first)
+  W-->>Alice: ParseResult { storedImages, meta }
+
+  Alice->>W: addItem({ ..., clientMsgId: K })
+  Note over W: withTransaction(scope=alice):<br/>  requireEditor(boardId)<br/>  stage INSERTs<br/>  scheduleBroadcast({ type: 'add', K, item })<br/>db.batch commit → drain blobs → DO.publish
+
+  W->>DO: publish({ type: 'add', K, item })
+  par tRPC response
+    W-->>Alice: BoardItem
+  and WS fanout
+    DO-->>Alice: WS { add, K, item }
+    DO-->>Bob: WS { add, K, item }
+  end
+
+  Note over Alice: K ∈ sentMsgIds → suppress echo,<br/>swap skeleton → real
+  Note over Bob: K ∉ sentMsgIds → splice into items cache,<br/>Card mounts, spring animates in
+            </pre>
+          </div>
+          <p>
+            <strong>Single vs batch shape.</strong>
+            <code>patchItem</code> carries one <code>{ id, patch }</code>;
+            <code>patchItemsMany</code> carries
+            <code>{ patches: [{ id, patch }] }</code>. The broadcast
+            mirrors the input: <code>{ type: 'patch', K, patches }</code>
+            in both cases (with length 1 in the single-patch path).
+            Receivers iterate.
+          </p>
 
           <h3 id="seq-cursor">
             <span class="marker ephemeral">Ephemeral</span>
@@ -755,103 +841,172 @@
           <p>
             Pure relay through the DO. No D1 write, no
             <code>clientMsgId</code> — the DO fans out to peers and
-            skips the originator. Throttled ~30Hz on the client side.
+            skips the originator. Throttled to ~30Hz on the client
+            side. The DO reads <code>userId</code> from the socket's
+            <code>serializeAttachment</code>, set at upgrade time, so
+            the client can't spoof identity.
           </p>
-          <pre class="diagram">Alice (pointermove, throttled ~30Hz)
-  │   WS send: {type:'cursor', x, y}
-  │ ─────────────────────────────────────► BoardDO
-  │                                         │
-  │                                         │  webSocketMessage(ws, msg):
-  │                                         │    validate shape (Zod)
-  │                                         │    attach userId from
-  │                                         │      serializeAttachment
-  │                                         │    fan out to peers
-  │                                         │      EXCEPT originator
-  │                                         │
-  │                                         │  for ws in getWebSockets():
-  │                                         │    if ws != originator:
-  │                                         │      ws.send(msg + userId)
-  │                                         │
-  │                          ◄────────────  │
-  │                          Bob's WS push: │
-  │                          {cursor, userId:alice, x, y}
-  │
-  │ Bob's presence store:
-  │   cursors[alice] = {x, y, lastSeenAt: now}
-  │ Cursor overlay re-renders (springX/springY update)
-  │ → Alice's colored arrow tracks at 30Hz
-  │
-  │ 5s after Alice's last cursor msg, presence cull removes entry.</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Alice
+  participant DO as BoardDO
+  actor Bob
+
+  loop pointermove @ ~30Hz
+    Alice->>DO: WS { type: 'cursor', x, y }
+    Note over DO: validate Zod shape<br/>attach userId from serializeAttachment<br/>fan out to peers (skip originator)
+    DO->>Bob: WS { cursor, userId: alice, x, y }
+  end
+
+  Note over Bob: presence.cursors.alice = { x, y, lastSeenAt }<br/>springX / springY drive the colored arrow at ~30Hz
+
+  Note over Bob: idle 5s → presence cull removes entry,<br/>arrow fades out
+            </pre>
+          </div>
 
           <h3 id="seq-drag">
             <span class="marker mixed">Mixed</span>
-            Collaborative drag
+            Collaborative drag &amp; resize
           </h3>
           <p>
-            Two-phase: ephemeral while the drag is in flight (60Hz drag
-            messages move Bob's Card via motion values), then a single
-            persistent <code>patch</code> on drag end carries the final
-            position to D1.
+            Two-phase: ephemeral while the gesture is in flight (60Hz
+            messages move Bob's Card via motion values directly — no
+            React state churn), then a single persistent
+            <code>patch</code> on gesture end commits the final
+            geometry to D1. Group drag fans the same shape with an
+            array of ids; resize uses an identical envelope with
+            <code>width</code>/<code>height</code> instead of
+            <code>dx</code>/<code>dy</code>.
           </p>
-          <pre class="diagram">Alice                       BoardDO                Bob
-  │ dragStart               │                       │
-  │                         │                       │
-  │ pointermove (throttled ~60Hz)                   │
-  │ WS {type:'drag',        │                       │
-  │     placementId, x, y}  │                       │
-  │ ──────────────────────► │  fanout (except       │
-  │                         │   originator)         │
-  │                         │ ────────────────────► │
-  │ (repeats ~60Hz                                  │ Bob's Card:
-  │  for the duration                               │   remoteDrags[pid]
-  │  of the drag)                                   │   = {userId, x, y}
-  │                                                 │   Card's springX/Y
-  │                                                 │   driven by stream
-  │ dragEnd                 │                       │   (no React state
-  │                         │                       │    churn — motion
-  │ HTTPS patchBoardItem    │                       │    values direct)
-  │ ──────────────────────► │ tRPC path             │
-  │   {id, x, y, clientMsgId:K}                     │
-  │                         │ withTx: stage,        │
-  │                         │ commit, publish       │
-  │                         │ ────────────────────► │
-  │                                                 │ WS {patch, K, ...}
-  │                                                 │ presence.remoteDrags[pid]
-  │                                                 │   cleared
-  │                                                 │ query cache patched
-  │                                                 │ → Card snaps to final</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Alice
+  participant DO as BoardDO
+  participant W as Worker · tRPC
+  actor Bob
+
+  Note over Alice: pointerdown · gestureStart
+  loop pointermove @ ~60Hz
+    Alice->>DO: WS { type: 'drag', ids, dx, dy }<br/>(or 'resize' with width / height)
+    DO->>Bob: WS { drag, userId: alice, ids, dx, dy }
+    Note over Bob: presence.remoteGestures.id = { userId, dx, dy }<br/>motion values follow stream<br/>(no React render churn)
+  end
+  Note over Alice: pointerup · gestureEnd
+
+  Alice->>W: patchItemsMany({ patches, clientMsgId: K })<br/>patches = list of (id, patch) pairs
+  Note over W: withTransaction:<br/>  stage UPDATEs<br/>  scheduleBroadcast({ type: 'patch', K, patches })<br/>db.batch commit
+
+  W->>DO: publish({ type: 'patch', K, patches })
+  DO->>Bob: WS { patch, K, patches }
+  Note over Bob: presence.remoteGestures cleared<br/>query cache patched → Card snaps to final
+  Note over Alice: K ∈ sentMsgIds → suppress echo
+            </pre>
+          </div>
+
+          <h3 id="seq-trash">
+            <span class="marker persistent">Persistent</span>
+            Trash · restore · purge · replace
+          </h3>
+          <p>
+            Soft-delete sends a placement to the trash drawer; restore
+            brings it back; purge (or <code>emptyTrash</code>)
+            hard-deletes the row and reclaims R2 blobs.
+            <code>reparseItem</code> and <code>setPrimaryImage</code>
+            fold into the same envelope as a server-driven
+            <code>replace</code> (full payload) or
+            <code>patch</code> (single field), respectively — same
+            commit-then-broadcast ordering.
+          </p>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Alice
+  participant W as Worker · tRPC
+  participant DO as BoardDO
+  actor Bob
+
+  Alice->>W: deleteItemsMany({ ids, clientMsgId: K1 })
+  Note over W: withTx: requireEditor<br/>stage UPDATE deletedAt=now<br/>scheduleBroadcast({ type: 'delete', K1, ids })
+  W->>DO: publish
+  DO->>Bob: WS { delete, K1, ids }
+  Note over Bob: splice ids out of items cache,<br/>add to trash cache
+
+  Note over Alice: later — restore from trash drawer
+  Alice->>W: restoreItem({ id, clientMsgId: K2 })
+  Note over W: withTx: stage UPDATE deletedAt=null<br/>scheduleBroadcast({ type: 'restore', K2, ids })
+  W->>DO: publish
+  DO->>Bob: WS { restore, K2, ids, items }
+  Note over Bob: re-insert hydrated items into items cache
+
+  Note over Alice: alternative path — purge (hard delete)
+  Alice->>W: purgeItem / emptyTrash (clientMsgId: K3)
+  Note over W: withTx: stage DELETE,<br/>scheduleBlobCleanup(blobs),<br/>scheduleBroadcast({ type: 'purge', K3, ids })<br/>db.batch → R2 deletes → DO.publish
+  W->>DO: publish
+  DO->>Bob: WS { purge, K3, ids }
+  Note over Bob: drop from trash cache (already absent from items)
+
+  Note over Alice: server-driven full refresh
+  Alice->>W: reparseItem({ id })
+  W->>W: fetch + Claude + R2 upload (outside Tx)
+  Note over W: withTx: stage UPDATE meta,<br/>stage image swap,<br/>scheduleBlobCleanup(oldBlobs),<br/>scheduleBroadcast({ type: 'replace', K4, id, item })
+  W->>DO: publish
+  DO->>Bob: WS { replace, K4, item }
+  Note over Bob: replace items.id in cache —<br/>setPrimaryImage uses the same pattern via 'patch'
+            </pre>
+          </div>
+          <p>
+            <strong>Why <code>replace</code> instead of a richer
+            patch.</strong>
+            Reparse can churn metadata <em>and</em> images
+            simultaneously. The wire shape is simpler if the broadcast
+            carries the full payload than if receivers have to diff
+            two image arrays. <code>setPrimaryImage</code> stays a
+            <code>patch</code> with one field —
+            <code>primaryImageId</code> — because that's all that
+            changes.
+          </p>
 
           <h3 id="seq-connect">
             <span class="marker mixed">Lifecycle</span>
             Connect + initial sync
           </h3>
           <p>
-            No special "sync" message — the existing
-            <code>boards.getItems</code> tRPC query already gives the
-            client a fresh snapshot. The WS opens against that snapshot
-            and incoming patches are diffs from there.
+            No special "sync" message — <code>boards.getItems</code>
+            already gives the client a fresh snapshot. The WS opens
+            against that snapshot and incoming patches are diffs from
+            there. The bookmarklet import flow (<code>/import</code>)
+            is the same: it lands users on a board, runs
+            <code>getItems</code>, and only then opens the live
+            socket.
           </p>
-          <pre class="diagram">Bob opens board                Worker          BoardDO       D1
-  │ tRPC: boards.getItems        │                │            │
-  │ ───────────────────────────► │ ─── SELECT ──────────────► │
-  │ items[]                      │                │            │
-  │ ◄─────────────────────────── │                │            │
-  │ (TanStack Query cache hot)   │                │            │
-  │                              │                │            │
-  │ WS upgrade /api/boards/:id/live              │            │
-  │ ───────────────────────────► │ cookie→session             │
-  │                              │ boards.requireEditor       │
-  │                              │ forward upgrade ──────────►│
-  │                              │                │           │
-  │                              │       state.acceptWebSocket(ws,
-  │                              │         [userId, sessionId, clientId])
-  │                              │       serializeAttachment({userId, clientId})
-  │                              │                │
-  │ WS open                      │                │
-  │ ◄─────────────────────────── │ ◄──────────── │
-  │
-  │ Stream connected. No "sync" message — getItems already gave us
-  │ the snapshot. Incoming patches are diffs against that snapshot.</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Bob
+  participant W as Worker
+  participant DO as BoardDO
+  participant D1
+
+  Bob->>W: tRPC boards.getItems({ boardId })
+  W->>D1: SELECT placements + images (scoped by membership)
+  D1-->>W: rows
+  W-->>Bob: BoardItem list
+  Note over Bob: TanStack Query cache hot
+
+  Bob->>W: WS upgrade /api/boards/:id/live
+  Note over W: cookie → session lookup<br/>boards.requireEditor(boardId, userId)<br/>forward upgrade to DO
+  W->>DO: forward + attachment (userId, sessionId, clientId)
+  Note over DO: state.acceptWebSocket(ws, tags)<br/>ws.serializeAttachment({ userId, clientId })
+  DO-->>Bob: WS open
+  Note over Bob: stream live — incoming patches diff against snapshot
+            </pre>
+          </div>
 
           <h3 id="seq-reconnect">
             <span class="marker mixed">Lifecycle</span>
@@ -862,24 +1017,29 @@
             items query so the client re-snaps from D1 — any patches
             missed during the outage are now in the snapshot.
           </p>
-          <pre class="diagram">Bob (offline 30s)                Worker          BoardDO
-  │ WS dropped (network loss)     │                │
-  │                               │                │ webSocketClose
-  │                               │                │ broadcast {presence_leave, bob}
-  │
-  │ Backoff: 1s, 2s, 4s, ...
-  │ ▼
-  │ WS upgrade (new conn)         │                │
-  │ ────────────────────────────► │ ────────────► state.acceptWebSocket
-  │ WS open
-  │
-  │ Invalidate ['boards', id, 'items'] query
-  │ ────► tRPC boards.getItems    │ ── SELECT ──────────────► D1
-  │ ◄────────────────────────────                              │
-  │ Cache replaced with fresh snapshot
-  │
-  │ Any patches Bob missed during the outage are now reflected
-  │ in the snapshot. Live patches resume from this point.</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Bob
+  participant W as Worker
+  participant DO as BoardDO
+
+  Note over Bob: network drop
+  DO-)Bob: WS closed
+  Note over DO: webSocketClose handler<br/>broadcast { type: 'presence_leave', userId: bob }
+
+  Note over Bob: backoff: 1s, 2s, 4s, ..., 30s
+  Bob->>W: WS upgrade (new conn)
+  W->>DO: state.acceptWebSocket
+  DO-->>Bob: WS open
+
+  Bob->>Bob: invalidateQueries('boards', id, 'items')
+  Bob->>W: tRPC boards.getItems
+  W-->>Bob: BoardItem list — fresh snapshot
+  Note over Bob: patches missed during outage are reflected in snapshot.<br/>Live patches resume from this point.
+            </pre>
+          </div>
 
           <h3 id="seq-kick">
             <span class="marker persistent">Persistent</span>
@@ -888,31 +1048,30 @@
           <p>
             <code>removeMember</code> stages the soft-remove + a
             targeted <code>kick</code> broadcast. The DO finds Bob's
-            specific socket by attachment and closes it with a
-            non-retry code so the client doesn't auto-reconnect.
+            specific socket(s) by attachment and closes with a
+            non-retry code so the client doesn't auto-reconnect. The
+            same shape covers <code>leave</code> — the leaver
+            broadcasts <code>members.changed</code> but doesn't get a
+            <code>kick</code> (they closed deliberately).
           </p>
-          <pre class="diagram">Alice                  Worker             BoardDO              Bob
-  │ removeMember          │                   │                  │
-  │ ───────────────────► │                   │                  │
-  │                       │ withTx:           │                  │
-  │                       │  requireOwner     │                  │
-  │                       │  stage soft-rm    │                  │
-  │                       │  schedBroadcast   │                  │
-  │                       │   {type:'kick',   │                  │
-  │                       │    userId:bob}    │                  │
-  │                       │ db.batch          │                  │
-  │                       │ DO.publish ─────► │                  │
-  │                       │                   │ find Bob's ws    │
-  │                       │                   │ (attach.userId)  │
-  │                       │                   │ ws.send({kick})  │
-  │                       │                   │ ws.close(4003)   │
-  │                       │                   │                  │ ws.onmessage:
-  │                       │                   │                  │   show toast
-  │                       │                   │                  │   clear activeBoardId
-  │                       │                   │                  │   invalidate boards list
-  │                       │                   │                  │ ws.onclose:
-  │                       │                   │                  │   do NOT reconnect
-  │                       │                   │                  │   (clean close code)</pre>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Alice
+  participant W as Worker
+  participant DO as BoardDO
+  actor Bob
+
+  Alice->>W: removeMember({ boardId, userId: bob })
+  Note over W: withTx: requireOwner<br/>stage UPDATE board_members.deletedAt<br/>scheduleBroadcast({ type: 'kick', userId: bob })<br/>scheduleBroadcast({ type: 'members.changed', boardId })
+  W->>DO: publish (both messages)
+  Note over DO: for ws in getWebSockets():<br/>  if attachment.userId == bob:<br/>    ws.send({ kick })<br/>    ws.close(4003) — non-retry
+  DO->>Bob: WS { kick }
+  DO-)Bob: WS close (4003)
+  Note over Bob: onmessage: toast, clear activeBoardId, invalidate boards list<br/>onclose: do NOT reconnect (clean code 4003)
+            </pre>
+          </div>
         </section>
 
         <section id="invariants" class="major">
@@ -940,24 +1099,34 @@
                 <code>scheduleBlobCleanup</code> and
                 <code>scheduleBroadcast</code> are siblings in the
                 <code>Tx</code> accumulator. If the batch throws,
-                neither runs.
+                neither runs. Bytes can outlive rows (GC-reclaimed),
+                but rows can never point at missing bytes — and a
+                ghost broadcast can never reference a row that didn't
+                commit.
               </p>
             </li>
             <li>
               <strong>Echo suppression is clientMsgId-based.</strong>
               <p>
                 The client tags each mutation, the server echoes the
-                tag through the broadcast, the originating client
-                ignores echoes with its own tags. No server-side
-                per-connection memory required.
+                tag through the broadcast, the originating tab ignores
+                echoes with its own tags. No server-side
+                per-connection memory required. Multi-tab same-user
+                still receives the echo on the non-originating tab
+                because <code>sentMsgIds</code> is per-tab.
               </p>
             </li>
             <li>
-              <strong>Authorization happens on the HTTP upgrade.</strong>
+              <strong>
+                Authorization happens on the HTTP upgrade.
+              </strong>
               <p>
-                The DO trusts the userId in the connection
-                attachment because only the worker's
-                <code>/live</code> route can set it.
+                The <code>/live</code> route resolves the session
+                cookie to a <code>userId</code> and calls
+                <code>boards.requireEditor(boardId, userId)</code>
+                before forwarding the upgrade. The DO trusts
+                <code>attachment.userId</code> because only that route
+                can set it.
               </p>
             </li>
             <li>
@@ -966,17 +1135,33 @@
                 clientMsgId.
               </strong>
               <p>
-                Lost cursor or drag messages are lost — the next
-                throttled emit covers the gap. No retransmit, no
+                Lost cursor / drag / resize messages are lost — the
+                next throttled emit covers the gap. No retransmit, no
                 replay buffer.
               </p>
             </li>
             <li>
               <strong>Presence is purely client-derived.</strong>
               <p>
-                Cursor and drag entries are populated from inbound
-                messages. A peer that quietly vanishes is culled
-                after 5s of no traffic.
+                Cursor and gesture entries are populated from inbound
+                messages. A peer that quietly vanishes is culled after
+                5s of no traffic. <code>presence_leave</code> is a
+                hint, not a contract.
+              </p>
+            </li>
+            <li>
+              <strong>
+                One <code>withTransaction</code> block, one broadcast
+                (atomic with the batch).
+              </strong>
+              <p>
+                Every mutating procedure stages exactly one
+                <code>scheduleBroadcast</code>. Batch ops
+                (<code>patchItemsMany</code>,
+                <code>deleteItemsMany</code>,
+                <code>emptyTrash</code>) carry an array under that
+                single broadcast — the user contract ("all or nothing")
+                stays one-to-one with the wire shape.
               </p>
             </li>
           </ol>
@@ -984,19 +1169,19 @@
 
         <footer>
           <p>
-            See also the implementation plan at
-            <code>~/.claude/plans/a-i-alpha-quizzical-engelbart.md</code>
-            and Phase 1 commits <code>13b2cac</code> (server) and
-            <code>b46e364</code> (frontend) on <code>main</code>.
+            Phase 1 (shared boards, refresh-to-see) shipped in commits
+            <code>13b2cac</code> (server) and <code>b46e364</code>
+            (frontend); the items→board_items fold landed in
+            <code>093537a</code>. This document scopes the live
+            transport that goes on top of that surface.
           </p>
         </footer>
       </main>
     </div>
 
-    <script>
+    <script type="module">
       // Cheap scrollspy: highlight the TOC entry whose section is most
-      // visible. IntersectionObserver covers the common case; the loop on
-      // sections is bounded by document size.
+      // visible.
       const sections = document.querySelectorAll('section[id], h3[id]');
       const tocLinks = new Map();
       document
@@ -1022,6 +1207,95 @@
         },
       );
       sections.forEach((s) => observer.observe(s));
+
+      // Mermaid — theme drawn from the same CSS tokens the doc uses, so
+      // the diagrams flip with prefers-color-scheme on reload.
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+      function readToken(name) {
+        return getComputedStyle(document.documentElement)
+          .getPropertyValue(name)
+          .trim();
+      }
+
+      function themeVars() {
+        const bg = readToken('--bg');
+        const bgElev = readToken('--bg-elev');
+        const bgMuted = readToken('--bg-muted');
+        const border = readToken('--border');
+        const fg = readToken('--fg');
+        const fgMuted = readToken('--fg-muted');
+        const fgSubtle = readToken('--fg-subtle');
+        const accent = readToken('--accent');
+        const accentSoft = readToken('--accent-soft');
+        const persistent = readToken('--persistent');
+        const ephemeral = readToken('--ephemeral');
+        const codeBg = readToken('--code-bg');
+
+        return {
+          // Shared palette
+          background: bgElev,
+          primaryColor: bgElev,
+          primaryTextColor: fg,
+          primaryBorderColor: border,
+          secondaryColor: bgMuted,
+          secondaryTextColor: fg,
+          secondaryBorderColor: border,
+          tertiaryColor: codeBg,
+          tertiaryTextColor: fg,
+          tertiaryBorderColor: border,
+          lineColor: fgSubtle,
+          textColor: fg,
+          mainBkg: bgElev,
+          nodeBorder: border,
+          clusterBkg: bg,
+          clusterBorder: border,
+          titleColor: fg,
+          edgeLabelBackground: bg,
+
+          // Sequence diagram specifics
+          actorBkg: bgElev,
+          actorBorder: border,
+          actorTextColor: fg,
+          actorLineColor: fgSubtle,
+          signalColor: fg,
+          signalTextColor: fg,
+          labelBoxBkgColor: codeBg,
+          labelBoxBorderColor: border,
+          labelTextColor: fg,
+          loopTextColor: fgMuted,
+          noteBkgColor: codeBg,
+          noteTextColor: fg,
+          noteBorderColor: border,
+          activationBkgColor: accentSoft,
+          activationBorderColor: accent,
+          sequenceNumberColor: bg,
+
+          // Typography
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif',
+          fontSize: '13px',
+        };
+      }
+
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        themeVariables: themeVars(),
+        flowchart: { curve: 'basis', useMaxWidth: true, htmlLabels: true },
+        sequence: {
+          useMaxWidth: true,
+          showSequenceNumbers: false,
+          mirrorActors: false,
+          actorMargin: 60,
+          messageMargin: 36,
+          boxMargin: 12,
+        },
+      });
+
+      const nodes = document.querySelectorAll('.mermaid');
+      await mermaid.run({ nodes });
     </script>
   </body>
 </html>

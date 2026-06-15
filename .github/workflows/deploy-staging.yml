@@ -19,28 +19,51 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # When multiple commits land on main in quick succession, GitHub queues
+      # one run per push (concurrency group serializes; cancel-in-progress is
+      # off so a mid-flight D1 migration can't be killed). For commits that are
+      # no longer the tip of main by the time their runner starts, skip — the
+      # eventual run for the actual tip will do the deploy.
+      - name: Skip if a newer commit is on main
+        id: stale
+        run: |
+          git fetch origin main --depth=1
+          LATEST=$(git rev-parse origin/main)
+          if [ "$LATEST" != "$GITHUB_SHA" ]; then
+            echo "::notice::Skipping — newer commit $LATEST exists on main; this run is for $GITHUB_SHA"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v5
+        if: steps.stale.outputs.skip != 'true'
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
 
-      - run: corepack enable
+      - if: steps.stale.outputs.skip != 'true'
+        run: corepack enable
 
       - name: Cache pnpm store
+        if: steps.stale.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.local/share/pnpm/store
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-${{ runner.os }}-
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.stale.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - run: pnpm lint
+      - if: steps.stale.outputs.skip != 'true'
+        run: pnpm lint
 
-      - run: pnpm test
+      - if: steps.stale.outputs.skip != 'true'
+        run: pnpm test
 
       - name: Deploy worker (typegen + migrate + wrangler deploy)
+        if: steps.stale.outputs.skip != 'true'
         run: pnpm deploy:staging
 
       - name: Deploy Pages SPA
+        if: steps.stale.outputs.skip != 'true'
         run: pnpm deploy:pages:staging

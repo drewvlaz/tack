@@ -1,13 +1,10 @@
 import { motion, useMotionValue, useSpring } from 'framer-motion';
-import { forwardRef, useCallback, useMemo, useRef, useState } from 'react';
-import { useInView } from 'react-intersection-observer';
+import { forwardRef, useCallback, useMemo, useRef } from 'react';
 import { spring } from '../../config';
 import { useCardGesture } from '../../hooks/interaction/useCardGesture';
 import { useCardResize } from '../../hooks/interaction/useCardResize';
-import {
-  useRegisterCardMVs,
-  useSelectionDrag,
-} from '../../hooks/interaction/useSelectionDrag';
+import { useRegisterDragTarget } from '../../hooks/interaction/useSelectionDrag';
+import { useCardImage } from '../../hooks/useCardImage';
 
 type CardProps = {
   id: string;
@@ -20,16 +17,18 @@ type CardProps = {
   zIndex?: number;
   isSkeleton?: boolean;
   isSelected?: boolean;
-  inMultiSelect?: boolean;
   // Canvas seeds true when the card's rect intersects the visible viewport at
   // mount; lets us mount the <img> on the first frame instead of waiting for
   // an IntersectionObserver tick. Also drives `fetchpriority="high"` on those.
   initiallyVisible?: boolean;
   getZoom?: () => number;
   onTap?: (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
+  // onBringToFront is gated by the caller — if it's omitted (e.g. when the
+  // card is part of a multi-selection group), pointerdown won't reorder z.
   onBringToFront?: () => void;
+  onDragStart?: () => void;
+  onDragMove?: (canvasDx: number, canvasDy: number) => void;
   onDragEnd?: (x: number, y: number) => void;
-  onDragStartIfUnselected?: () => void;
   onResizeEnd?: (next: {
     x: number;
     y: number;
@@ -37,8 +36,6 @@ type CardProps = {
     height: number;
   }) => void;
 };
-
-type ImgStatus = 'idle' | 'requested' | 'loaded';
 
 export default function Card({
   id,
@@ -51,13 +48,13 @@ export default function Card({
   zIndex = 0,
   isSkeleton = false,
   isSelected = false,
-  inMultiSelect = false,
   initiallyVisible = false,
   getZoom,
   onTap,
   onBringToFront,
+  onDragStart,
+  onDragMove,
   onDragEnd,
-  onDragStartIfUnselected,
   onResizeEnd,
 }: CardProps) {
   const w = useMotionValue(width);
@@ -65,44 +62,30 @@ export default function Card({
   const springW = useSpring(w, spring.card);
   const springH = useSpring(h, spring.card);
 
-  const selectionDrag = useSelectionDrag();
   const lastTapModifiers = useRef({
     shiftKey: false,
     metaKey: false,
     ctrlKey: false,
   });
 
-  const isInMultiSelectCb = useCallback(
-    () => isSelected && inMultiSelect,
-    [isSelected, inMultiSelect],
-  );
-  const isSelectedCb = useCallback(() => isSelected, [isSelected]);
-
   const { ref, x, y, springX, springY } = useCardGesture({
     initialX,
     initialY,
     getZoom,
-    onTap: onTap
-      ? () => onTap(lastTapModifiers.current)
-      : undefined,
+    onTap: onTap ? () => onTap(lastTapModifiers.current) : undefined,
+    onDragStart,
+    onDragMove,
     onDragEnd,
-    onDragStartIfUnselected: isSkeleton ? undefined : onDragStartIfUnselected,
-    isSelected: isSelectedCb,
-    isInMultiSelect: isSkeleton ? undefined : isInMultiSelectCb,
-    onGroupDelta: isSkeleton
-      ? undefined
-      : (dx, dy) => selectionDrag.driveDelta(id, dx, dy),
-    onGroupCommit: isSkeleton ? undefined : () => selectionDrag.commit(),
   });
 
-  // Cards in a multi-selection register their motion values so the
-  // coordinator can drive them during a group drag. Skeleton cards skip
-  // registration (no real id yet).
+  // Publish position MVs to the group-drag coordinator. Skeleton cards opt
+  // out (no real id yet). The coordinator decides whether to drive them; the
+  // card itself stays selection-agnostic.
   const handles = useMemo(
     () => ({ x, y, springX, springY }),
     [x, y, springX, springY],
   );
-  useRegisterCardMVs(isSkeleton ? null : id, handles);
+  useRegisterDragTarget(isSkeleton ? null : id, handles);
 
   const { nwRef, neRef, swRef, seRef } = useCardResize({
     x,
@@ -117,23 +100,10 @@ export default function Card({
     onResizeEnd,
   });
 
-  const [inViewRef, inView] = useInView({
-    rootMargin: '300px',
-    triggerOnce: true,
-    skip: initiallyVisible,
-  });
-  const seen = initiallyVisible || inView;
-  const [status, setStatus] = useState<ImgStatus>(
-    initiallyVisible ? 'requested' : 'idle',
+  const { inViewRef, status, markLoaded } = useCardImage(
+    imageUrl,
+    initiallyVisible,
   );
-  const [trackedImgUrl, setTrackedImgUrl] = useState(imageUrl);
-  if (imageUrl !== trackedImgUrl) {
-    setTrackedImgUrl(imageUrl);
-    setStatus(seen ? 'requested' : 'idle');
-  }
-  if (status === 'idle' && seen) {
-    setStatus('requested');
-  }
 
   const setOuterRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -171,12 +141,10 @@ export default function Card({
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
         };
-        // bringToFront on the card the user is interacting with — but skip
-        // when the card belongs to a multi-selection group, so the dragged
-        // card doesn't visually pop out of the group's z-order.
-        if (!inMultiSelect && onBringToFront) {
-          onBringToFront();
-        }
+        // Caller gates this by omitting the callback when the card is in a
+        // multi-selection group (so the dragged card doesn't pop out of
+        // the group's z-order).
+        onBringToFront?.();
       }}
       style={{
         x: springX,
@@ -211,7 +179,7 @@ export default function Card({
           draggable={false}
           decoding="async"
           fetchPriority={initiallyVisible ? 'high' : 'auto'}
-          onLoad={() => setStatus('loaded')}
+          onLoad={markLoaded}
         />
       )}
       <ResizeHandle ref={nwRef} corner="nw" />

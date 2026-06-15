@@ -3,24 +3,25 @@ import { useMotionValue, useSpring } from 'framer-motion';
 import { useRef } from 'react';
 import { spring } from '../../config';
 
+// Generic draggable-with-springs gesture. Owns the position motion values and
+// runs the spring chain, but knows nothing about selection, grouping, or
+// what the caller does with the deltas. Compose with higher-level adapters
+// (e.g. CanvasCard) to add selection-aware behavior on top.
 type Options = {
   initialX?: number;
   initialY?: number;
   getZoom?: () => number;
   onTap?: () => void;
+  // Fires on the first pointer-move of a drag (after use-gesture's tap
+  // threshold has been exceeded). Use this to mutate state that should latch
+  // for the duration of the drag.
+  onDragStart?: () => void;
+  // Fires on every drag frame including `last`, with the canvas-space delta
+  // for that frame. The hook has already applied the delta to its own MVs;
+  // this callback lets the caller mirror the move elsewhere (e.g. drive
+  // other registered drag targets in lockstep).
+  onDragMove?: (canvasDx: number, canvasDy: number) => void;
   onDragEnd?: (x: number, y: number) => void;
-  // Group-drag hooks. When `getSelectionSize()` returns > 1 and this card is
-  // in the selection (caller's job to enforce — typically by only wiring these
-  // callbacks on selected cards), the gesture forwards the canvas-space delta
-  // to `onGroupDelta` and skips its own move. `onGroupCommit` fires on release
-  // so the coordinator can persist all selected positions in one batch.
-  isInMultiSelect?: () => boolean;
-  onGroupDelta?: (dx: number, dy: number) => void;
-  onGroupCommit?: () => void;
-  // Called on `first` if the card isn't already in the selection — typically
-  // replaces selection with this card, so a subsequent drag moves only it.
-  onDragStartIfUnselected?: () => void;
-  isSelected?: () => boolean;
 };
 
 export function useCardGesture({
@@ -28,12 +29,9 @@ export function useCardGesture({
   initialY = 0,
   getZoom = () => 1,
   onTap,
+  onDragStart,
+  onDragMove,
   onDragEnd,
-  isInMultiSelect,
-  onGroupDelta,
-  onGroupCommit,
-  onDragStartIfUnselected,
-  isSelected,
 }: Options) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -48,50 +46,28 @@ export function useCardGesture({
         onTap?.();
         return;
       }
-
       if (first) {
-        if (isSelected && !isSelected()) {
-          onDragStartIfUnselected?.();
-        }
+        onDragStart?.();
       }
 
       const z = getZoom();
       const cdx = dx / z;
       const cdy = dy / z;
-
-      const groupMode = isInMultiSelect?.() ?? false;
-
-      if (groupMode) {
-        // Move self (so the dragged card stays under the cursor) and
-        // dispatch the same delta to all other selected cards via the
-        // coordinator.
-        const nx = x.get() + cdx;
-        const ny = y.get() + cdy;
-        x.set(nx);
-        y.set(ny);
-        springX.jump(nx);
-        springY.jump(ny);
-        onGroupDelta?.(cdx, cdy);
-        if (last) {
-          springX.set(nx);
-          springY.set(ny);
-          onGroupCommit?.();
-        }
-        return;
-      }
-
       const nx = x.get() + cdx;
       const ny = y.get() + cdy;
 
+      x.set(nx);
+      y.set(ny);
+      springX.jump(nx);
+      springY.jump(ny);
+      onDragMove?.(cdx, cdy);
+
       if (last) {
+        // Hand the spring back to its normal physics (it was being jumped
+        // every frame). Visually a no-op — springX is already at nx.
         springX.set(nx);
         springY.set(ny);
         onDragEnd?.(nx, ny);
-      } else {
-        x.set(nx);
-        y.set(ny);
-        springX.jump(nx);
-        springY.jump(ny);
       }
     },
     { target: ref },
