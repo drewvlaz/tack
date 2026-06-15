@@ -32,15 +32,20 @@ src/
 │   │   ├── useBoards.ts, useCreateBoard.ts, useDeleteBoard.ts, useRenameBoard.ts
 │   │   ├── useBoardItems.ts   useQuery — items on a board
 │   │   ├── useAddItem.ts      useMutation — parseUrl → addItem with optimistic skeleton
-│   │   ├── useDeleteItem.ts   useMutation — optimistic removal
+│   │   ├── useDeleteItem.ts   useMutation — optimistic removal (single)
+│   │   ├── useDeleteItems.ts  useMutation — optimistic batch removal (multi-select delete)
+│   │   ├── usePatchPositions.ts useMutation — fire-and-forget batch x/y patch (group drag)
 │   │   ├── useReparseItem.ts  useMutation — re-fetch item from source URL
-│   │   └── useSyncPosition.ts useMutation — PATCH x/y on drag end (fire-and-forget)
+│   │   └── useSyncPosition.ts useMutation — PATCH x/y on drag end (fire-and-forget, single)
 │   └── interaction/    Gesture hooks (Framer Motion + use-gesture)
-│       ├── useCanvasGesture.ts Pan + zoom wiring (returns refs + motion values)
-│       ├── useCardGesture.ts   Per-card drag gesture
-│       └── useCardResize.ts    Per-card resize gesture
+│       ├── useCanvasGesture.ts Pan + zoom wiring; Space-held → pan, otherwise marquee owns drag
+│       ├── useCardGesture.ts   Per-card drag gesture (selection-aware: routes deltas to group when in multi-select)
+│       ├── useCardResize.ts    Per-card resize gesture
+│       ├── useMarquee.ts       Drag-to-create selection rectangle (mouse/pen only; touch falls through to pan)
+│       └── useSelectionDrag.tsx Group-drag coordinator: registers card MV handles, drives all selected at once, commits via patchItemsMany
 ├── store/         Zustand. INTERACTION STATE ONLY.
-│   ├── canvas.ts  selectedId, zIndices, bringToFront, setSelectedId
+│   ├── canvas.ts     zIndices, bringToFront
+│   ├── selection.ts  ids (multi-select), primaryId (SidePanel focus), has/replace/toggle/add/remove/set/union/subtract/clear
 │   └── theme.ts
 ├── lib/
 │   ├── trpc.ts    tRPC client + exported types from AppRouter
@@ -53,12 +58,31 @@ src/
 | Concern                                            | Owner                                         |
 | -------------------------------------------------- | --------------------------------------------- |
 | List of items on a board, their persisted position | TanStack Query (`useBoardItems`)              |
-| Currently selected card (for expand)               | Zustand (`useCanvasStore.selectedId`)         |
+| Currently selected cards (multi-select)            | Zustand (`useSelectionStore.ids`)             |
+| Focused card driving the SidePanel                 | Zustand (`useSelectionStore.primaryId`)       |
 | Per-card z-index stack from user clicks            | Zustand (`useCanvasStore.zIndices`)           |
 | Drag/pan/zoom in-flight values                     | Framer Motion `MotionValue` (not React state) |
 | Canvas viewport (panX, panY, zoom)                 | `useCanvasGesture` motion values              |
 
-If you find yourself putting items into Zustand or selectedId into the query cache, stop. The split is deliberate — server data invalidates separately from interaction state, and motion values bypass React renders during drag.
+If you find yourself putting items into Zustand or selection into the query cache, stop. The split is deliberate — server data invalidates separately from interaction state, and motion values bypass React renders during drag.
+
+**Selection store contract:** `ids` is `ReadonlySet<string>` and is ALWAYS replaced (new `Set`) on every mutation — never mutated in place. Zustand subscribers only re-render when identity changes; `ids.add(x)` on the live set would silently break subscriptions. Cards subscribe to their own bit via a stable single-key selector (`useSelectionStore(useCallback(s => s.ids.has(id), [id]))`) so only the cards whose membership flipped re-render. The store also resets on active-board change (Canvas.tsx `useEffect`).
+
+## Marquee selection + gestures
+
+Drag on empty canvas (mouse/pen only) draws a containment-marquee — cards fully inside become selected. Touch one-finger drag falls through to pan instead (no Space key on mobile). Modifiers chosen at drag start lock the marquee mode for that drag:
+
+- plain drag → replace selection
+- Shift+drag → add to existing selection
+- Alt/Option+drag → subtract from existing selection
+
+Hold **Space** to pan (Figma convention). Shift+click adds a card; Cmd/Ctrl+click toggles. Cmd/Ctrl+A selects all on the active board. Delete/Backspace opens a confirm dialog scaled to the selection size; Escape clears selection (and closes the SidePanel as a side effect, because `primaryId` becomes null).
+
+Marquee containment uses `rectContains(outer, inner)` from `lib/canvasMath.ts`. Marquee rect is captured in screen space, converted to canvas space via `screenToCanvas`, then tested against card rects (which live in canvas space). Per-frame selection updates are coalesced through `requestAnimationFrame` to avoid pinning the main thread.
+
+The `MarqueeOverlay` renders OUTSIDE the transformed `<motion.div>` (screen space) — that keeps the dashed stroke 1.5px at any zoom level. It mounts/unmounts instantly (no animation), matching `prefers-reduced-motion`.
+
+Group drag is coordinated by `useSelectionDrag.tsx`: each Card registers its motion-value handles in a ref-backed registry; when the user drags any card that's part of a multi-select, the gesture handler forwards the canvas-space delta to all other registered handles and skips React renders during the drag. On release, the coordinator reads every selected card's final position and fires one `boards.patchItemsMany` call (atomic). Group delete uses `boards.deleteItemsMany` with optimistic cache filtering. Both wrap one `withTransaction` on the worker — all-or-nothing, matching the user contract.
 
 ## tRPC client
 

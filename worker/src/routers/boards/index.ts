@@ -3,16 +3,20 @@ import { ServiceCtx, withTransaction } from '../../db/tx';
 import {
   AddItemBody,
   CreateBoardBody,
+  DeleteItemsManyBody,
   PatchBoardItemBody,
+  PatchItemsManyBody,
   RenameBoardBody,
 } from '../../schemas/board';
 import {
   addBoardItem,
   deleteBoardItem,
+  deleteBoardItems,
   emptyBoardTrash,
   listBoardItems,
   listTrashedBoardItems,
   patchBoardItem,
+  patchBoardItems,
   purgeBoardItem,
   reparseItem,
   restoreBoardItem,
@@ -106,6 +110,30 @@ export const boardsRouter = router({
         ctx.images,
         { userId: ctx.userId },
         async (tx) => deleteBoardItem(tx, input.id),
+      );
+      return { ok: true as const };
+    }),
+
+  patchItemsMany: protectedProcedure
+    .input(PatchItemsManyBody)
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => patchBoardItems(tx, input.patches),
+      );
+      return { ok: true as const };
+    }),
+
+  deleteItemsMany: protectedProcedure
+    .input(DeleteItemsManyBody)
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => deleteBoardItems(tx, input.ids),
       );
       return { ok: true as const };
     }),

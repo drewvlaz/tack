@@ -1,6 +1,6 @@
 import { useDrag, useWheel } from '@use-gesture/react';
 import { useMotionValue } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { zoom as zoomConfig } from '../../config';
 
 // One localStorage entry per board so each board remembers its own viewport.
@@ -56,6 +56,54 @@ export function useCanvasGesture(boardId: string | null) {
   const zoomMV = useMotionValue<number>(initial.z);
   const panX = useMotionValue(initial.x);
   const panY = useMotionValue(initial.y);
+
+  // Space-held → pan mode. Marquee selection uses default drag; pan moves
+  // behind a held modifier (Figma convention). Stored in a ref so the drag
+  // handler reads the current value at gesture time, not at render time.
+  const isSpaceHeldRef = useRef(false);
+  useEffect(() => {
+    function isEditable(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        return true;
+      }
+      return target.isContentEditable;
+    }
+    function onDown(e: KeyboardEvent) {
+      if (e.code !== 'Space') {
+        return;
+      }
+      if (e.repeat) {
+        return;
+      }
+      if (isEditable(e.target)) {
+        return;
+      }
+      e.preventDefault();
+      isSpaceHeldRef.current = true;
+      if (canvasRef.current) {
+        canvasRef.current.style.cursor = 'grab';
+      }
+    }
+    function onUp(e: KeyboardEvent) {
+      if (e.code !== 'Space') {
+        return;
+      }
+      isSpaceHeldRef.current = false;
+      if (canvasRef.current) {
+        canvasRef.current.style.cursor = '';
+      }
+    }
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, []);
 
   // Tracks the board whose viewport we're currently driving. The snap effect
   // uses this to skip the no-op case where boardId hasn't actually changed
@@ -141,7 +189,14 @@ export function useCanvasGesture(boardId: string | null) {
   useDrag(
     ({ event, delta: [dx, dy], first, last }) => {
       if (first) {
-        isPanningRef.current = event.target === canvasRef.current;
+        // Activate pan when: touch (no modifier needed) OR Space held.
+        // event.target === canvasRef.current ensures we don't steal a drag
+        // that started on a card.
+        const pointerType = (event as PointerEvent).pointerType;
+        const allowedByModifier =
+          pointerType === 'touch' || isSpaceHeldRef.current;
+        isPanningRef.current =
+          allowedByModifier && event.target === canvasRef.current;
         if (isPanningRef.current && canvasRef.current) {
           canvasRef.current.style.cursor = 'grabbing';
         }
@@ -153,7 +208,7 @@ export function useCanvasGesture(boardId: string | null) {
       panY.set(panY.get() + dy);
       if (last) {
         if (canvasRef.current) {
-          canvasRef.current.style.cursor = '';
+          canvasRef.current.style.cursor = isSpaceHeldRef.current ? 'grab' : '';
         }
         isPanningRef.current = false;
       }
@@ -176,5 +231,7 @@ export function useCanvasGesture(boardId: string | null) {
     zoomMV.set(newZoom);
   }
 
-  return { canvasRef, zoomMV, panX, panY, zoomTo };
+  const isPanModifierHeld = useCallback(() => isSpaceHeldRef.current, []);
+
+  return { canvasRef, zoomMV, panX, panY, zoomTo, isPanModifierHeld };
 }

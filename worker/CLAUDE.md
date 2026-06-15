@@ -17,7 +17,7 @@ src/
 │   └── parser.ts        parseUrl + parseFromHtml procedures (shared rate-limit + error-mapping helpers)
 ├── services/            All real logic. Mutations take `tx: Tx`, reads take `db`.
 │   ├── boards.ts        listBoards, createBoard, deleteBoard, renameBoard
-│   ├── boardItems.ts    listBoardItems, addBoardItem, patchBoardItem, deleteBoardItem, restoreBoardItem, purgeBoardItem, emptyBoardTrash, stagePurge
+│   ├── boardItems.ts    listBoardItems, addBoardItem, patchBoardItem, patchBoardItems, deleteBoardItem, deleteBoardItems, restoreBoardItem, purgeBoardItem, emptyBoardTrash, stagePurge
 │   ├── items.ts         setPrimaryImage, reparseItem
 │   ├── images.ts        storeImage, deleteStoredImage, loadImage, content-type clamp
 │   ├── gc.ts            sweepOrphanR2Blobs (called from the scheduled handler)

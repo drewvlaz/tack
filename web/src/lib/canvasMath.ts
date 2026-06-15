@@ -49,3 +49,15 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
     a.y + a.height > b.y
   );
 }
+
+// True iff `inner` is fully contained within `outer`. Marquee selection uses
+// containment (not intersection) so partially-overlapping cards are excluded.
+// Edges touching are treated as contained (<=, not <).
+export function rectContains(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  );
+}

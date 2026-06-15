@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getVisibleCanvasRect, rectsIntersect, screenToCanvas } from './canvasMath';
+import {
+  getVisibleCanvasRect,
+  rectContains,
+  rectsIntersect,
+  screenToCanvas,
+} from './canvasMath';
 
 describe('screenToCanvas', () => {
   it('is identity when zoom=1 and pan is zero', () => {
@@ -98,5 +103,28 @@ describe('rectsIntersect', () => {
   it('detects containment', () => {
     expect(rectsIntersect(a, { x: 25, y: 25, width: 10, height: 10 })).toBe(true);
     expect(rectsIntersect({ x: 25, y: 25, width: 10, height: 10 }, a)).toBe(true);
+  });
+});
+
+describe('rectContains', () => {
+  const outer = { x: 0, y: 0, width: 100, height: 100 };
+  it('is true when inner is fully inside outer', () => {
+    expect(rectContains(outer, { x: 25, y: 25, width: 50, height: 50 })).toBe(true);
+  });
+  it('is false when inner is fully outside outer', () => {
+    expect(rectContains(outer, { x: 200, y: 200, width: 10, height: 10 })).toBe(false);
+  });
+  it('is false when inner partially overlaps outer (any edge sticks out)', () => {
+    expect(rectContains(outer, { x: -10, y: 25, width: 50, height: 50 })).toBe(false);
+    expect(rectContains(outer, { x: 75, y: 25, width: 50, height: 50 })).toBe(false);
+    expect(rectContains(outer, { x: 25, y: -10, width: 50, height: 50 })).toBe(false);
+    expect(rectContains(outer, { x: 25, y: 75, width: 50, height: 50 })).toBe(false);
+  });
+  it('treats touching edges as contained', () => {
+    expect(rectContains(outer, { x: 0, y: 0, width: 100, height: 100 })).toBe(true);
+  });
+  it('zero-area marquee contains nothing with non-zero area', () => {
+    const zero = { x: 50, y: 50, width: 0, height: 0 };
+    expect(rectContains(zero, { x: 25, y: 25, width: 10, height: 10 })).toBe(false);
   });
 });

@@ -45,6 +45,20 @@ export function deleteItem(id: string): Promise<{ ok: true }> {
   return trpc.boards.deleteItem.mutate({ id });
 }
 
+export type ItemPatch = Partial<
+  Pick<BoardItem, 'x' | 'y' | 'zIndex' | 'width' | 'height'>
+>;
+
+export function patchBoardItems(
+  patches: Array<{ id: string; patch: ItemPatch }>,
+): Promise<{ ok: true }> {
+  return trpc.boards.patchItemsMany.mutate({ patches });
+}
+
+export function deleteItems(ids: string[]): Promise<{ ok: true }> {
+  return trpc.boards.deleteItemsMany.mutate({ ids });
+}
+
 export function listTrash(boardId: string): Promise<BoardItem[]> {
   return trpc.boards.listTrash.query({ boardId });
 }

@@ -18,7 +18,7 @@ Interaction feel is treated as a first-class goal, not polish. Optimistic UI eve
 | Styling       | Tailwind v4 (`@tailwindcss/vite`, no config file)                           |
 | Animation     | Framer Motion (springs, `layoutId` for expand-to-focus)                     |
 | Gesture       | `@use-gesture/react`                                                        |
-| Client state  | Zustand (interaction only — selectedId, z-indices)                          |
+| Client state  | Zustand (interaction only — multi-select ids/primaryId, z-indices)          |
 | Server state  | TanStack Query v5                                                           |
 | API           | tRPC over Hono on Cloudflare Workers                                        |
 | DB            | Cloudflare D1 (SQLite) + Drizzle ORM                                        |
