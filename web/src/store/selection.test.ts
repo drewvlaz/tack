@@ -43,17 +43,6 @@ describe('useSelectionStore', () => {
     expect(useSelectionStore.getState().primaryId).toBe('a');
   });
 
-  it('remove drops the id and picks a fallback primary when the removed one was primary', () => {
-    const { add, remove } = useSelectionStore.getState();
-    add('a');
-    add('b');
-    expect(useSelectionStore.getState().primaryId).toBe('b');
-    remove('b');
-    expect(useSelectionStore.getState().primaryId).toBe('a');
-    remove('a');
-    expect(useSelectionStore.getState().primaryId).toBeNull();
-  });
-
   it('set replaces the whole set; honors primary hint when valid, falls back otherwise', () => {
     useSelectionStore.getState().set(['a', 'b', 'c'], 'b');
     expect(useSelectionStore.getState().primaryId).toBe('b');
@@ -64,24 +53,6 @@ describe('useSelectionStore', () => {
     useSelectionStore.getState().set([]);
     expect(useSelectionStore.getState().ids.size).toBe(0);
     expect(useSelectionStore.getState().primaryId).toBeNull();
-  });
-
-  it('union merges into the existing selection without losing primary', () => {
-    useSelectionStore.getState().replace('a');
-    useSelectionStore.getState().union(['b', 'c']);
-    expect([...useSelectionStore.getState().ids].sort()).toEqual([
-      'a',
-      'b',
-      'c',
-    ]);
-    expect(useSelectionStore.getState().primaryId).toBe('a');
-  });
-
-  it('subtract removes the listed ids and re-picks primary if needed', () => {
-    useSelectionStore.getState().set(['a', 'b', 'c'], 'b');
-    useSelectionStore.getState().subtract(['b']);
-    expect([...useSelectionStore.getState().ids].sort()).toEqual(['a', 'c']);
-    expect(useSelectionStore.getState().primaryId).toBe('a');
   });
 
   it('mutations create new Set identity so subscribers re-render', () => {

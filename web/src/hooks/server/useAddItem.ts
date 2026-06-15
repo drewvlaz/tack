@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { addItem, patchBoardItem } from '../../api/boards';
+import { addItem, patchBoardItems } from '../../api/boards';
 import { parseFromHtml, parseUrl } from '../../api/parse';
 import { describeAddItemError } from '../../lib/errors';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
@@ -103,7 +103,7 @@ export function useAddItem() {
       );
 
       if (x !== newItem.x || y !== newItem.y) {
-        patchBoardItem(newItem.id, { x, y }).catch(() => {});
+        patchBoardItems([{ id: newItem.id, patch: { x, y } }]).catch(() => {});
       }
     },
 

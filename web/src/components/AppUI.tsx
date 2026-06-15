@@ -3,13 +3,12 @@ import { Moon, Share2, Sun, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useBoardItems } from '../hooks/server/useBoardItems';
 import { useBoards } from '../hooks/server/useBoards';
-import { useDeleteItem } from '../hooks/server/useDeleteItem';
 import { useDeleteItems } from '../hooks/server/useDeleteItems';
-import { useHotkey } from '../hooks/useHotkey';
+import { useSelectionHotkeys } from '../hooks/useSelectionHotkeys';
 import type { RealItem } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
-import { useThemeStore } from '../store/theme';
 import { useSelectionStore } from '../store/selection';
+import { useThemeStore } from '../store/theme';
 import BoardsSidebar from './BoardsSidebar';
 import MembersPanel from './BoardSettings/MembersPanel';
 import ConfirmDialog from './shared/ConfirmDialog';
@@ -30,7 +29,6 @@ export default function AppUI() {
     ? realItems.find((i) => i.id === primaryId) ?? null
     : null;
 
-  const deleteItem = useDeleteItem(activeBoardId ?? '');
   const deleteItems = useDeleteItems(activeBoardId ?? '');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -42,55 +40,26 @@ export default function AppUI() {
 
   const selectionCount = selectionIds.size;
   const isMulti = selectionCount > 1;
-  const isPending = deleteItems.isPending || deleteItem.isPending;
+  const isPending = deleteItems.isPending;
 
-  useHotkey('Escape', () => useSelectionStore.getState().clear(), {
-    scope: 'panel',
-    enabled: selectionCount > 0,
+  const realItemIds = useMemo(() => realItems.map((i) => i.id), [realItems]);
+  useSelectionHotkeys({
+    selectionCount,
+    activeBoardId,
+    realItemIds,
+    onDeleteRequest: () => setConfirmDeleteOpen(true),
   });
-
-  useHotkey(['Delete', 'Backspace'], () => setConfirmDeleteOpen(true), {
-    scope: 'panel',
-    enabled: selectionCount > 0,
-  });
-
-  useHotkey(
-    'mod+a',
-    () => {
-      if (realItems.length === 0) {
-        return;
-      }
-      useSelectionStore
-        .getState()
-        .set(realItems.map((i) => i.id), realItems[realItems.length - 1].id);
-    },
-    {
-      scope: 'global',
-      enabled: !!activeBoardId && realItems.length > 0,
-      preventDefault: true,
-    },
-  );
 
   function handleConfirmDelete() {
     if (selectionCount === 0) {
       return;
     }
-    const ids = [...selectionIds];
-    if (ids.length === 1) {
-      deleteItem.mutate(ids[0], {
-        onSuccess: () => {
-          setConfirmDeleteOpen(false);
-          useSelectionStore.getState().clear();
-        },
-      });
-    } else {
-      deleteItems.mutate(ids, {
-        onSuccess: () => {
-          setConfirmDeleteOpen(false);
-          useSelectionStore.getState().clear();
-        },
-      });
-    }
+    deleteItems.mutate([...selectionIds], {
+      onSuccess: () => {
+        setConfirmDeleteOpen(false);
+        useSelectionStore.getState().clear();
+      },
+    });
   }
 
   return (

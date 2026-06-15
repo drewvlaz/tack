@@ -20,10 +20,7 @@ type SelectionStore = {
   replace: (id: string) => void;
   toggle: (id: string) => void;
   add: (id: string) => void;
-  remove: (id: string) => void;
   set: (ids: Iterable<string>, primary?: string | null) => void;
-  union: (ids: Iterable<string>) => void;
-  subtract: (ids: Iterable<string>) => void;
   clear: () => void;
 };
 
@@ -74,18 +71,6 @@ export const useSelectionStore = create<SelectionStore>((setState, get) => ({
     setState({ ids: next, primaryId: id });
   },
 
-  remove: (id) => {
-    const { ids, primaryId } = get();
-    if (!ids.has(id)) {
-      return;
-    }
-    const next = new Set(ids);
-    next.delete(id);
-    const nextPrimary =
-      primaryId === id ? pickFallbackPrimary(next) : primaryId;
-    setState({ ids: next, primaryId: nextPrimary });
-  },
-
   set: (input, primary) => {
     const next = new Set(input);
     if (next.size === 0) {
@@ -97,50 +82,6 @@ export const useSelectionStore = create<SelectionStore>((setState, get) => ({
         ? primary !== null && next.has(primary)
           ? primary
           : pickFallbackPrimary(next)
-        : pickFallbackPrimary(next);
-    setState({ ids: next, primaryId: nextPrimary });
-  },
-
-  union: (input) => {
-    const { ids, primaryId } = get();
-    const next = new Set(ids);
-    for (const id of input) {
-      next.add(id);
-    }
-    if (next.size === ids.size) {
-      return;
-    }
-    setState({
-      ids: next,
-      primaryId: primaryId ?? pickFallbackPrimary(next),
-    });
-  },
-
-  subtract: (input) => {
-    const { ids, primaryId } = get();
-    const toRemove = new Set(input);
-    if (toRemove.size === 0) {
-      return;
-    }
-    let changed = false;
-    const next = new Set<string>();
-    for (const id of ids) {
-      if (toRemove.has(id)) {
-        changed = true;
-      } else {
-        next.add(id);
-      }
-    }
-    if (!changed) {
-      return;
-    }
-    if (next.size === 0) {
-      setState({ ids: EMPTY_IDS, primaryId: null });
-      return;
-    }
-    const nextPrimary =
-      primaryId !== null && next.has(primaryId)
-        ? primaryId
         : pickFallbackPrimary(next);
     setState({ ids: next, primaryId: nextPrimary });
   },

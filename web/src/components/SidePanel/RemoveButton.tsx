@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useDeleteItem } from '../../hooks/server/useDeleteItem';
+import { useDeleteItems } from '../../hooks/server/useDeleteItems';
 import ConfirmDialog from '../shared/ConfirmDialog';
 
 type RemoveButtonProps = {
@@ -15,11 +15,11 @@ export default function RemoveButton({
   title,
   onRemoved,
 }: RemoveButtonProps) {
-  const deleteItem = useDeleteItem(boardId);
+  const deleteItem = useDeleteItems(boardId);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   function handleConfirm() {
-    deleteItem.mutate(id, {
+    deleteItem.mutate([id], {
       onSuccess: () => {
         setConfirmOpen(false);
         onRemoved();
