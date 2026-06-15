@@ -3,9 +3,7 @@ import { create } from 'zustand';
 type ZIndexedItem = { id: string; zIndex: number };
 
 type CanvasStore = {
-  selectedId: string | null;
   zIndices: Record<string, number>;
-  setSelectedId: (id: string | null) => void;
   bringToFront: (
     id: string,
     items: ReadonlyArray<ZIndexedItem>,
@@ -13,9 +11,7 @@ type CanvasStore = {
 };
 
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
-  selectedId: null,
   zIndices: {},
-  setSelectedId: (selectedId) => set({ selectedId }),
   bringToFront: (id, items) => {
     const { zIndices } = get();
     const self = items.find((i) => i.id === id);

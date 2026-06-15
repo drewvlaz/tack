@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useCanvasStore } from './canvas';
 
 beforeEach(() => {
-  useCanvasStore.setState({ zIndices: {}, selectedId: null });
+  useCanvasStore.setState({ zIndices: {} });
 });
 
 describe('useCanvasStore.bringToFront', () => {

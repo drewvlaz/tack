@@ -12,7 +12,7 @@ import type { CanvasItem } from '../../lib/trpc';
 const PANEL_EDGE_MARGIN = 24;
 
 type Params = {
-  selectedId: string | null;
+  primaryId: string | null;
   rightWidth: number;
   items: CanvasItem[];
   panX: MotionValue<number>;
@@ -25,7 +25,7 @@ type Params = {
 // Recomputes the target offset on every selection change so switching to a
 // card that doesn't need a pan releases any pan applied by the previous one.
 export function usePanForPanel({
-  selectedId,
+  primaryId,
   rightWidth,
   items,
   panX,
@@ -36,9 +36,9 @@ export function usePanForPanel({
 
   useEffect(() => {
     const selected =
-      selectedId === null
+      primaryId === null
         ? null
-        : (items.find((i) => i.kind === 'real' && i.id === selectedId) ?? null);
+        : (items.find((i) => i.kind === 'real' && i.id === primaryId) ?? null);
 
     let targetOffset = 0;
     if (selected) {
@@ -60,5 +60,5 @@ export function usePanForPanel({
     panelOffsetRef.current = targetOffset;
     panAnimRef.current?.stop();
     panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
-  }, [selectedId, rightWidth, panX, zoom, items]);
+  }, [primaryId, rightWidth, panX, zoom, items]);
 }

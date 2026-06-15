@@ -55,7 +55,7 @@ Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:87
 | Styling       | Tailwind CSS v4 (no config file, `@tailwindcss/vite` plugin, `@import "tailwindcss"` in CSS)       |
 | Animation     | Framer Motion (springs, `layoutId` for expand-to-focus)                                            |
 | Gesture       | `@use-gesture/react`                                                                               |
-| Client state  | Zustand (interaction only — selectedId, zIndices)                                                  |
+| Client state  | Zustand (interaction only — `useSelectionStore` (ids/primaryId), `useCanvasStore` (zIndices))      |
 | Server state  | TanStack Query v5                                                                                  |
 | API client    | tRPC client (`@trpc/client`) — end-to-end typed via shared `AppRouter` import                      |
 | Backend       | Hono on Cloudflare Workers                                                                         |
@@ -96,8 +96,9 @@ These are load-bearing — break them and the layering collapses.
 
 - `web/src/api/*.ts` — pure async functions wrapping the tRPC client. No React, no hooks.
 - `web/src/hooks/*.ts` — TanStack Query (`useQuery`/`useMutation`) wrapping the api fns. All server state lives here.
-- `web/src/store/*.ts` — Zustand, **interaction state only** (selected card, z-index stack). Never server data.
-- Position PATCH on drag end is fire-and-forget. Framer Motion already shows the correct position; we don't await the server.
+- `web/src/store/*.ts` — Zustand, **interaction state only**. `useSelectionStore` owns the multi-select set (`ids: ReadonlySet<string>`, `primaryId` for SidePanel focus); `useCanvasStore` owns the per-card z-index stack. Never server data.
+- Selection is multi-card via a drag-to-create marquee (containment, not intersection). Plain drag on empty canvas draws the box; **hold Space to pan**; Shift+drag adds, Alt+drag subtracts. Shift+click adds, Cmd/Ctrl+click toggles. Cmd/Ctrl+A selects all on the active board.
+- Position PATCH on drag end is fire-and-forget. Framer Motion already shows the correct position; we don't await the server. Group drag uses `boards.patchItemsMany` (one atomic batch); group delete uses `boards.deleteItemsMany`.
 - URL add uses an optimistic skeleton card injected into the query cache in `onMutate`, swapped for the real card in `onSuccess`, rolled back in `onError`. Skeleton IDs are prefixed `__skeleton__` — use `isSkeleton(id)` to guard interactions.
 
 **Backend (see `worker/CLAUDE.md` for details):**

@@ -7,6 +7,7 @@ import {
   type AddItemInput,
   type BoardItemRow,
   type PatchBoardItemInput,
+  type PatchItemsManyInput,
 } from '../schemas/board';
 import { fromR2Key, r2KeyOwner, storeImage, toR2Key } from './images';
 import { fetchAndParseMeta, mapLimit } from './parser';
@@ -191,6 +192,36 @@ export async function addBoardItem(
 export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
   await tx.placements.byIdOrThrow(id);
   tx.placements.stageSoftDelete(id, nowSec());
+}
+
+// Batch update — one UPDATE per patch, all flushed in the same db.batch
+// commit when withTransaction returns. byIdOrThrow per entry enforces
+// ownership scoping; an unauthorized id aborts the whole transaction.
+export async function patchBoardItems(
+  tx: Tx,
+  patches: PatchItemsManyInput['patches'],
+): Promise<void> {
+  const now = nowSec();
+  for (const { id, patch } of patches) {
+    await tx.placements.byIdOrThrow(id);
+    tx.placements.stageUpdate(id, {
+      updatedAt: now,
+      ...(patch.x !== undefined && { x: patch.x }),
+      ...(patch.y !== undefined && { y: patch.y }),
+      ...(patch.zIndex !== undefined && { zIndex: patch.zIndex }),
+      ...(patch.width !== undefined && { width: patch.width }),
+      ...(patch.height !== undefined && { height: patch.height }),
+    });
+  }
+}
+
+// Batch soft-delete — one UPDATE per id, atomic via the same accumulator.
+export async function deleteBoardItems(tx: Tx, ids: string[]): Promise<void> {
+  const now = nowSec();
+  for (const id of ids) {
+    await tx.placements.byIdOrThrow(id);
+    tx.placements.stageSoftDelete(id, now);
+  }
 }
 
 export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {

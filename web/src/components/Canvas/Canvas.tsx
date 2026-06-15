@@ -1,9 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { motion, useMotionValueEvent } from 'framer-motion';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { canvas, card as cardConfig, zoom as zoomConfig } from '../../config';
 import { useCanvasGesture } from '../../hooks/interaction/useCanvasGesture';
+import { useMarquee, type Selectable } from '../../hooks/interaction/useMarquee';
 import { usePanForPanel } from '../../hooks/interaction/usePanForPanel';
+import { SelectionDragProvider } from '../../hooks/interaction/useSelectionDrag';
 import { useAddItem } from '../../hooks/server/useAddItem';
 import { useBoardItems } from '../../hooks/server/useBoardItems';
 import { useSyncPosition } from '../../hooks/server/useSyncPosition';
@@ -18,35 +20,77 @@ import type { CanvasItem } from '../../lib/trpc';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasStore } from '../../store/canvas';
 import { useRailsStore } from '../../store/rails';
+import { useSelectionStore } from '../../store/selection';
 import AddUrlModal from './AddUrlModal';
 import Card from './Card';
+import MarqueeOverlay from './MarqueeOverlay';
 import UrlBar from './UrlBar';
 import ZoomBar from './ZoomBar';
 
-// Drop new cards slightly above viewport center so the title is readable below
-// the user's gaze rather than directly under the cursor.
 const ADD_CARD_Y_BIAS = 200;
-
-// Matches the IntersectionObserver `rootMargin` Card uses for its lazy gate —
-// keeps the initial-mount seed in agreement with what IO would have decided one
-// tick later, avoiding a placeholder flash for cards near the viewport edge.
 const LAZY_LOAD_MARGIN_PX = 300;
 
 export default function Canvas() {
+  return (
+    <SelectionDragProvider>
+      <CanvasInner />
+    </SelectionDragProvider>
+  );
+}
+
+function CanvasInner() {
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
   const { items, isLoading } = useBoardItems(activeBoardId);
-  const { selectedId, zIndices, setSelectedId, bringToFront } =
-    useCanvasStore();
+  const { zIndices, bringToFront } = useCanvasStore();
   const rightWidth = useRailsStore((s) => s.rightWidth);
+  const selectionIds = useSelectionStore((s) => s.ids);
+  const primaryId = useSelectionStore((s) => s.primaryId);
 
-  const { canvasRef, zoomMV, panX, panY, zoomTo } =
+  const { canvasRef, zoomMV, panX, panY, zoomTo, isPanModifierHeld } =
     useCanvasGesture(activeBoardId);
   const syncPosition = useSyncPosition();
   const addItem = useAddItem();
   const queryClient = useQueryClient();
 
+  // Clear selection when the active board changes — selections don't cross
+  // board boundaries.
+  useEffect(() => {
+    useSelectionStore.getState().clear();
+  }, [activeBoardId]);
+
+  // Provide the marquee hook a closure over the current real items as
+  // selectables. Skeletons are filtered out — they're not yet persisted and
+  // shouldn't participate in selection.
+  const getSelectables = useCallback((): Selectable[] => {
+    const result: Selectable[] = [];
+    for (const item of items) {
+      if (item.kind !== 'real') {
+        continue;
+      }
+      result.push({
+        id: item.id,
+        rect: {
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+        },
+      });
+    }
+    return result;
+  }, [items]);
+
+  const { rect: marqueeRect } = useMarquee({
+    canvasRef,
+    panX,
+    panY,
+    zoomMV,
+    getSelectables,
+    isPanModifierHeld,
+  });
+
   usePanForPanel({
-    selectedId,
+    primaryId,
     rightWidth,
     items,
     panX,
@@ -94,11 +138,6 @@ export default function Canvas() {
     enabled: !!activeBoardId,
   });
 
-  // Cmd/Ctrl+V outside any input pastes the clipboard URL straight into a new
-  // card. `allowInInputs: false` (default) keeps native paste working in the
-  // URL bar, modal, and any other field — the hotkey only fires when focus is
-  // on the body/canvas. Clipboard read is gated by browser permissions and a
-  // secure context; a denied read is silently ignored.
   useHotkey(
     'mod+v',
     async () => {
@@ -120,15 +159,30 @@ export default function Canvas() {
     { scope: 'global', enabled: !!activeBoardId, preventDefault: false },
   );
 
+  const inMultiSelect = selectionIds.size > 1;
+
+  const visibleRect = useMemo(
+    () =>
+      getVisibleCanvasRect(
+        panX.get(),
+        panY.get(),
+        zoomMV.get(),
+        window.innerWidth,
+        window.innerHeight,
+        LAZY_LOAD_MARGIN_PX,
+      ),
+    // We intentionally only compute this once on first paint per board —
+    // pan/zoom MVs don't trigger re-renders. Recomputing on items mount is
+    // also fine because it's cheap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeBoardId, items.length],
+  );
+
   return (
     <div
       ref={canvasRef}
-      className="absolute inset-0 z-0 cursor-grab overflow-hidden"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          setSelectedId(null);
-        }
-      }}
+      className="absolute inset-0 z-0 cursor-grab overflow-hidden select-none"
+      onDragStart={(e) => e.preventDefault()}
       style={{
         background: canvas.background,
         backgroundImage: `radial-gradient(circle, ${canvas.dotColor} ${canvas.dotSize}px, transparent ${canvas.dotSize}px)`,
@@ -140,94 +194,90 @@ export default function Canvas() {
       >
         {activeBoardId &&
           !isLoading &&
-          (() => {
-            // One visible-canvas-rect for the whole items map; used to seed
-            // `initiallyVisible` on each Card so cards on screen at mount
-            // request their image immediately (and at fetchpriority=high)
-            // instead of waiting a frame for IntersectionObserver to tick.
-            // pan/zoom MVs don't trigger re-renders, so this snapshot reflects
-            // the moment Cards first mount.
-            const visibleRect = getVisibleCanvasRect(
-              panX.get(),
-              panY.get(),
-              zoomMV.get(),
-              window.innerWidth,
-              window.innerHeight,
-              LAZY_LOAD_MARGIN_PX,
-            );
-            return items.map((item) => {
-              if (item.kind === 'skeleton') {
-                return (
-                  <Card
-                    key={item.tempId}
-                    id={item.tempId}
-                    title=""
-                    imageUrl=""
-                    initialX={item.x}
-                    initialY={item.y}
-                    width={item.width}
-                    height={item.height}
-                    zIndex={item.zIndex}
-                    isSkeleton
-                    getZoom={() => zoomMV.get()}
-                    onDragEnd={(x, y) => {
-                      // Persist the dragged position onto the cached skeleton
-                      // so `useAddItem.onSuccess` carries it through to the
-                      // real item on swap (and PATCHes the server). Without
-                      // this, the card snaps back to the original drop point
-                      // when the real item arrives.
-                      const key = ['boards', activeBoardId, 'items'];
-                      queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
-                        old.map((i) =>
-                          i.kind === 'skeleton' && i.tempId === item.tempId
-                            ? { ...i, x, y }
-                            : i,
-                        ),
-                      );
-                    }}
-                  />
-                );
-              }
-              const initiallyVisible = rectsIntersect(visibleRect, {
-                x: item.x,
-                y: item.y,
-                width: item.width,
-                height: item.height,
-              });
+          items.map((item) => {
+            if (item.kind === 'skeleton') {
               return (
                 <Card
-                  key={item.id}
-                  id={item.id}
-                  title={item.title ?? ''}
-                  imageUrl={resolveImageUrl(item.images[0]?.url) ?? ''}
+                  key={item.tempId}
+                  id={item.tempId}
+                  title=""
+                  imageUrl=""
                   initialX={item.x}
                   initialY={item.y}
                   width={item.width}
                   height={item.height}
-                  zIndex={zIndices[item.id] ?? item.zIndex}
-                  initiallyVisible={initiallyVisible}
+                  zIndex={item.zIndex}
+                  isSkeleton
                   getZoom={() => zoomMV.get()}
-                  onTap={() => setSelectedId(item.id)}
-                  onBringToFront={() => {
-                    const realItems = items.filter(
-                      (i): i is typeof item => i.kind === 'real',
+                  onDragEnd={(x, y) => {
+                    const key = ['boards', activeBoardId, 'items'];
+                    queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
+                      old.map((i) =>
+                        i.kind === 'skeleton' && i.tempId === item.tempId
+                          ? { ...i, x, y }
+                          : i,
+                      ),
                     );
-                    const newZ = bringToFront(item.id, realItems);
-                    if (newZ !== null) {
-                      syncPosition.mutate({ id: item.id, zIndex: newZ });
-                    }
                   }}
-                  onDragEnd={(x, y) =>
-                    syncPosition.mutate({ id: item.id, x, y })
-                  }
-                  onResizeEnd={(next) =>
-                    syncPosition.mutate({ id: item.id, ...next })
-                  }
                 />
               );
+            }
+            const initiallyVisible = rectsIntersect(visibleRect, {
+              x: item.x,
+              y: item.y,
+              width: item.width,
+              height: item.height,
             });
-          })()}
+            const isSelected = selectionIds.has(item.id);
+            return (
+              <Card
+                key={item.id}
+                id={item.id}
+                title={item.title ?? ''}
+                imageUrl={resolveImageUrl(item.images[0]?.url) ?? ''}
+                initialX={item.x}
+                initialY={item.y}
+                width={item.width}
+                height={item.height}
+                zIndex={zIndices[item.id] ?? item.zIndex}
+                initiallyVisible={initiallyVisible}
+                isSelected={isSelected}
+                inMultiSelect={inMultiSelect && isSelected}
+                getZoom={() => zoomMV.get()}
+                onTap={(mods) => {
+                  const selection = useSelectionStore.getState();
+                  if (mods.metaKey || mods.ctrlKey) {
+                    selection.toggle(item.id);
+                  } else if (mods.shiftKey) {
+                    selection.add(item.id);
+                  } else {
+                    selection.replace(item.id);
+                  }
+                }}
+                onBringToFront={() => {
+                  const realItems = items.filter(
+                    (i): i is typeof item => i.kind === 'real',
+                  );
+                  const newZ = bringToFront(item.id, realItems);
+                  if (newZ !== null) {
+                    syncPosition.mutate({ id: item.id, zIndex: newZ });
+                  }
+                }}
+                onDragEnd={(x, y) =>
+                  syncPosition.mutate({ id: item.id, x, y })
+                }
+                onDragStartIfUnselected={() =>
+                  useSelectionStore.getState().replace(item.id)
+                }
+                onResizeEnd={(next) =>
+                  syncPosition.mutate({ id: item.id, ...next })
+                }
+              />
+            );
+          })}
       </motion.div>
+
+      <MarqueeOverlay rect={marqueeRect} />
 
       {!activeBoardId && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

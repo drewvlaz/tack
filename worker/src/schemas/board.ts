@@ -80,6 +80,21 @@ export const PatchBoardItemBody = z.object({
   height: Size.optional(),
 });
 
+// Cap at 100 to stay within D1's `db.batch()` statement limit. Each entry
+// stages exactly one UPDATE / one soft-delete, so N entries ⇒ N statements.
+const BATCH_MAX = 100;
+
+export const PatchItemsManyBody = z.object({
+  patches: z
+    .array(z.object({ id: z.string(), patch: PatchBoardItemBody }))
+    .min(1)
+    .max(BATCH_MAX),
+});
+
+export const DeleteItemsManyBody = z.object({
+  ids: z.array(z.string()).min(1).max(BATCH_MAX),
+});
+
 export const AddItemBody = z.object({
   sourceUrl: SafeUrl,
   title: z.string().nullable(),
@@ -98,4 +113,6 @@ export type BoardImage = z.infer<typeof BoardImageSchema>;
 export type BoardItemRow = z.infer<typeof BoardItemRowSchema>;
 export type BoardItemRowImage = z.infer<typeof BoardItemRowImageSchema>;
 export type PatchBoardItemInput = z.infer<typeof PatchBoardItemBody>;
+export type PatchItemsManyInput = z.infer<typeof PatchItemsManyBody>;
+export type DeleteItemsManyInput = z.infer<typeof DeleteItemsManyBody>;
 export type AddItemInput = z.infer<typeof AddItemBody>;
