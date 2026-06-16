@@ -82,6 +82,9 @@ bucket_name = "tack-staging-images"
 [env.staging.triggers]
 crons = ["0 */6 * * *"]
 
+[env.staging.observability]
+enabled = true
+
 # ------------------------------------------------------------------
 # Production environment.
 # Deploy:   pnpm deploy:production
@@ -108,3 +111,6 @@ bucket_name = "tack-prod-images"
 
 [env.production.triggers]
 crons = ["0 */6 * * *"]
+
+[env.production.observability]
+enabled = true

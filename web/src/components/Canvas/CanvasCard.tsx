@@ -143,16 +143,28 @@ function RealCanvasCard({
     }
   }, [queryClient, activeBoardId, bringToFront, patchItems, id]);
 
-  // Selection-aware drag decisions live here, not in the gesture. We read
-  // selection live from the store inside each callback rather than closing
-  // over the rendered values — that way replace(id) on drag start is visible
-  // to the move/end callbacks even before the next React render lands.
-  const handleDragStart = useCallback(() => {
-    const sel = useSelectionStore.getState();
-    if (!sel.ids.has(id)) {
-      sel.replace(id);
-    }
-  }, [id]);
+  // Selection-aware drag decisions live here, not in the gesture. For
+  // modifier-held gestures (Shift / Cmd / Ctrl), do nothing on drag-start —
+  // selection logic is fully owned by handleTap, which fires on the final
+  // tap-classified emit. use-gesture can fire BOTH first (drag threshold
+  // crossed) and tap (net distance ≤ threshold at release) for the same
+  // trackpad twitch; routing modifier semantics through the tap emit only
+  // keeps the toggle correct without depending on which path use-gesture
+  // takes. For plain (no-modifier) drags, replace the selection if the
+  // dragged card isn't already in it — drag-move and drag-end then operate
+  // on that selection.
+  const handleDragStart = useCallback(
+    (mods: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+      if (mods.metaKey || mods.ctrlKey || mods.shiftKey) {
+        return;
+      }
+      const sel = useSelectionStore.getState();
+      if (!sel.ids.has(id)) {
+        sel.replace(id);
+      }
+    },
+    [id],
+  );
 
   const handleDragMove = useCallback(
     (dx: number, dy: number) => {

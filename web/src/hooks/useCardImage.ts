@@ -1,5 +1,4 @@
-import { useInView } from 'react-intersection-observer';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
 // Per-card image lazy-load state machine. A card's image fetch is gated by
 // whether the card has been near the viewport at least once; once promoted
@@ -13,12 +12,32 @@ export type ImgStatus = 'idle' | 'requested' | 'loaded';
 
 const LAZY_LOAD_MARGIN = '300px';
 
+function useInView(skip: boolean) {
+  const [inView, setInView] = useState(false);
+  const ref = useCallback(
+    (node: Element | null) => {
+      if (!node || skip) {
+        return;
+      }
+      const obs = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setInView(true);
+            obs.disconnect();
+          }
+        },
+        { rootMargin: LAZY_LOAD_MARGIN },
+      );
+      obs.observe(node);
+      return () => obs.disconnect();
+    },
+    [skip],
+  );
+  return [ref, inView] as const;
+}
+
 export function useCardImage(imageUrl: string, initiallyVisible: boolean) {
-  const [inViewRef, inView] = useInView({
-    rootMargin: LAZY_LOAD_MARGIN,
-    triggerOnce: true,
-    skip: initiallyVisible,
-  });
+  const [inViewRef, inView] = useInView(initiallyVisible);
   const seen = initiallyVisible || inView;
 
   const [status, setStatus] = useState<ImgStatus>(

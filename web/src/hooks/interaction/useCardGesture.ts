@@ -14,8 +14,14 @@ type Options = {
   onTap?: () => void;
   // Fires on the first pointer-move of a drag (after use-gesture's tap
   // threshold has been exceeded). Use this to mutate state that should latch
-  // for the duration of the drag.
-  onDragStart?: () => void;
+  // for the duration of the drag. Modifiers captured at pointerdown are passed
+  // through so the caller can branch selection behavior (e.g. Cmd-drag should
+  // toggle, not replace).
+  onDragStart?: (mods: {
+    shiftKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  }) => void;
   // Fires on every drag frame including `last`, with the canvas-space delta
   // for that frame. The hook has already applied the delta to its own MVs;
   // this callback lets the caller mirror the move elsewhere (e.g. drive
@@ -46,7 +52,7 @@ export function useCardGesture({
   const springY = useSpring(y, spring.card);
 
   useDrag(
-    ({ delta: [dx, dy], tap, first, last }) => {
+    ({ delta: [dx, dy], tap, first, last, event }) => {
       if (tap) {
         onTap?.();
         return;
@@ -57,7 +63,12 @@ export function useCardGesture({
         return;
       }
       if (first) {
-        onDragStart?.();
+        const e = event as PointerEvent;
+        onDragStart?.({
+          shiftKey: e.shiftKey === true,
+          metaKey: e.metaKey === true,
+          ctrlKey: e.ctrlKey === true,
+        });
       }
 
       const z = getZoom();
