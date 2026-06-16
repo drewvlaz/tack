@@ -10,6 +10,7 @@ import type { CanvasItem, RealItem, SkeletonItem } from '../../lib/trpc';
 import { useCanvasStore } from '../../store/canvas';
 import { useSelectionStore } from '../../store/selection';
 import Card from './Card';
+import TextCard from './TextCard';
 
 // Thin adapter between the canvas item shape and the Card view. Canvas.tsx
 // stays a composer: it maps items → <CanvasCard />, and the adapter wires
@@ -33,11 +34,20 @@ export default function CanvasCard(props: Props) {
       />
     );
   }
-  // Canvas.tsx filters text items above; if one slips through (shouldn't
-  // happen until the text renderer lands), bail rather than reading product
-  // fields off of it.
-  if (props.item.kind !== 'product') {
-    return null;
+  if (props.item.kind === 'text') {
+    return (
+      <TextCard
+        id={props.item.id}
+        content={props.item.textContent}
+        fontSize={props.item.textFontSize}
+        fontWeight={props.item.textWeight}
+        colorToken={props.item.textColorToken}
+        align={props.item.textAlign}
+        x={props.item.x}
+        y={props.item.y}
+        zIndex={props.item.zIndex}
+      />
+    );
   }
   return (
     <RealCanvasCard

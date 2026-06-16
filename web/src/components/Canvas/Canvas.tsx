@@ -118,10 +118,6 @@ function CanvasInner() {
         {activeBoardId &&
           !isLoading &&
           items.map((item) => {
-            // Text items don't have a renderer yet (next card). Skip them.
-            if (item.state === 'real' && item.kind === 'text') {
-              return null;
-            }
             const key = item.state === 'real' ? item.id : item.tempId;
             const initiallyVisible =
               item.state === 'real'
