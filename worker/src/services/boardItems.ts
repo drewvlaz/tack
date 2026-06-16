@@ -6,15 +6,22 @@ import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import {
   type AddItemInput,
+  type AddTextItemInput,
   type BoardItemRow,
   type PatchBoardItemInput,
   type PatchItemsManyInput,
+  type PatchTextItemInput,
+  type TextAlign,
 } from '../schemas/board';
 import { fromR2Key, r2KeyOwner, storeImage, toR2Key } from './images';
 import { fetchAndParseMeta, mapLimit } from './parser';
 
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 400;
+// Text card starts narrow + shrink-to-content; placement geometry can be
+// patched after first paint when the renderer knows its real size.
+const DEFAULT_TEXT_WIDTH = 240;
+const DEFAULT_TEXT_HEIGHT = 80;
 const IMAGE_FETCH_CONCURRENCY = 4;
 
 // ---------- reads ----------
@@ -35,26 +42,15 @@ export async function listTrashedBoardItems(
   return hydrated.map(toBoardItemRow);
 }
 
-// Map a hydrated placement (row + images) to the domain shape. Images get
-// the primary one moved to position 0 if set.
+// Map a hydrated placement (row + images) to the domain shape. Branches on
+// `kind`: null and 'product' both read as product (existing rows pre-TAC-1
+// have null and must continue to work). Text rows drop images entirely.
 function toBoardItemRow({
   placement,
   images,
 }: HydratedPlacement): BoardItemRow {
-  const sorted = sortImagesPrimaryFirst(images, placement.primaryImageId);
-  return {
+  const placementBase = {
     id: placement.id,
-    title: placement.title,
-    brand: placement.brand,
-    description: placement.description,
-    price: placement.price,
-    currency: placement.currency,
-    details: placement.details ?? [],
-    images: sorted.map((img) => ({
-      id: img.id,
-      image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
-    })),
-    sourceUrl: placement.sourceUrl,
     addedAt: placement.createdAt,
     addedBy: placement.addedBy,
     updatedAt: placement.updatedAt,
@@ -63,6 +59,35 @@ function toBoardItemRow({
     width: placement.width,
     height: placement.height,
     zIndex: placement.zIndex,
+  };
+  if (placement.kind === 'text') {
+    return {
+      ...placementBase,
+      kind: 'text',
+      textContent: placement.textContent ?? '',
+      textFontSize: placement.textFontSize,
+      textWeight: placement.textWeight,
+      textColorToken: placement.textColorToken,
+      // DB column is plain text; the schema enum constrains writes, so any
+      // value present came in through TextAlignSchema.
+      textAlign: placement.textAlign as TextAlign | null,
+    };
+  }
+  const sorted = sortImagesPrimaryFirst(images, placement.primaryImageId);
+  return {
+    ...placementBase,
+    kind: 'product',
+    title: placement.title,
+    brand: placement.brand,
+    description: placement.description,
+    price: placement.price,
+    currency: placement.currency,
+    details: placement.details ?? [],
+    sourceUrl: placement.sourceUrl,
+    images: sorted.map((img) => ({
+      id: img.id,
+      image: fromR2Key(img.r2Key, img.sourceUrl ?? ''),
+    })),
   };
 }
 
@@ -135,6 +160,7 @@ export async function addBoardItem(
     id: placementId,
     boardId,
     addedBy: tx.scope.userId,
+    kind: 'product',
     sourceUrl: input.sourceUrl,
     title: input.title,
     brand: input.brand,
@@ -171,6 +197,7 @@ export async function addBoardItem(
   // reason as before the fold: D1 can't see staged writes mid-Tx.
   return {
     id: placementId,
+    kind: 'product',
     title: input.title,
     brand: input.brand,
     description: input.description,
@@ -188,6 +215,90 @@ export async function addBoardItem(
     height: DEFAULT_CARD_HEIGHT,
     zIndex,
   };
+}
+
+// ---------- text-kind mutations ----------
+
+export async function addTextItem(
+  tx: Tx,
+  boardId: string,
+  input: AddTextItemInput,
+): Promise<BoardItemRow> {
+  await tx.boards.require(boardId, P.BoardEdit);
+
+  const maxZ = await tx.placements.maxZIndexForBoard(boardId);
+  const zIndex = (maxZ ?? 0) + 1;
+  const now = nowSec();
+  const placementId = genId();
+
+  tx.placements.stageInsert({
+    id: placementId,
+    boardId,
+    addedBy: tx.scope.userId,
+    kind: 'text',
+    // ponytail: source_url is NOT NULL on the column; text items have no URL,
+    // so we write '' as a sentinel. The wire shape's text variant doesn't
+    // expose it. Upgrade path: make source_url nullable when another non-URL
+    // kind shows up.
+    sourceUrl: '',
+    textContent: input.content,
+    textFontSize: input.fontSize ?? null,
+    textWeight: input.weight ?? null,
+    textColorToken: input.colorToken ?? null,
+    textAlign: input.align ?? null,
+    x: input.x,
+    y: input.y,
+    width: DEFAULT_TEXT_WIDTH,
+    height: DEFAULT_TEXT_HEIGHT,
+    zIndex,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return {
+    id: placementId,
+    kind: 'text',
+    textContent: input.content,
+    textFontSize: input.fontSize ?? null,
+    textWeight: input.weight ?? null,
+    textColorToken: input.colorToken ?? null,
+    textAlign: input.align ?? null,
+    addedAt: now,
+    addedBy: tx.scope.userId,
+    updatedAt: now,
+    x: input.x,
+    y: input.y,
+    width: DEFAULT_TEXT_WIDTH,
+    height: DEFAULT_TEXT_HEIGHT,
+    zIndex,
+  };
+}
+
+// Patch ONLY text-shape fields (content + style knobs). Position is reused via
+// existing patchBoardItem / patchBoardItems — no kind-specific placement logic.
+// Rejects non-text rows so a misrouted call from the client can't silently
+// scribble text columns onto a product placement.
+export async function patchTextItem(
+  tx: Tx,
+  id: string,
+  patch: PatchTextItemInput,
+): Promise<void> {
+  const placement = await tx.placements.byIdOrThrow(id);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
+  if (placement.kind !== 'text') {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Not a text item',
+    });
+  }
+  tx.placements.stageUpdate(id, {
+    updatedAt: nowSec(),
+    ...(patch.content !== undefined && { textContent: patch.content }),
+    ...(patch.fontSize !== undefined && { textFontSize: patch.fontSize }),
+    ...(patch.weight !== undefined && { textWeight: patch.weight }),
+    ...(patch.colorToken !== undefined && { textColorToken: patch.colorToken }),
+    ...(patch.align !== undefined && { textAlign: patch.align }),
+  });
 }
 
 export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
@@ -345,6 +456,12 @@ export async function reparseItem(
 ): Promise<ReparseResult> {
   const placement = await tx.placements.byIdOrThrow(placementId);
   await tx.boards.require(placement.boardId, P.BoardEdit);
+  if (placement.kind === 'text') {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Cannot reparse a text item',
+    });
+  }
 
   const { meta } = await fetchAndParseMeta(placement.sourceUrl, anthropicKey);
 

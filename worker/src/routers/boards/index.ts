@@ -3,15 +3,18 @@ import { P } from '../../db/schema';
 import { ServiceCtx, withTransaction } from '../../db/tx';
 import {
   AddItemBody,
+  AddTextItemBody,
   CreateBoardBody,
   DeleteItemsManyBody,
   InviteRoleSchema,
   PatchBoardItemBody,
   PatchItemsManyBody,
+  PatchTextItemBody,
   RenameBoardBody,
 } from '../../schemas/board';
 import {
   addBoardItem,
+  addTextItem,
   deleteBoardItem,
   deleteBoardItems,
   emptyBoardTrash,
@@ -19,6 +22,7 @@ import {
   listTrashedBoardItems,
   patchBoardItem,
   patchBoardItems,
+  patchTextItem,
   purgeBoardItem,
   reparseItem,
   restoreBoardItem,
@@ -103,6 +107,30 @@ export const boardsRouter = router({
         async (tx) => addBoardItem(tx, input.boardId, input.item),
       );
       return toBoardItemWire(row);
+    }),
+
+  addTextItem: protectedProcedure
+    .input(z.object({ boardId: z.string(), item: AddTextItemBody }))
+    .mutation(async ({ ctx, input }) => {
+      const row = await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => addTextItem(tx, input.boardId, input.item),
+      );
+      return toBoardItemWire(row);
+    }),
+
+  patchTextItem: protectedProcedure
+    .input(z.object({ id: z.string(), patch: PatchTextItemBody }))
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(
+        ctx.db,
+        ctx.images,
+        { userId: ctx.userId },
+        async (tx) => patchTextItem(tx, input.id, input.patch),
+      );
+      return { ok: true as const };
     }),
 
   deleteItem: protectedProcedure

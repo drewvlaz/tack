@@ -19,9 +19,11 @@ export type BoardItem = RouterOutputs['boards']['getItems'][number];
 export type Board = RouterOutputs['boards']['list'][number];
 export type ParseResult = RouterOutputs['parseUrl'];
 
-export type RealItem = BoardItem & { kind: 'real' };
+// `state` distinguishes life-cycle (real vs in-flight skeleton). Separate from
+// BoardItem.kind which is the server-side row variant ('product' | 'text').
+export type RealItem = BoardItem & { state: 'real' };
 export type SkeletonItem = {
-  kind: 'skeleton';
+  state: 'skeleton';
   tempId: string;
   sourceUrl: string;
   x: number;

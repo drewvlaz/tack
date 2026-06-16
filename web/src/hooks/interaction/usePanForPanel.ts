@@ -38,7 +38,7 @@ export function usePanForPanel({
     const selected =
       primaryId === null
         ? null
-        : (items.find((i) => i.kind === 'real' && i.id === primaryId) ?? null);
+        : (items.find((i) => i.state === 'real' && i.id === primaryId) ?? null);
 
     let targetOffset = 0;
     if (selected) {
