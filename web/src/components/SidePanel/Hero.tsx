@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { useBoardRole } from '../../hooks/server/useBoards';
 import { useSetPrimaryImage } from '../../hooks/server/useSetPrimaryImage';
 import { useHotkey } from '../../hooks/useHotkey';
+import { can, P } from '../../lib/permissions';
 import Pulse from '../shared/Pulse';
 import ImageLightbox from './ImageLightbox';
 
@@ -23,6 +25,7 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
   const [trackedHeroUrl, setTrackedHeroUrl] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const setPrimary = useSetPrimaryImage();
+  const canEdit = can(useBoardRole(boardId), P.BoardEdit);
 
   const hero = images[heroIdx] ?? images[0] ?? null;
   const heroUrl = hero?.url ?? null;
@@ -95,7 +98,7 @@ export default function Hero({ images, alt, id, boardId }: HeroProps) {
             index={heroIdx + 1}
             total={images.length}
             activeIsCover={activeIsCover}
-            onPromote={promoteActive}
+            onPromote={canEdit ? promoteActive : undefined}
           />
           <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1.5">
             {images.map((img, i) => (
@@ -128,7 +131,9 @@ type CaptionRowProps = {
   index: number;
   total: number;
   activeIsCover: boolean;
-  onPromote: () => void;
+  // Undefined when the viewer lacks edit permission — the "Set as cover"
+  // button is hidden in that case (the index counter alone remains).
+  onPromote?: () => void;
 };
 
 function CaptionRow({
@@ -145,7 +150,7 @@ function CaptionRow({
       </span>
       {activeIsCover ? (
         <span className="text-fg-muted">Cover</span>
-      ) : (
+      ) : onPromote ? (
         <button
           type="button"
           onClick={onPromote}
@@ -153,7 +158,7 @@ function CaptionRow({
         >
           Set as cover
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

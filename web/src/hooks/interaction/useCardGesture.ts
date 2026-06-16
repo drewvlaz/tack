@@ -22,6 +22,10 @@ type Options = {
   // other registered drag targets in lockstep).
   onDragMove?: (canvasDx: number, canvasDy: number) => void;
   onDragEnd?: (x: number, y: number) => void;
+  // Drag gesture toggle. Tap still works (use-gesture's tap detection runs
+  // independently of drag). When false, drags do not move the card and do
+  // not commit to the server — for read-only viewers.
+  dragEnabled?: boolean;
 };
 
 export function useCardGesture({
@@ -32,6 +36,7 @@ export function useCardGesture({
   onDragStart,
   onDragMove,
   onDragEnd,
+  dragEnabled = true,
 }: Options) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,6 +49,11 @@ export function useCardGesture({
     ({ delta: [dx, dy], tap, first, last }) => {
       if (tap) {
         onTap?.();
+        return;
+      }
+      if (!dragEnabled) {
+        // Tap above still fires (so viewers can open the SidePanel) — drag
+        // is the part we suppress for read-only.
         return;
       }
       if (first) {

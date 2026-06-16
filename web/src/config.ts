@@ -8,7 +8,7 @@ export const zoom = {
   min: 0.2,
   max: 3,
   initial: 1,
-  sensitivity: 0.001,
+  sensitivity: 0.01,
   step: 0.25,
 } as const;
 

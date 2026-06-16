@@ -1,10 +1,11 @@
 import { AnimatePresence } from 'framer-motion';
-import { Moon, Share2, Sun, Trash2 } from 'lucide-react';
+import { Lock, Moon, Share2, Sun, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useBoardItems } from '../hooks/server/useBoardItems';
-import { useBoards } from '../hooks/server/useBoards';
+import { useBoardRole, useBoards } from '../hooks/server/useBoards';
 import { useDeleteItems } from '../hooks/server/useDeleteItems';
 import { useSelectionHotkeys } from '../hooks/useSelectionHotkeys';
+import { can, P } from '../lib/permissions';
 import type { RealItem } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
 import { useSelectionStore } from '../store/selection';
@@ -36,7 +37,9 @@ export default function AppUI() {
 
   const { boards } = useBoards();
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
-  const isOwner = activeBoard?.role === 'owner';
+  const role = useBoardRole(activeBoardId);
+  const canManage = can(role, P.BoardManage);
+  const canEdit = can(role, P.BoardEdit);
 
   const selectionCount = selectionIds.size;
   const isMulti = selectionCount > 1;
@@ -47,6 +50,7 @@ export default function AppUI() {
     selectionCount,
     activeBoardId,
     realItemIds,
+    canEdit,
     onDeleteRequest: () => setConfirmDeleteOpen(true),
   });
 
@@ -66,8 +70,21 @@ export default function AppUI() {
     <div className="pointer-events-none absolute inset-0 z-10">
       <BoardsSidebar />
 
-      <div className="pointer-events-auto absolute top-4 right-4 flex gap-2">
-        {activeBoardId && isOwner && (
+      <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-2">
+        {activeBoardId && role && role !== 'owner' && (
+          <span
+            className="bg-surface-raised ring-border text-fg-muted flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium tracking-wider uppercase shadow-md ring-1"
+            title={
+              role === 'viewer'
+                ? 'You have read-only access to this board.'
+                : 'You can edit this board but not manage it.'
+            }
+          >
+            <Lock size={10} strokeWidth={2} aria-hidden />
+            {role}
+          </span>
+        )}
+        {activeBoardId && canManage && (
           <button
             onClick={() => setMembersOpen(true)}
             aria-label="Share board"
@@ -75,6 +92,16 @@ export default function AppUI() {
             className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
             <Share2 size={13} strokeWidth={1.6} aria-hidden />
+          </button>
+        )}
+        {activeBoardId && !canManage && role && (
+          <button
+            onClick={() => setMembersOpen(true)}
+            aria-label="See people with access"
+            title="People with access"
+            className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
+          >
+            <Users size={13} strokeWidth={1.6} aria-hidden />
           </button>
         )}
         {activeBoardId && (
@@ -138,7 +165,7 @@ export default function AppUI() {
         />
       )}
 
-      {activeBoardId && activeBoard && isOwner && (
+      {activeBoardId && activeBoard && role && (
         <MembersPanel
           open={membersOpen}
           boardId={activeBoardId}

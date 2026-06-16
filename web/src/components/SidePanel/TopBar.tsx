@@ -1,5 +1,7 @@
 import { RotateCw, X } from 'lucide-react';
+import { useBoardRole } from '../../hooks/server/useBoards';
 import { useReparseItem } from '../../hooks/server/useReparseItem';
+import { can, P } from '../../lib/permissions';
 
 type TopBarProps = {
   id: string;
@@ -12,23 +14,26 @@ const buttonClass =
 
 export default function TopBar({ id, boardId, onClose }: TopBarProps) {
   const reparseItem = useReparseItem(boardId);
+  const canEdit = can(useBoardRole(boardId), P.BoardEdit);
 
   return (
     <>
-      <button
-        onClick={() => reparseItem.mutate(id)}
-        disabled={reparseItem.isPending}
-        aria-label="Refresh from source"
-        title="Re-fetch from source URL"
-        className={`${buttonClass} right-16`}
-      >
-        <RotateCw
-          size={12}
-          strokeWidth={1.75}
-          aria-hidden
-          className={reparseItem.isPending ? 'animate-spin' : ''}
-        />
-      </button>
+      {canEdit && (
+        <button
+          onClick={() => reparseItem.mutate(id)}
+          disabled={reparseItem.isPending}
+          aria-label="Refresh from source"
+          title="Re-fetch from source URL"
+          className={`${buttonClass} right-16`}
+        >
+          <RotateCw
+            size={12}
+            strokeWidth={1.75}
+            aria-hidden
+            className={reparseItem.isPending ? 'animate-spin' : ''}
+          />
+        </button>
+      )}
 
       <button
         onClick={onClose}

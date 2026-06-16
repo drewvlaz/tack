@@ -2,16 +2,21 @@ import { TRPCError } from '@trpc/server';
 import { and, asc, eq, isNotNull, isNull, type SQL } from 'drizzle-orm';
 import type { Db } from '../client';
 import * as schema from '../schema';
+import {
+  BOARD_ROLES,
+  roleHas,
+  type BoardRole,
+  type Permission,
+} from '../schema';
 import type { Scope, Tx } from '../tx';
 import { accessibleBoardsWhere } from './scope';
 
 export type BoardRow = typeof schema.boards.$inferSelect;
+export type BoardWithRole = BoardRow & { role: BoardRole };
 export type BoardInsert = Omit<typeof schema.boards.$inferInsert, 'ownerId'>;
 export type BoardUpdate = Partial<
   Omit<typeof schema.boards.$inferInsert, 'id' | 'ownerId' | 'createdAt'>
 >;
-
-export type BoardRole = 'owner' | 'editor';
 
 // Read scope: caller is owner OR active member, board not trashed. Reads
 // expose shared boards; writes against `boards` rows remain owner-only and
@@ -82,6 +87,34 @@ export class BoardsReadRepo {
     });
   }
 
+  // Same scope as `list`, but each row carries the caller's role on that
+  // board (resolved via the same LEFT JOIN pattern as `roleFor`, in one
+  // query). Owner wins on ownerId match; otherwise the membership row's
+  // role. Used by services that surface role to the client without
+  // re-querying per row.
+  async listWithRole(): Promise<BoardWithRole[]> {
+    const rows = await this.db
+      .select({
+        board: schema.boards,
+        memberRole: schema.boardMembers.role,
+      })
+      .from(schema.boards)
+      .leftJoin(
+        schema.boardMembers,
+        and(
+          eq(schema.boardMembers.boardId, schema.boards.id),
+          eq(schema.boardMembers.userId, this.scope.userId),
+          isNull(schema.boardMembers.deletedAt),
+        ),
+      )
+      .where(activeScope(this.db, this.scope))
+      .orderBy(asc(schema.boards.createdAt));
+    return rows.map(({ board, memberRole }) => ({
+      ...board,
+      role: resolveRole(board.ownerId, this.scope.userId, memberRole),
+    }));
+  }
+
   async listTrashed(): Promise<BoardRow[]> {
     // Trash for the BOARDS rail is owner-only: a member viewing the trash
     // of a board they're invited to would see entries they can't restore
@@ -96,15 +129,20 @@ export class BoardsReadRepo {
   }
 
   // Resolves the caller's role on the given active board. Returns 'owner',
-  // 'editor', or null (no access). Used by `requireOwner` / `requireEditor`
-  // and by services that branch on role (e.g. listMembers shape).
+  // 'editor', 'viewer', or null (no access).
+  //
+  // For authorization, prefer `require(boardId, P.X)` — it's the single check
+  // that asks "can I do X?" without exposing the role enum to the caller.
+  // Reach for `roleFor` only when the caller genuinely needs to BRANCH on
+  // role (e.g. surfacing the caller's role to the client, or computing
+  // promote-only deltas between two role grants).
   async roleFor(boardId: string): Promise<BoardRole | null> {
     // UNIQUE(board_id, user_id) on board_members guarantees at most one
-    // joined row, so a single LEFT JOIN resolves both roles in one query.
+    // joined row, so a single LEFT JOIN resolves the role in one query.
     const [row] = await this.db
       .select({
         ownerId: schema.boards.ownerId,
-        memberId: schema.boardMembers.id,
+        memberRole: schema.boardMembers.role,
       })
       .from(schema.boards)
       .leftJoin(
@@ -125,32 +163,56 @@ export class BoardsReadRepo {
     if (row.ownerId === this.scope.userId) {
       return 'owner';
     }
-    return row.memberId !== null ? 'editor' : null;
+    if (row.memberRole === null) {
+      return null;
+    }
+    return parseStoredRole(row.memberRole);
   }
 
-  // Editor or owner can mutate placements / items on the board. Throws
-  // NOT_FOUND on no access (existence-leak safety — non-members shouldn't
-  // be able to probe whether a board id is real).
-  async requireEditor(boardId: string): Promise<BoardRole> {
+  // The resource-managed permission check. Routers/services declare what
+  // they need; the board resolves the caller's role and the permission
+  // catalog answers. NOT_FOUND for non-members (existence-leak safety —
+  // non-members shouldn't be able to probe whether a board id is real);
+  // FORBIDDEN for insufficient permission (they already know the board
+  // exists, so the explicit code is more useful than hiding it).
+  // Returns the resolved role for callers that need to branch.
+  async require(boardId: string, perm: Permission): Promise<BoardRole> {
     const role = await this.roleFor(boardId);
     if (role === null) {
       throw new TRPCError({ code: 'NOT_FOUND' });
+    }
+    if (!roleHas(role, perm)) {
+      throw new TRPCError({ code: 'FORBIDDEN' });
     }
     return role;
   }
+}
 
-  // Owner-only ops (rename, delete, invite, members.remove). Editors get
-  // FORBIDDEN — they already know the board exists, so we're not leaking
-  // anything by being explicit. Non-members still get NOT_FOUND.
-  async requireOwner(boardId: string): Promise<void> {
-    const role = await this.roleFor(boardId);
-    if (role === null) {
-      throw new TRPCError({ code: 'NOT_FOUND' });
-    }
-    if (role !== 'owner') {
-      throw new TRPCError({ code: 'FORBIDDEN' });
-    }
+// A stored membership.role is one of the BOARD_ROLES strings — but the
+// DB is just TEXT, so guard at the read boundary. An unknown value would
+// indicate either a buggy write or a manual DB edit; treat as no-access
+// rather than crashing the request.
+function parseStoredRole(stored: string): BoardRole | null {
+  return (BOARD_ROLES as readonly string[]).includes(stored)
+    ? (stored as BoardRole)
+    : null;
+}
+
+function resolveRole(
+  ownerId: string,
+  userId: string,
+  memberRole: string | null,
+): BoardRole {
+  if (ownerId === userId) {
+    return 'owner';
   }
+  // listWithRole's scope predicate guarantees the caller has access — they
+  // either own the board or have an active member row. So a null memberRole
+  // here is unreachable, but defensively fall back to 'viewer' (the most
+  // restrictive) rather than crashing.
+  return memberRole === null
+    ? 'viewer'
+    : (parseStoredRole(memberRole) ?? 'viewer');
 }
 
 export class BoardsTxRepo extends BoardsReadRepo {
@@ -170,9 +232,9 @@ export class BoardsTxRepo extends BoardsReadRepo {
   }
 
   // UPDATE owner-only. Renaming a board is the only consumer; even editors
-  // don't get to rename. Pair with `requireOwner` at the service boundary
-  // for an explicit 403 — a forged id targeting another user's row would
-  // otherwise match zero and silently no-op.
+  // don't get to rename. Pair with `require(id, P.BoardManage)` at the
+  // service boundary for an explicit 403 — a forged id targeting another
+  // user's row would otherwise match zero and silently no-op.
   stageUpdate(id: string, set: BoardUpdate): void {
     this.tx.stage(
       this.tx.db

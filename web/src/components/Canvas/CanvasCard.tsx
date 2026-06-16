@@ -2,8 +2,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { type MotionValue } from 'framer-motion';
 import { useCallback } from 'react';
 import { useSelectionDrag } from '../../hooks/interaction/useSelectionDrag';
+import { useBoardRole } from '../../hooks/server/useBoards';
 import { usePatchItems } from '../../hooks/server/usePatchItems';
 import { resolveImageUrl } from '../../lib/api';
+import { can, P } from '../../lib/permissions';
 import type { CanvasItem, RealItem, SkeletonItem } from '../../lib/trpc';
 import { useCanvasStore } from '../../store/canvas';
 import { useSelectionStore } from '../../store/selection';
@@ -95,6 +97,8 @@ function RealCanvasCard({
   const selectionDrag = useSelectionDrag();
   const bringToFront = useCanvasStore((s) => s.bringToFront);
   const zOverride = useCanvasStore((s) => s.zIndices[item.id]);
+  const role = useBoardRole(activeBoardId);
+  const canEdit = can(role, P.BoardEdit);
 
   const id = item.id;
   // Two stable single-key subscriptions — each Card only re-renders when its
@@ -189,10 +193,13 @@ function RealCanvasCard({
       // Omitted when in-group so pointerdown doesn't pop the dragged card
       // out of the group's z-order.
       onBringToFront={inGroup ? undefined : handleBringToFront}
-      onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
-      onDragEnd={handleDragEnd}
-      onResizeEnd={(next) => patchItems.mutate([{ id, patch: next }])}
+      onDragStart={canEdit ? handleDragStart : undefined}
+      onDragMove={canEdit ? handleDragMove : undefined}
+      onDragEnd={canEdit ? handleDragEnd : undefined}
+      onResizeEnd={
+        canEdit ? (next) => patchItems.mutate([{ id, patch: next }]) : undefined
+      }
+      interactionsEnabled={canEdit}
     />
   );
 }

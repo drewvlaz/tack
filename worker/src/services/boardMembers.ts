@@ -1,27 +1,35 @@
 import { TRPCError } from '@trpc/server';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
+import { BOARD_ROLES, P, roleHas, type BoardRole } from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
+import type { InviteRole } from '../schemas/board';
 
 // Like `services/auth.ts`, this file reaches `tx.db` / `ctx.db` directly:
 // board_members and board_invites don't fit the standard owned-table scoping
 // pattern (their access rules are role-based and route-specific), so wiring
 // them through the auto-scoped repo machinery would just hide the explicit
-// `requireOwner` / `requireEditor` checks that already live here.
+// permission checks that already live here.
 
 const INVITE_TOKEN_BYTES = 32;
 const INVITE_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
-export type MemberRole = 'owner' | 'editor';
-
 export type MemberView = {
   userId: string;
   email: string;
-  role: MemberRole;
+  role: BoardRole;
   joinedAt: number;
 };
+
+// Stored role strings are TEXT — guard the cast. An unknown value falls
+// back to 'viewer' (most restrictive) rather than crashing the request.
+function readStoredRole(stored: string): BoardRole {
+  return (BOARD_ROLES as readonly string[]).includes(stored)
+    ? (stored as BoardRole)
+    : 'viewer';
+}
 
 // base64url, no padding. Same encoding as session ids. Raw form is only
 // ever surfaced to the inviter through the share URL — the DB stores the
@@ -55,8 +63,9 @@ export async function listMembers(
   ctx: ServiceCtx,
   boardId: string,
 ): Promise<MemberView[]> {
-  // Owner-only — callers must check before invoking. Returns the owner + all
-  // active members with their emails joined from users.
+  // P.BoardView gated by the caller (the router runs the require check).
+  // Returns the owner + all active members with their emails joined from
+  // users.
   const board = await ctx.boards.byIdOrThrow(boardId);
 
   const ownerRow = await ctx.db.query.users.findFirst({
@@ -72,6 +81,7 @@ export async function listMembers(
     .select({
       userId: schema.boardMembers.userId,
       email: schema.users.email,
+      role: schema.boardMembers.role,
       joinedAt: schema.boardMembers.createdAt,
     })
     .from(schema.boardMembers)
@@ -94,7 +104,7 @@ export async function listMembers(
     ...memberRows.map((m) => ({
       userId: m.userId,
       email: m.email,
-      role: 'editor' as const,
+      role: readStoredRole(m.role),
       joinedAt: m.joinedAt,
     })),
   ];
@@ -105,12 +115,17 @@ export async function listMembers(
 export async function createInvite(
   tx: Tx,
   boardId: string,
-): Promise<{ token: string; expiresAt: number }> {
-  // Owner-only. Generates a fresh unguessable token; multiple outstanding
+  role: InviteRole,
+): Promise<{ token: string; expiresAt: number; role: InviteRole }> {
+  // P.BoardManage. Generates a fresh unguessable token; multiple outstanding
   // invites per board are allowed (e.g. owner shares link, then realizes
   // they want a new one and lets the old expire). Idempotency isn't useful
   // here — each token is single-use.
-  await tx.boards.requireOwner(boardId);
+  //
+  // `role` is bound to the token at creation time. The redeemer accepts at
+  // exactly the role the inviter chose; if the owner wants to share a board
+  // read-only, they generate a viewer link.
+  await tx.boards.require(boardId, P.BoardManage);
 
   const now = nowSec();
   const token = genToken();
@@ -123,13 +138,14 @@ export async function createInvite(
       tokenHash,
       createdBy: tx.scope.userId,
       expiresAt,
+      role,
       createdAt: now,
       updatedAt: now,
     }),
   );
   // Raw token returned to the caller — it's the one and only time the
   // cleartext value is surfaced. The DB only ever holds the hash.
-  return { token, expiresAt };
+  return { token, expiresAt, role };
 }
 
 // Outcome of redeeming an invite. The boardId lets the caller (signup OR
@@ -172,14 +188,32 @@ export async function redeemInvite(
   }
 
   // boardInvites.boardId is FK-cascaded, so the board necessarily exists
-  // here. Resolve the redeemer's role using the scoped helper — `tx.scope`
-  // is the redeemer (passed in via `userId`, which matches `tx.scope.userId`
-  // for both signup and acceptInvite paths). If the redeemer is the owner
-  // OR already an active member, consume the token and return; otherwise
-  // create or restore the editor membership.
-  const role = await tx.boards.roleFor(invite.boardId);
-  if (role !== null) {
-    // Owner or active member — just consume the token.
+  // here. Resolve the redeemer's current role on the board.
+  const inviteRole = readStoredRole(invite.role) as BoardRole; // 'editor' | 'viewer'
+  const currentRole = await tx.boards.roleFor(invite.boardId);
+
+  if (currentRole !== null) {
+    // Already a member (or the owner). Promote-only semantics: if the
+    // invite carries strictly more permissions than the current role,
+    // upgrade the row; otherwise just consume the token. Owner is always
+    // at max → consume-and-no-op.
+    if (shouldPromote(currentRole, inviteRole)) {
+      // Owner can never appear here as a target — owners have no row in
+      // board_members — so this UPDATE is safe even for `currentRole === 'owner'`
+      // (the WHERE matches zero rows). But we already short-circuit above.
+      tx.stage(
+        tx.db
+          .update(schema.boardMembers)
+          .set({ role: inviteRole, updatedAt: now })
+          .where(
+            and(
+              eq(schema.boardMembers.boardId, invite.boardId),
+              eq(schema.boardMembers.userId, userId),
+              isNull(schema.boardMembers.deletedAt),
+            ),
+          ),
+      );
+    }
     tx.stage(
       tx.db
         .update(schema.boardInvites)
@@ -190,7 +224,9 @@ export async function redeemInvite(
   }
 
   // Not currently a member. Look for a previously-removed row to restore
-  // (UNIQUE(board_id, user_id) means re-inserting would conflict).
+  // (UNIQUE(board_id, user_id) means re-inserting would conflict). On
+  // restore, the new invite's role wins — re-sharing at a different level
+  // is the explicit way to change a returning member's role.
   const existing = await tx.db.query.boardMembers.findFirst({
     where: and(
       eq(schema.boardMembers.boardId, invite.boardId),
@@ -205,6 +241,7 @@ export async function redeemInvite(
           deletedAt: null,
           updatedAt: now,
           invitedBy: invite.createdBy,
+          role: inviteRole,
         })
         .where(eq(schema.boardMembers.id, existing.id)),
     );
@@ -214,7 +251,7 @@ export async function redeemInvite(
         id: genId(),
         boardId: invite.boardId,
         userId,
-        role: 'editor',
+        role: inviteRole,
         invitedBy: invite.createdBy,
         createdAt: now,
         updatedAt: now,
@@ -230,6 +267,14 @@ export async function redeemInvite(
   );
 
   return { boardId: invite.boardId };
+}
+
+// Self-redeem promotion check: the invite upgrades the member iff the
+// invite's role has permissions the current role lacks. Expressed as
+// "exists a permission the invite grants that the current role doesn't"
+// — works for any future permission set without re-encoding the ranking.
+function shouldPromote(current: BoardRole, invite: BoardRole): boolean {
+  return roleHas(invite, P.BoardEdit) && !roleHas(current, P.BoardEdit);
 }
 
 // Public wrapper for redeemInvite — used by the tRPC acceptInvite procedure.
@@ -248,9 +293,10 @@ export async function removeMember(
   boardId: string,
   userId: string,
 ): Promise<void> {
-  // Owner-only. Soft-remove the membership; restoring (e.g. re-invite later)
-  // clears deletedAt rather than re-inserting, preserving join history.
-  await tx.boards.requireOwner(boardId);
+  // P.BoardManage. Soft-remove the membership; restoring (e.g. re-invite
+  // later) clears deletedAt rather than re-inserting, preserving join
+  // history.
+  await tx.boards.require(boardId, P.BoardManage);
 
   if (userId === tx.scope.userId) {
     // Owner can't remove themselves via this path (they'd lose the board).
@@ -281,15 +327,58 @@ export async function removeMember(
   );
 }
 
-export async function leaveBoard(tx: Tx, boardId: string): Promise<void> {
-  // Self-removal. Owner can't leave their own board (the action is
-  // meaningless; either delete the board or transfer ownership — the latter
-  // isn't implemented yet).
-  const role = await tx.boards.roleFor(boardId);
-  if (role === null) {
+// Change an active member's role on a board. P.BoardManage. The target
+// must currently be a non-owner member (owners have no row in
+// board_members — ownership transfer is a separate future flow).
+//
+// TODO: ownership transfer. When that lands, it'll touch boards.ownerId
+// + board_members atomically and is a distinct operation from this one.
+export async function updateMemberRole(
+  tx: Tx,
+  boardId: string,
+  userId: string,
+  role: InviteRole,
+): Promise<void> {
+  await tx.boards.require(boardId, P.BoardManage);
+
+  if (userId === tx.scope.userId) {
+    // Owner editing their own row would be a no-op (no row exists) — give
+    // a clear message instead of NOT_FOUND.
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message:
+        "Owners can't change their own role; ownership transfer is not yet supported.",
+    });
+  }
+
+  const member = await tx.db.query.boardMembers.findFirst({
+    where: and(
+      eq(schema.boardMembers.boardId, boardId),
+      eq(schema.boardMembers.userId, userId),
+      isNull(schema.boardMembers.deletedAt),
+    ),
+  });
+  if (!member) {
     throw new TRPCError({ code: 'NOT_FOUND' });
   }
-  if (role === 'owner') {
+
+  const now = nowSec();
+  tx.stage(
+    tx.db
+      .update(schema.boardMembers)
+      .set({ role, updatedAt: now })
+      .where(eq(schema.boardMembers.id, member.id)),
+  );
+}
+
+export async function leaveBoard(tx: Tx, boardId: string): Promise<void> {
+  // Self-removal. The "owners can't leave" rule is an IDENTITY check, not a
+  // permission check — owner here means "boards.ownerId === caller", the
+  // unique creator slot, not "has manage permission" (which a future admin
+  // role would also satisfy). Read the board (which throws NOT_FOUND if the
+  // caller isn't a member) and compare ownerId directly.
+  const board = await tx.boards.byIdOrThrow(boardId);
+  if (board.ownerId === tx.scope.userId) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
       message: 'Owners cannot leave; delete the board instead.',
@@ -304,7 +393,8 @@ export async function leaveBoard(tx: Tx, boardId: string): Promise<void> {
     ),
   });
   if (!member) {
-    // Shouldn't happen given the role check, but guard anyway.
+    // Shouldn't happen given byIdOrThrow succeeded (caller is a member), but
+    // guard anyway against a concurrent removeMember.
     throw new TRPCError({ code: 'NOT_FOUND' });
   }
 

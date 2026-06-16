@@ -8,6 +8,11 @@ import { users } from './users';
 // `owner OR member-of` OR rather than a uniform members-lookup.
 // `deletedAt` soft-removes membership; restoring a row (clear deletedAt)
 // re-grants access without rewriting history.
+//
+// `role` is one of BOARD_ROLES below ('editor' | 'viewer' — owner is implicit
+// via boards.ownerId and never stored here). The column is TEXT without a
+// CHECK constraint; runtime safety comes from Zod at the router boundary +
+// the Exclude<BoardRole, 'owner'> service-signature ban.
 export const boardMembers = sqliteTable(
   'board_members',
   {
@@ -18,7 +23,6 @@ export const boardMembers = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // Only 'editor' for now; viewer role comes later by widening this column.
     role: text('role').notNull().default('editor'),
     invitedBy: text('invited_by').references(() => users.id, {
       onDelete: 'set null',
@@ -32,3 +36,38 @@ export const boardMembers = sqliteTable(
     index('board_members_board_id_idx').on(t.boardId),
   ],
 );
+
+// ---------- permission catalog ----------
+//
+// Permissions are the atomic unit of board access. Every call site that
+// gates behavior expresses what it needs in permission terms; the role on
+// a (user, board) pair resolves to a permission set via ROLE_PERMISSIONS.
+// New roles are just new compositions; new actions are new permissions.
+
+export const PERMISSIONS = [
+  'board.view',
+  'board.edit',
+  'board.manage',
+] as const;
+export type Permission = (typeof PERMISSIONS)[number];
+
+// Ergonomic constant for call sites — `P.BoardEdit` reads better than the
+// stringly-typed `'board.edit'` everywhere it's checked.
+export const P = {
+  BoardView: 'board.view',
+  BoardEdit: 'board.edit',
+  BoardManage: 'board.manage',
+} as const satisfies Record<string, Permission>;
+
+export const BOARD_ROLES = ['owner', 'editor', 'viewer'] as const;
+export type BoardRole = (typeof BOARD_ROLES)[number];
+
+const ROLE_PERMISSIONS: Record<BoardRole, ReadonlySet<Permission>> = {
+  viewer: new Set<Permission>([P.BoardView]),
+  editor: new Set<Permission>([P.BoardView, P.BoardEdit]),
+  owner: new Set<Permission>([P.BoardView, P.BoardEdit, P.BoardManage]),
+};
+
+export function roleHas(role: BoardRole, perm: Permission): boolean {
+  return ROLE_PERMISSIONS[role].has(perm);
+}

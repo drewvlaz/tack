@@ -3,11 +3,16 @@ import { baseColumns } from './base';
 import { boards } from './boards';
 import { users } from './users';
 
-// One-shot tokens that grant editor membership on redemption. The capability
+// One-shot tokens that grant board membership on redemption. The capability
 // is 32 random bytes, base64url, generated server-side and surfaced once via
 // the URL shown to the inviter. The DB only stores `tokenHash` — SHA-256 hex
 // of the raw token — so a DB leak doesn't expose redeemable links. The raw
 // token is high-entropy so a single SHA-256 round is enough; no salt.
+//
+// `role` is the role granted on redemption ('editor' | 'viewer' — owner is
+// implicit via boards.ownerId and is never an invite outcome). Bound at
+// invite-creation time so the redeemer's permission level is decided by the
+// inviter, not the redeemer.
 //
 // Redemption is a one-time event: `redeemedAt` is set, `redeemedBy` records
 // who consumed it. A second redeem attempt is rejected. Tokens also expire
@@ -28,6 +33,7 @@ export const boardInvites = sqliteTable(
     redeemedBy: text('redeemed_by').references(() => users.id, {
       onDelete: 'set null',
     }),
+    role: text('role').notNull().default('editor'),
   },
   (t) => [index('board_invites_board_id_idx').on(t.boardId)],
 );

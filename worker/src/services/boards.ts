@@ -1,3 +1,4 @@
+import { P } from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
@@ -7,16 +8,15 @@ import { stagePurge } from './boardItems';
 // ---------- reads ----------
 
 export async function listBoards(ctx: ServiceCtx): Promise<Board[]> {
-  const rows = await ctx.boards.list();
-  // boards.list() already includes shared-with-me rows (scope predicate).
-  // Derive role from ownerId: owner if it matches the caller, editor
-  // otherwise (membership is the only other way the row could appear).
+  // listWithRole resolves the caller's role per board in one query
+  // (owner | editor | viewer). Includes shared-with-me rows via the same
+  // scope predicate as `list()`.
+  const rows = await ctx.boards.listWithRole();
   return rows.map((b) => ({
     id: b.id,
     name: b.name,
     createdAt: b.createdAt,
-    role:
-      b.ownerId === ctx.scope.userId ? ('owner' as const) : ('editor' as const),
+    role: b.role,
   }));
 }
 
@@ -31,11 +31,11 @@ export function createBoard(tx: Tx, name: string): Board {
 }
 
 // Hard purge: drops all placements for the board, their R2 blobs, then
-// the board row — all in a single atomic batch via the Tx. Owner-only.
+// the board row — all in a single atomic batch via the Tx. P.BoardManage.
 // After fold 0009 there's no separate items table to orphan-check; the
 // FK cascade on board_items + the staged blob cleanup are enough.
 export async function deleteBoard(tx: Tx, id: string): Promise<void> {
-  await tx.boards.requireOwner(id);
+  await tx.boards.require(id, P.BoardManage);
 
   const placements = await tx.placements.listIdsForBoardIncludingTrashed(id);
   await stagePurge(
@@ -51,11 +51,11 @@ export async function renameBoard(
   id: string,
   name: string,
 ): Promise<Board> {
-  // Owner-only: editors don't rename. requireOwner throws FORBIDDEN for
-  // editors (they already know the board exists) and NOT_FOUND for
-  // non-members. After the check, read the row for the response payload —
-  // the staged UPDATE hasn't run yet on D1.
-  await tx.boards.requireOwner(id);
+  // P.BoardManage: editors/viewers don't rename. `require` throws FORBIDDEN
+  // for insufficient role (they already know the board exists) and NOT_FOUND
+  // for non-members. After the check, read the row for the response payload
+  // — the staged UPDATE hasn't run yet on D1.
+  await tx.boards.require(id, P.BoardManage);
   const existing = await tx.boards.byIdOrThrow(id);
   tx.boards.stageUpdate(id, { name, updatedAt: nowSec() });
   return {

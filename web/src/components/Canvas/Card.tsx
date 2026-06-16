@@ -35,6 +35,10 @@ type CardProps = {
     width: number;
     height: number;
   }) => void;
+  // Drag + resize toggle. When false the card is non-mutating (tap still
+  // works so selection / SidePanel-open are unaffected) — for read-only
+  // viewers.
+  interactionsEnabled?: boolean;
 };
 
 export default function Card({
@@ -56,6 +60,7 @@ export default function Card({
   onDragMove,
   onDragEnd,
   onResizeEnd,
+  interactionsEnabled = true,
 }: CardProps) {
   const w = useMotionValue(width);
   const h = useMotionValue(height);
@@ -76,6 +81,7 @@ export default function Card({
     onDragStart,
     onDragMove,
     onDragEnd,
+    dragEnabled: interactionsEnabled,
   });
 
   // Publish position MVs to the group-drag coordinator. Skeleton cards opt
@@ -156,9 +162,11 @@ export default function Card({
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-      className={`group absolute cursor-grab rounded-2xl shadow-md select-none active:cursor-grabbing ${
-        isSelected ? 'ring-2 ring-fg/70 ring-offset-2 ring-offset-bg' : ''
-      }`}
+      className={`group absolute rounded-2xl shadow-md select-none ${
+        interactionsEnabled
+          ? 'cursor-grab active:cursor-grabbing'
+          : 'cursor-pointer'
+      } ${isSelected ? 'ring-2 ring-fg/70 ring-offset-2 ring-offset-bg' : ''}`}
     >
       {status !== 'loaded' && (
         <motion.div
@@ -182,10 +190,14 @@ export default function Card({
           onLoad={markLoaded}
         />
       )}
-      <ResizeHandle ref={nwRef} corner="nw" />
-      <ResizeHandle ref={neRef} corner="ne" />
-      <ResizeHandle ref={swRef} corner="sw" />
-      <ResizeHandle ref={seRef} corner="se" />
+      {interactionsEnabled && (
+        <>
+          <ResizeHandle ref={nwRef} corner="nw" />
+          <ResizeHandle ref={neRef} corner="ne" />
+          <ResizeHandle ref={swRef} corner="sw" />
+          <ResizeHandle ref={seRef} corner="se" />
+        </>
+      )}
     </motion.div>
   );
 }
