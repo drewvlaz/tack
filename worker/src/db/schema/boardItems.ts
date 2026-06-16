@@ -54,6 +54,19 @@ export const boardItems = sqliteTable(
     width: real('width').notNull().default(220),
     height: real('height').notNull().default(400),
     zIndex: integer('z_index').notNull().default(0),
+
+    // Discriminator. Nullable so existing rows read as 'product' without a
+    // backfill; the service layer treats null as 'product'. New kinds add
+    // sparse columns below — keep them all nullable so a product row's
+    // shape is unchanged.
+    kind: text('kind'),
+
+    // Sparse text-kind columns. Only populated when kind = 'text'.
+    textContent: text('text_content'),
+    textFontSize: real('text_font_size'),
+    textWeight: integer('text_weight'),
+    textColorToken: text('text_color_token'),
+    textAlign: text('text_align'),
   },
   (t) => [
     index('board_items_board_id_idx').on(t.boardId),

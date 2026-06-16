@@ -32,6 +32,9 @@ yarn-error.log*
 .env*.local
 .dev.vars
 
+# claude code MCP config — contains plaintext API tokens
+.mcp.json
+
 # vercel
 .vercel
 

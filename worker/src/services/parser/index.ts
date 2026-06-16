@@ -207,9 +207,7 @@ async function tryWaybackFetch(url: string): Promise<string | null> {
     if (!snapRes.ok) {
       return null;
     }
-    log.debug(
-      `parser: rescued ${url} from web.archive.org snapshot ${snap.timestamp}`,
-    );
+    log.info('parser archive rescue', { url, snapshot: snap.timestamp });
     return await readBodyCapped(snapRes, MAX_HTML_BYTES);
   } catch (err) {
     // Wayback unreachable / rate-limited / its own UnsafeUrl — none of these
@@ -237,6 +235,11 @@ export async function fetchHtmlWithArchiveFallback(
       return { html: archived, warnings: ['parsed_from_archive'] };
     }
   }
+  log.info('parser fetch failed', {
+    url,
+    kind: live.kind,
+    status: live.kind === 'status' ? live.status : undefined,
+  });
   throw new ParseFetchError(
     live.message,
     url,
@@ -281,7 +284,8 @@ export async function parseHtmlMeta(
     buildEvidence(url, extract, html),
     extract.candidates.length,
     apiKey,
-  ).catch(() => {
+  ).catch((err) => {
+    log.warn('parser claude fallback', { url, err: String(err) });
     warnings.push('claude_failed');
     return null as ClaudeSelection | null;
   });

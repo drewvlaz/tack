@@ -26,7 +26,11 @@ type CardProps = {
   // onBringToFront is gated by the caller — if it's omitted (e.g. when the
   // card is part of a multi-selection group), pointerdown won't reorder z.
   onBringToFront?: () => void;
-  onDragStart?: () => void;
+  onDragStart?: (mods: {
+    shiftKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  }) => void;
   onDragMove?: (canvasDx: number, canvasDy: number) => void;
   onDragEnd?: (x: number, y: number) => void;
   onResizeEnd?: (next: {

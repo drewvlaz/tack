@@ -1,3 +1,5 @@
+import { log } from './log';
+
 type ClaudeResponse = { content: Array<{ text: string }> };
 
 const DEFAULT_MAX_TOKENS = 1024;
@@ -73,8 +75,10 @@ export async function callClaude(
         .text()
         .then((t) => t.slice(0, 300))
         .catch(() => '');
+      log.error('claude api failed', { status: res.status, model, attempt });
       throw new Error(`Claude API error: ${res.status} ${detail}`.trim());
     }
+    log.warn('claude api retry', { status: res.status, model, attempt });
     await sleep(BACKOFF_MS * 2 ** (attempt - 1));
   }
 
