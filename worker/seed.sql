@@ -24,3 +24,14 @@ INSERT INTO board_item_images (id, board_item_id, r2_key, source_url, display_or
   ('img-1', 'bi-1', 'items/user-dev/img-1.jpg', 'https://images.unsplash.com/photo-1598300042247-d088f8ab3a91?w=300&h=400&fit=crop&auto=format', 0, 1749168000, 1749168000),
   ('img-2', 'bi-2', 'items/user-dev/img-2.jpg', 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=300&h=400&fit=crop&auto=format', 0, 1749168000, 1749168000),
   ('img-3', 'bi-3', 'items/user-dev/img-3.jpg', 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=300&h=400&fit=crop&auto=format', 0, 1749168000, 1749168000);
+
+-- Text-kind seed row — gives the dev environment a visible text item before
+-- the spawn affordance (T hotkey / TopBar button) ships in TAC-7.
+INSERT INTO board_items (
+  id, board_id, added_by, kind, source_url, currency,
+  x, y, width, height, z_index, created_at, updated_at,
+  text_content, text_font_size, text_weight, text_color_token, text_align
+) VALUES
+  ('bi-text-1', 'board-1', 'user-dev', 'text', '', 'USD',
+   80, 520, 320, 80, 1, 1749168000, 1749168000,
+   'autumn palette', 28, 600, 'fg', 'left');
