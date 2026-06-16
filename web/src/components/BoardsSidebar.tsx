@@ -1,6 +1,8 @@
 import { format, formatDistanceToNow } from 'date-fns';
-import { LogOut, Pencil, Plus, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { LogOut, Menu, Pencil, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { spring } from '../config';
 import { useBoards } from '../hooks/server/useBoards';
 import { useCreateBoard } from '../hooks/server/useCreateBoard';
 import { useDeleteBoard } from '../hooks/server/useDeleteBoard';
@@ -31,6 +33,8 @@ export default function BoardsSidebar() {
 
   const leftWidth = useRailsStore((s) => s.leftWidth);
   const setLeftWidth = useRailsStore((s) => s.setLeftWidth);
+  const leftCollapsed = useRailsStore((s) => s.leftCollapsed);
+  const toggleLeftCollapsed = useRailsStore((s) => s.toggleLeftCollapsed);
 
   const [draftName, setDraftName] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -118,11 +122,48 @@ export default function BoardsSidebar() {
   }
 
   return (
-    <Rail side="left" width={leftWidth} onResize={setLeftWidth}>
+    <>
+      <AnimatePresence>
+        {leftCollapsed && (
+          <motion.div
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -8 }}
+            transition={{ type: 'spring', ...spring.panel }}
+            className="pointer-events-auto absolute top-4 left-4 z-20"
+          >
+            <IconButton
+              variant="raised"
+              size="md"
+              aria-label="Open sidebar"
+              onClick={toggleLeftCollapsed}
+            >
+              <Menu size={14} strokeWidth={1.6} aria-hidden />
+            </IconButton>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Rail
+        side="left"
+        width={leftWidth}
+        onResize={setLeftWidth}
+        animate={{ x: leftCollapsed ? -leftWidth : 0 }}
+        transition={{ type: 'spring', ...spring.panel }}
+      >
       <header className="flex shrink-0 items-center justify-between px-5 py-4">
-        <p className="text-fg-subtle text-[11px] font-medium tracking-[0.18em] uppercase">
-          Tack
-        </p>
+        <div className="flex items-center gap-2">
+          <IconButton
+            size="sm"
+            aria-label="Collapse sidebar"
+            onClick={toggleLeftCollapsed}
+          >
+            <Menu size={14} strokeWidth={1.6} aria-hidden />
+          </IconButton>
+          <p className="text-fg-subtle text-[11px] font-medium tracking-[0.18em] uppercase">
+            Tack
+          </p>
+        </div>
         <IconButton
           size="sm"
           onClick={() => setDraftName('')}
@@ -241,7 +282,8 @@ export default function BoardsSidebar() {
         onCancel={() => setPendingLeave(null)}
         onConfirm={confirmLeave}
       />
-    </Rail>
+      </Rail>
+    </>
   );
 }
 

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
+import { getItem, setItem } from '../lib/storage';
 
 function resolveInitialTheme(): boolean {
-  const stored = localStorage.getItem('theme');
+  const stored = getItem('theme');
   if (stored) {
     return stored === 'dark';
   }
@@ -18,7 +19,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   toggle() {
     const isDark = !get().isDark;
     document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    setItem('theme', isDark ? 'dark' : 'light');
     set({ isDark });
   },
 }));

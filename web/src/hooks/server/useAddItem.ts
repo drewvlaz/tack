@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { addItem, patchBoardItems } from '../../api/boards';
 import { parseFromHtml, parseUrl } from '../../api/parse';
 import { describeAddItemError } from '../../lib/errors';
+import { log } from '../../lib/log';
 import type { CanvasItem, SkeletonItem } from '../../lib/trpc';
 import { useCanvasStore } from '../../store/canvas';
 import { useToastsStore } from '../../store/toasts';
@@ -26,7 +27,7 @@ export function useAddItem() {
         ? await parseFromHtml(url, html)
         : await parseUrl(url);
       if (parsed.warnings.length > 0) {
-        console.warn('parse warnings:', parsed.warnings, 'for', url);
+        log.warn('parse warnings', { warnings: parsed.warnings, url });
       }
 
       return addItem(boardId, {

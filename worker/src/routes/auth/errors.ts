@@ -10,6 +10,15 @@ export function authErrorResponse(c: Context, err: unknown): Response {
         : err.code === 'invalid_credentials'
           ? 401
           : 400;
+    // Bad-credential and not-allowlisted attempts are the security signal
+    // worth a log line; email_taken / invalid_email / invalid_password are
+    // routine user input mistakes.
+    if (err.code === 'invalid_credentials' || err.code === 'not_allowlisted') {
+      log.warn('auth rejected', {
+        code: err.code,
+        ip: c.req.header('cf-connecting-ip') ?? 'anonymous',
+      });
+    }
     return c.json({ error: err.code, message: err.message }, status);
   }
   log.error('auth route failure', err);

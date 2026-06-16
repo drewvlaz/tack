@@ -29,7 +29,6 @@
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-intersection-observer": "^10.0.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
