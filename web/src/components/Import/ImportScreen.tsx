@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAddItem } from '../../hooks/server/useAddItem';
 import { useBoards } from '../../hooks/server/useBoards';
+import { can, P } from '../../lib/permissions';
 import { useBoardsStore } from '../../store/boards';
 import Button from '../shared/Button';
 
@@ -81,9 +82,15 @@ function Waiting() {
 }
 
 function ImportConfirm({ payload }: { payload: ImportPayload }) {
-  const { boards, isLoading } = useBoards();
+  const { boards: allBoards, isLoading } = useBoards();
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
   const addItem = useAddItem();
+  // Bookmarklet posts items — viewer-role boards reject this on the server,
+  // so filter the picker to boards where the caller can actually add.
+  const boards = useMemo(
+    () => allBoards.filter((b) => can(b.role, P.BoardEdit)),
+    [allBoards],
+  );
   // `null` = no explicit pick yet → fall through to the active board (or the
   // first one). This is the "derived state" pattern from the React docs —
   // never sync via useEffect, just compute on render so the user's pick

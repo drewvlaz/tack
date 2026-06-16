@@ -1,5 +1,7 @@
 import { spring } from '../../config';
+import { useBoardRole } from '../../hooks/server/useBoards';
 import { resolveImageUrl } from '../../lib/api';
+import { can, P } from '../../lib/permissions';
 import type { BoardItem } from '../../lib/trpc';
 import { useRailsStore } from '../../store/rails';
 import Rail from '../shared/Rail';
@@ -17,6 +19,7 @@ type SidePanelProps = {
 export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
   const rightWidth = useRailsStore((s) => s.rightWidth);
   const setRightWidth = useRailsStore((s) => s.setRightWidth);
+  const canEdit = can(useBoardRole(boardId), P.BoardEdit);
   const images = item.images
     .map((img) => {
       const url = resolveImageUrl(img.url);
@@ -44,14 +47,16 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
           boardId={boardId}
         />
         <Details item={item} />
-        <div className="border-border border-t px-7 py-4">
-          <RemoveButton
-            id={item.id}
-            boardId={boardId}
-            title={item.title}
-            onRemoved={onClose}
-          />
-        </div>
+        {canEdit && (
+          <div className="border-border border-t px-7 py-4">
+            <RemoveButton
+              id={item.id}
+              boardId={boardId}
+              title={item.title}
+              onRemoved={onClose}
+            />
+          </div>
+        )}
       </div>
     </Rail>
   );

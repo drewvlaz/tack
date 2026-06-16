@@ -1,0 +1,1 @@
+ALTER TABLE `board_invites` ADD `role` text DEFAULT 'editor' NOT NULL;

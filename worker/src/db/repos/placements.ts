@@ -205,8 +205,8 @@ export class PlacementsTxRepo extends PlacementsReadRepo {
     super(tx.db, tx.scope);
   }
 
-  // INSERT trusts the caller. The boardId must already be access-verified
-  // (e.g. via `boards.requireEditor(boardId)` at the service boundary).
+  // INSERT trusts the caller. The boardId must already be permission-verified
+  // (e.g. via `boards.require(boardId, P.BoardEdit)` at the service boundary).
   stageInsert(values: PlacementInsert): void {
     this.tx.stage(this.tx.db.insert(schema.boardItems).values(values));
   }

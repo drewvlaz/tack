@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import type { HydratedPlacement } from '../db/repos/placements';
+import { P } from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
@@ -86,7 +87,8 @@ export async function patchBoardItem(
   id: string,
   patch: PatchBoardItemInput,
 ): Promise<void> {
-  await tx.placements.byIdOrThrow(id);
+  const placement = await tx.placements.byIdOrThrow(id);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
   const update = {
     updatedAt: nowSec(),
     ...(patch.x !== undefined && { x: patch.x }),
@@ -103,10 +105,9 @@ export async function addBoardItem(
   boardId: string,
   input: AddItemInput,
 ): Promise<BoardItemRow> {
-  // Editor or owner can add. requireEditor returns NOT_FOUND for non-
-  // members (existence-leak safety) and is the only access check we need
-  // — placement metadata + images all hang off this one row now.
-  await tx.boards.requireEditor(boardId);
+  // Editor or owner can add; viewer is rejected (FORBIDDEN). Non-members
+  // get NOT_FOUND so we don't leak board existence.
+  await tx.boards.require(boardId, P.BoardEdit);
 
   // R2 keys returned by parseUrl are namespaced `items/{uploaderUserId}/...`.
   // Reject any r2-kind image whose owner segment doesn't match the caller,
@@ -190,20 +191,30 @@ export async function addBoardItem(
 }
 
 export async function deleteBoardItem(tx: Tx, id: string): Promise<void> {
-  await tx.placements.byIdOrThrow(id);
+  const placement = await tx.placements.byIdOrThrow(id);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
   tx.placements.stageSoftDelete(id, nowSec());
 }
 
 // Batch update — one UPDATE per patch, all flushed in the same db.batch
 // commit when withTransaction returns. byIdOrThrow per entry enforces
-// ownership scoping; an unauthorized id aborts the whole transaction.
+// existence scoping; the per-placement edit check rejects viewers and
+// aborts the whole transaction on any unauthorized id.
 export async function patchBoardItems(
   tx: Tx,
   patches: PatchItemsManyInput['patches'],
 ): Promise<void> {
   const now = nowSec();
+  // Cache board-level edit checks across this batch — group mutations
+  // typically all hit the same board, so one role lookup per board is
+  // enough.
+  const checkedBoards = new Set<string>();
   for (const { id, patch } of patches) {
-    await tx.placements.byIdOrThrow(id);
+    const placement = await tx.placements.byIdOrThrow(id);
+    if (!checkedBoards.has(placement.boardId)) {
+      await tx.boards.require(placement.boardId, P.BoardEdit);
+      checkedBoards.add(placement.boardId);
+    }
     tx.placements.stageUpdate(id, {
       updatedAt: now,
       ...(patch.x !== undefined && { x: patch.x }),
@@ -218,24 +229,31 @@ export async function patchBoardItems(
 // Batch soft-delete — one UPDATE per id, atomic via the same accumulator.
 export async function deleteBoardItems(tx: Tx, ids: string[]): Promise<void> {
   const now = nowSec();
+  const checkedBoards = new Set<string>();
   for (const id of ids) {
-    await tx.placements.byIdOrThrow(id);
+    const placement = await tx.placements.byIdOrThrow(id);
+    if (!checkedBoards.has(placement.boardId)) {
+      await tx.boards.require(placement.boardId, P.BoardEdit);
+      checkedBoards.add(placement.boardId);
+    }
     tx.placements.stageSoftDelete(id, now);
   }
 }
 
 export async function restoreBoardItem(tx: Tx, id: string): Promise<void> {
-  await tx.placements.byIdIncludingTrashedOrThrow(id);
+  const placement = await tx.placements.byIdIncludingTrashedOrThrow(id);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
   tx.placements.stageRestore(id, nowSec());
 }
 
 export async function purgeBoardItem(tx: Tx, id: string): Promise<void> {
   const placement = await tx.placements.byIdIncludingTrashedOrThrow(id);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
   await stagePurge(tx, [placement.id]);
 }
 
 export async function emptyBoardTrash(tx: Tx, boardId: string): Promise<void> {
-  await tx.boards.requireEditor(boardId);
+  await tx.boards.require(boardId, P.BoardEdit);
   const trashed = await tx.placements.listTrashIdsForBoard(boardId);
   if (trashed.length === 0) {
     return;
@@ -269,7 +287,8 @@ export async function setPrimaryImage(
   placementId: string,
   imageId: string | null,
 ): Promise<void> {
-  await tx.placements.byIdOrThrow(placementId);
+  const placement = await tx.placements.byIdOrThrow(placementId);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
   if (imageId !== null) {
     const owned = await tx.boardItemImages.findByBoardItemAndId(
       placementId,
@@ -325,6 +344,7 @@ export async function reparseItem(
   anthropicKey: string,
 ): Promise<ReparseResult> {
   const placement = await tx.placements.byIdOrThrow(placementId);
+  await tx.boards.require(placement.boardId, P.BoardEdit);
 
   const { meta } = await fetchAndParseMeta(placement.sourceUrl, anthropicKey);
 

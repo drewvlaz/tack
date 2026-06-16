@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDb } from '../../src/db/client';
 import * as schema from '../../src/db/schema';
+import { P } from '../../src/db/schema';
 import type { Scope } from '../../src/db/tx';
 import { ServiceCtx, withTransaction } from '../../src/db/tx';
 import {
@@ -78,7 +79,7 @@ async function shareBoardAliceToBob(): Promise<{ boardId: string }> {
     Promise.resolve(createBoard(tx, 'Shared')),
   );
   const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-    createInvite(tx, board.id),
+    createInvite(tx, board.id, 'editor'),
   );
   await withTransaction(db(), env.IMAGES, BOB, (tx) => acceptInvite(tx, token));
   return { boardId: board.id };
@@ -183,16 +184,18 @@ describe('membership: editor access', () => {
   it('editor cannot invite or remove members or list members', async () => {
     const { boardId } = await shareBoardAliceToBob();
     await expect(
-      withTransaction(db(), env.IMAGES, BOB, (tx) => createInvite(tx, boardId)),
+      withTransaction(db(), env.IMAGES, BOB, (tx) =>
+        createInvite(tx, boardId, 'editor'),
+      ),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(
       withTransaction(db(), env.IMAGES, BOB, (tx) =>
         removeMember(tx, boardId, ALICE.userId),
       ),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(ctx(BOB).boards.requireOwner(boardId)).rejects.toMatchObject({
-      code: 'FORBIDDEN',
-    });
+    await expect(
+      ctx(BOB).boards.require(boardId, P.BoardManage),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
 
@@ -235,7 +238,7 @@ describe('membership: removal and leave', () => {
 
     // Fresh invite to the same person.
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, boardId),
+      createInvite(tx, boardId, 'editor'),
     );
     await withTransaction(db(), env.IMAGES, BOB, (tx) =>
       acceptInvite(tx, token),
@@ -286,7 +289,7 @@ describe('invites', () => {
       Promise.resolve(createBoard(tx, 'Once')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
     await withTransaction(db(), env.IMAGES, BOB, (tx) =>
       acceptInvite(tx, token),
@@ -302,7 +305,7 @@ describe('invites', () => {
       Promise.resolve(createBoard(tx, 'Stale')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
     // Force expiry. expiresAt is unix seconds. We can't look up by raw
     // token anymore (DB stores only the hash); scope by board_id instead.
@@ -322,7 +325,7 @@ describe('invites', () => {
       Promise.resolve(createBoard(tx, 'Self')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
     const result = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
       acceptInvite(tx, token),
@@ -353,7 +356,7 @@ describe('invites', () => {
       Promise.resolve(createBoard(tx, 'Hashed')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
 
     const rows = await db().query.boardInvites.findMany();
@@ -467,7 +470,7 @@ describe('invite token bypasses INVITE_EMAILS allowlist at signup', () => {
       Promise.resolve(createBoard(tx, 'Inviting')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
 
     // Signup as a brand-new user (Diana) who is NOT on the allowlist.
@@ -505,7 +508,7 @@ describe('invite token bypasses INVITE_EMAILS allowlist at signup', () => {
       Promise.resolve(createBoard(tx, 'Stale')),
     );
     const { token } = await withTransaction(db(), env.IMAGES, ALICE, (tx) =>
-      createInvite(tx, board.id),
+      createInvite(tx, board.id, 'editor'),
     );
     await env.DB.prepare(
       'UPDATE board_invites SET expires_at = ?1 WHERE board_id = ?2',

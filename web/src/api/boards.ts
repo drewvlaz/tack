@@ -66,10 +66,15 @@ export function emptyTrash(boardId: string): Promise<{ ok: true }> {
 
 // ---------- collab: invites + membership ----------
 
+// Role granted at invite redemption. Owner is implicit via boards.ownerId
+// and is never an invite outcome, hence the narrower type here.
+export type InviteRole = 'editor' | 'viewer';
+
 export function inviteToBoard(
   boardId: string,
-): Promise<{ token: string; expiresAt: number }> {
-  return trpc.boards.invite.mutate({ boardId });
+  role: InviteRole = 'editor',
+): Promise<{ token: string; expiresAt: number; role: InviteRole }> {
+  return trpc.boards.invite.mutate({ boardId, role });
 }
 
 export function acceptInvite(token: string): Promise<{ boardId: string }> {
@@ -79,7 +84,7 @@ export function acceptInvite(token: string): Promise<{ boardId: string }> {
 export type BoardMember = {
   userId: string;
   email: string;
-  role: 'owner' | 'editor';
+  role: 'owner' | 'editor' | 'viewer';
   joinedAt: number;
 };
 
@@ -92,6 +97,14 @@ export function removeMember(
   userId: string,
 ): Promise<{ ok: true }> {
   return trpc.boards.removeMember.mutate({ boardId, userId });
+}
+
+export function updateMemberRole(
+  boardId: string,
+  userId: string,
+  role: InviteRole,
+): Promise<{ ok: true }> {
+  return trpc.boards.updateMemberRole.mutate({ boardId, userId, role });
 }
 
 export function leaveBoard(boardId: string): Promise<{ ok: true }> {

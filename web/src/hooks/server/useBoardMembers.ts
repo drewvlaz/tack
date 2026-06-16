@@ -7,9 +7,8 @@ export function boardMembersQueryKey(boardId: string) {
   return ['boards', boardId, 'members'] as const;
 }
 
-// Owner-only on the server; for editors / non-members the underlying call
-// throws FORBIDDEN/NOT_FOUND. Components gate on `board.role === 'owner'`
-// before mounting this hook.
+// P.BoardView on the server — every member (owner/editor/viewer) sees the
+// list. Non-members throw NOT_FOUND.
 export function useBoardMembers(boardId: string | null) {
   const { data, isLoading, error } = useQuery({
     queryKey: boardId ? boardMembersQueryKey(boardId) : ['boards', null, 'members'],

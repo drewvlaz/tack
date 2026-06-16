@@ -162,8 +162,21 @@ export function useCanvasGesture(boardId: string | null) {
   }, [boardId, zoomMV, panX, panY]);
 
   useWheel(
-    ({ delta: [, dy], event }) => {
+    ({ delta: [dx, dy], event }) => {
       event.preventDefault();
+
+      // Browser convention: trackpad pinch arrives as a wheel event with
+      // ctrlKey synthesized true (even without ctrl actually held). Plain
+      // two-finger scroll has ctrlKey false → pan. Holding ctrl/cmd on a
+      // real mouse wheel also zooms.
+      const we = event as WheelEvent;
+      const isZoom = we.ctrlKey || we.metaKey;
+
+      if (!isZoom) {
+        panX.set(panX.get() - dx);
+        panY.set(panY.get() - dy);
+        return;
+      }
 
       const oldZoom = zoomMV.get();
       const newZoom = Math.min(
@@ -173,8 +186,8 @@ export function useCanvasGesture(boardId: string | null) {
 
       // zoom toward cursor: keep the world point under the cursor fixed
       const rect = canvasRef.current!.getBoundingClientRect();
-      const cursorX = (event as WheelEvent).clientX - rect.left;
-      const cursorY = (event as WheelEvent).clientY - rect.top;
+      const cursorX = we.clientX - rect.left;
+      const cursorY = we.clientY - rect.top;
       const ratio = newZoom / oldZoom;
 
       panX.set(cursorX - (cursorX - panX.get()) * ratio);

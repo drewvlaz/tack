@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { ItemDetailSchema, StoredImageSchema } from './parse';
 import { Coord, SafeUrl, Size, ZIndex } from './primitives';
 
-export const BoardRoleSchema = z.enum(['owner', 'editor']);
+export const BoardRoleSchema = z.enum(['owner', 'editor', 'viewer']);
+
+// Roles assignable via invite or updateMemberRole. Owner is implicit via
+// boards.ownerId and cannot be granted through these flows.
+export const InviteRoleSchema = z.enum(['editor', 'viewer']);
+export type InviteRole = z.infer<typeof InviteRoleSchema>;
 
 export const BoardSchema = z.object({
   id: z.string(),

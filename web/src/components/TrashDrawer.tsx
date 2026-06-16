@@ -2,12 +2,14 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useState } from 'react';
 import { spring } from '../config';
+import { useBoardRole } from '../hooks/server/useBoards';
 import { useEmptyTrash } from '../hooks/server/useEmptyTrash';
 import { usePurgeItem } from '../hooks/server/usePurgeItem';
 import { useRestoreItem } from '../hooks/server/useRestoreItem';
 import { useTrashItems } from '../hooks/server/useTrashItems';
 import { useHotkey } from '../hooks/useHotkey';
 import { resolveImageUrl } from '../lib/api';
+import { can, P } from '../lib/permissions';
 import type { BoardItem } from '../lib/trpc';
 import ConfirmDialog from './shared/ConfirmDialog';
 
@@ -27,6 +29,7 @@ export default function TrashDrawer({
   const purge = usePurgeItem(boardId);
   const emptyTrash = useEmptyTrash(boardId);
   const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const canEdit = can(useBoardRole(boardId), P.BoardEdit);
 
   useHotkey('Escape', onClose, {
     scope: 'modal',
@@ -87,6 +90,7 @@ export default function TrashDrawer({
                       <TrashRow
                         key={item.id}
                         item={item}
+                        canEdit={canEdit}
                         onRestore={() => restore.mutate(item.id)}
                         onPurge={() => purge.mutate(item.id)}
                       />
@@ -100,12 +104,14 @@ export default function TrashDrawer({
                   <span className="text-fg-subtle text-xs">
                     {items.length} item{items.length === 1 ? '' : 's'}
                   </span>
-                  <button
-                    onClick={() => setConfirmEmpty(true)}
-                    className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-500/30 transition-colors hover:bg-red-500/15 dark:text-red-400"
-                  >
-                    Empty trash
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setConfirmEmpty(true)}
+                      className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-500/30 transition-colors hover:bg-red-500/15 dark:text-red-400"
+                    >
+                      Empty trash
+                    </button>
+                  )}
                 </footer>
               )}
             </motion.div>
@@ -133,11 +139,12 @@ export default function TrashDrawer({
 
 type TrashRowProps = {
   item: BoardItem;
+  canEdit: boolean;
   onRestore: () => void;
   onPurge: () => void;
 };
 
-function TrashRow({ item, onRestore, onPurge }: TrashRowProps) {
+function TrashRow({ item, canEdit, onRestore, onPurge }: TrashRowProps) {
   const imageUrl = resolveImageUrl(item.images[0]?.url);
   return (
     <li className="bg-surface-muted ring-border/60 group flex gap-3 overflow-hidden rounded-lg p-2 ring-1">
@@ -161,13 +168,17 @@ function TrashRow({ item, onRestore, onPurge }: TrashRowProps) {
         <div className="mt-auto flex gap-1.5 pt-1.5">
           <button
             onClick={onRestore}
-            className="text-fg-muted hover:text-fg hover:bg-surface/60 rounded px-2 py-1 text-[11px] transition-colors"
+            disabled={!canEdit}
+            aria-disabled={!canEdit}
+            className="text-fg-muted hover:text-fg hover:bg-surface/60 rounded px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             Restore
           </button>
           <button
             onClick={onPurge}
-            className="rounded px-2 py-1 text-[11px] text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+            disabled={!canEdit}
+            aria-disabled={!canEdit}
+            className="rounded px-2 py-1 text-[11px] text-red-600 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400"
           >
             Delete forever
           </button>

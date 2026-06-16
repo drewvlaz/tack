@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { P } from '../../db/schema';
 import { ServiceCtx, withTransaction } from '../../db/tx';
 import {
   AddItemBody,
   CreateBoardBody,
   DeleteItemsManyBody,
+  InviteRoleSchema,
   PatchBoardItemBody,
   PatchItemsManyBody,
   RenameBoardBody,
@@ -28,6 +30,7 @@ import {
   leaveBoard,
   listMembers,
   removeMember,
+  updateMemberRole,
 } from '../../services/boardMembers';
 import {
   createBoard,
@@ -206,10 +209,17 @@ export const boardsRouter = router({
   // ---------- collab: invites + membership ----------
 
   invite: protectedProcedure
-    .input(z.object({ boardId: z.string() }))
+    .input(
+      z.object({
+        boardId: z.string(),
+        // Default to 'editor' so any pre-update clients that don't send a
+        // role still hit the existing semantics.
+        role: InviteRoleSchema.default('editor'),
+      }),
+    )
     .mutation(({ ctx, input }) =>
       withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
-        createInvite(tx, input.boardId),
+        createInvite(tx, input.boardId, input.role),
       ),
     ),
 
@@ -221,16 +231,16 @@ export const boardsRouter = router({
       ),
     ),
 
+  // Member list is P.BoardView — everyone with access sees who else has
+  // access (matches Figma / Linear / Notion). Mutating the list is still
+  // P.BoardManage (invite / removeMember / updateMemberRole).
   listMembers: protectedProcedure
     .input(z.object({ boardId: z.string() }))
     .query(async ({ ctx, input }) => {
       const svcCtx = new ServiceCtx(ctx.db, ctx.images, {
         userId: ctx.userId,
       });
-      // Service performs its own owner-only check (via boards.requireOwner
-      // resolved through the byIdOrThrow path). For now we re-derive role
-      // here and 403 explicit editors so the response is precise.
-      await svcCtx.boards.requireOwner(input.boardId);
+      await svcCtx.boards.require(input.boardId, P.BoardView);
       return listMembers(svcCtx, input.boardId);
     }),
 
@@ -239,6 +249,21 @@ export const boardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
         removeMember(tx, input.boardId, input.userId),
+      );
+      return { ok: true as const };
+    }),
+
+  updateMemberRole: protectedProcedure
+    .input(
+      z.object({
+        boardId: z.string(),
+        userId: z.string(),
+        role: InviteRoleSchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
+        updateMemberRole(tx, input.boardId, input.userId, input.role),
       );
       return { ok: true as const };
     }),

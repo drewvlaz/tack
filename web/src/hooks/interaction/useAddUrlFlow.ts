@@ -12,18 +12,23 @@ const ADD_CARD_Y_BIAS = 200;
 // Cmd/Ctrl+V shortcut that turns a clipboard URL into an immediate add.
 // New cards drop at the visual center of the viewport, biased up so they
 // sit above the URL bar.
+//
+// `enabled` gates the entire flow — when false (viewer role), the hotkeys
+// don't bind and `handleAddUrl` is a no-op. The caller is also expected to
+// suppress the URL bar from the UI.
 export function useAddUrlFlow(
   activeBoardId: string | null,
   panX: MotionValue<number>,
   panY: MotionValue<number>,
   zoomMV: MotionValue<number>,
+  enabled: boolean = true,
 ) {
   const addItem = useAddItem();
   const [addOpen, setAddOpen] = useState(false);
 
   const handleAddUrl = useCallback(
     (url: string) => {
-      if (!activeBoardId) {
+      if (!activeBoardId || !enabled) {
         return;
       }
       const { x, y } = screenToCanvas(
@@ -35,18 +40,18 @@ export function useAddUrlFlow(
       );
       addItem.mutate({ url, boardId: activeBoardId, x, y });
     },
-    [activeBoardId, panX, panY, zoomMV, addItem],
+    [activeBoardId, enabled, panX, panY, zoomMV, addItem],
   );
 
   useHotkey('a', () => setAddOpen(true), {
     scope: 'global',
-    enabled: !!activeBoardId,
+    enabled: enabled && !!activeBoardId,
   });
 
   useHotkey(
     'mod+v',
     async () => {
-      if (!activeBoardId) {
+      if (!activeBoardId || !enabled) {
         return;
       }
       const text = await navigator.clipboard.readText().catch(() => '');
@@ -61,7 +66,11 @@ export function useAddUrlFlow(
       }
       handleAddUrl(url);
     },
-    { scope: 'global', enabled: !!activeBoardId, preventDefault: false },
+    {
+      scope: 'global',
+      enabled: enabled && !!activeBoardId,
+      preventDefault: false,
+    },
   );
 
   return {

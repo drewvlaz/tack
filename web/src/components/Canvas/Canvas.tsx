@@ -7,7 +7,9 @@ import { useDotGridSync } from '../../hooks/interaction/useDotGridSync';
 import { useMarquee, type Selectable } from '../../hooks/interaction/useMarquee';
 import { usePanForPanel } from '../../hooks/interaction/usePanForPanel';
 import { SelectionDragProvider } from '../../hooks/interaction/useSelectionDrag';
+import { useBoardRole } from '../../hooks/server/useBoards';
 import { useBoardItems } from '../../hooks/server/useBoardItems';
+import { can, P } from '../../lib/permissions';
 import {
   getVisibleCanvasRect,
   rectsIntersect,
@@ -72,11 +74,13 @@ function CanvasInner() {
 
   const bgStyle = useDotGridSync(zoomMV, panX, panY);
 
+  const canEdit = can(useBoardRole(activeBoardId), P.BoardEdit);
   const { handleAddUrl, addOpen, setAddOpen, isPending } = useAddUrlFlow(
     activeBoardId,
     panX,
     panY,
     zoomMV,
+    canEdit,
   );
 
   // Computed once per board (and re-evaluated when items.length changes) so
@@ -151,12 +155,14 @@ function CanvasInner() {
         onReset={() => zoomTo(zoomConfig.initial)}
       />
 
-      <AddUrlModal
-        open={addOpen}
-        isPending={isPending}
-        onClose={() => setAddOpen(false)}
-        onSubmit={handleAddUrl}
-      />
+      {canEdit && (
+        <AddUrlModal
+          open={addOpen}
+          isPending={isPending}
+          onClose={() => setAddOpen(false)}
+          onSubmit={handleAddUrl}
+        />
+      )}
     </div>
   );
 }
