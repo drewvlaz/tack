@@ -33,5 +33,5 @@ INSERT INTO board_items (
   text_content, text_font_size, text_weight, text_color_token, text_align
 ) VALUES
   ('bi-text-1', 'board-1', 'user-dev', 'text', '', 'USD',
-   80, 520, 320, 80, 1, 1749168000, 1749168000,
+   420, 540, 320, 80, 1, 1749168000, 1749168000,
    'autumn palette', 28, 600, 'fg', 'left');

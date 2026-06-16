@@ -6,6 +6,7 @@ export type { Board, BoardItem };
 
 type RouterInputs = inferRouterInputs<AppRouter>;
 export type AddItemBody = RouterInputs['boards']['addItem']['item'];
+export type TextItemPatch = RouterInputs['boards']['patchTextItem']['patch'];
 
 export function listBoards(): Promise<Board[]> {
   return trpc.boards.list.query();
@@ -42,6 +43,13 @@ export function patchBoardItems(
   patches: Array<{ id: string; patch: ItemPatch }>,
 ): Promise<{ ok: true }> {
   return trpc.boards.patchItemsMany.mutate({ patches });
+}
+
+export function patchTextItem(
+  id: string,
+  patch: TextItemPatch,
+): Promise<{ ok: true }> {
+  return trpc.boards.patchTextItem.mutate({ id, patch });
 }
 
 export function deleteItems(ids: string[]): Promise<{ ok: true }> {
