@@ -12,6 +12,7 @@ import type { Board } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
 import { useRailsStore } from '../store/rails';
 import ConfirmDialog from './shared/ConfirmDialog';
+import IconButton from './shared/IconButton';
 import Rail from './shared/Rail';
 
 const PENDING_PREFIX = '__pending__';
@@ -122,13 +123,14 @@ export default function BoardsSidebar() {
         <p className="text-fg-subtle text-[11px] font-medium tracking-[0.18em] uppercase">
           Tack
         </p>
-        <button
+        <IconButton
+          size="sm"
           onClick={() => setDraftName('')}
           aria-label="New board"
-          className="text-fg-muted ring-border/60 hover:text-fg hover:ring-border flex h-7 w-7 items-center justify-center rounded-full ring-1 transition-colors"
+          className="ring-border/60 hover:ring-border ring-1"
         >
           <Plus size={12} strokeWidth={1.75} aria-hidden />
-        </button>
+        </IconButton>
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">

@@ -11,7 +11,9 @@ import { useHotkey } from '../hooks/useHotkey';
 import { resolveImageUrl } from '../lib/api';
 import { can, P } from '../lib/permissions';
 import type { BoardItem } from '../lib/trpc';
+import Button from './shared/Button';
 import ConfirmDialog from './shared/ConfirmDialog';
+import IconButton from './shared/IconButton';
 
 type TrashDrawerProps = {
   open: boolean;
@@ -66,13 +68,9 @@ export default function TrashDrawer({
                     Removed items on this board. Restore them or delete forever.
                   </p>
                 </div>
-                <button
-                  onClick={onClose}
-                  aria-label="Close trash"
-                  className="text-fg-subtle hover:text-fg flex h-7 w-7 items-center justify-center rounded-full transition-colors"
-                >
+                <IconButton size="sm" onClick={onClose} aria-label="Close trash">
                   <X size={13} strokeWidth={1.75} aria-hidden />
-                </button>
+                </IconButton>
               </header>
 
               <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -105,12 +103,13 @@ export default function TrashDrawer({
                     {items.length} item{items.length === 1 ? '' : 's'}
                   </span>
                   {canEdit && (
-                    <button
+                    <Button
+                      variant="destructive"
+                      size="sm"
                       onClick={() => setConfirmEmpty(true)}
-                      className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-500/30 transition-colors hover:bg-red-500/15 dark:text-red-400"
                     >
                       Empty trash
-                    </button>
+                    </Button>
                   )}
                 </footer>
               )}
@@ -170,7 +169,7 @@ function TrashRow({ item, canEdit, onRestore, onPurge }: TrashRowProps) {
             onClick={onRestore}
             disabled={!canEdit}
             aria-disabled={!canEdit}
-            className="text-fg-muted hover:text-fg hover:bg-surface/60 rounded px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            className="text-fg-muted hover:text-fg hover:bg-surface/60 focus-visible:ring-focus rounded px-2 py-1 text-[11px] transition-colors outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             Restore
           </button>
@@ -178,7 +177,7 @@ function TrashRow({ item, canEdit, onRestore, onPurge }: TrashRowProps) {
             onClick={onPurge}
             disabled={!canEdit}
             aria-disabled={!canEdit}
-            className="rounded px-2 py-1 text-[11px] text-red-600 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400"
+            className="text-danger hover:bg-danger-soft focus-visible:ring-focus rounded px-2 py-1 text-[11px] transition-colors outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             Delete forever
           </button>
