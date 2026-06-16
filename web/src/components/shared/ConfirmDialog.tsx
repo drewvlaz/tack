@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { spring } from '../../config';
 import { useHotkey } from '../../hooks/useHotkey';
+import Button from './Button';
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -65,24 +66,17 @@ export default function ConfirmDialog({
               </p>
             )}
             <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={onCancel}
-                disabled={busy}
-                className="text-fg-muted hover:text-fg rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-40"
-              >
+              <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
                 {cancelLabel}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant={destructive ? 'destructive' : 'secondary'}
+                size="sm"
                 onClick={onConfirm}
                 disabled={busy}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50 ${
-                  destructive
-                    ? 'bg-red-500/10 text-red-600 ring-red-500/30 hover:bg-red-500/15 dark:text-red-400'
-                    : 'bg-surface-muted text-fg ring-border/60 hover:bg-surface-muted/70'
-                }`}
               >
                 {confirmLabel}
-              </button>
+              </Button>
             </div>
           </motion.div>
         </motion.div>

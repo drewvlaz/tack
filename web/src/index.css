@@ -27,6 +27,8 @@
    * token family without bespoke values. */
   --danger: #dc2626;
   --danger-soft: #fee2e2;
+  --success: #059669;
+  --success-soft: #d1fae5;
 
   /* Radius scale. Use these instead of `rounded-[Npx]`.
    * sm: chips, tight pills · md: inputs/buttons · lg: cards · xl: dialogs · pill: round */
@@ -54,6 +56,8 @@
 
   --danger: #f87171;
   --danger-soft: #7f1d1d;
+  --success: #34d399;
+  --success-soft: #064e3b;
 
   --focus: #60a5fa;
 }
@@ -69,6 +73,8 @@
   --color-fg-subtle: var(--fg-subtle);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
   --color-focus: var(--focus);
 
   --radius-sm: var(--radius-sm);

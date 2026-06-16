@@ -5,6 +5,7 @@ import { useBoardItems } from '../hooks/server/useBoardItems';
 import { useBoardRole, useBoards } from '../hooks/server/useBoards';
 import { useDeleteItems } from '../hooks/server/useDeleteItems';
 import { useSelectionHotkeys } from '../hooks/useSelectionHotkeys';
+import { MESSAGES } from '../lib/messages';
 import { can, P } from '../lib/permissions';
 import type { RealItem } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
@@ -13,6 +14,7 @@ import { useThemeStore } from '../store/theme';
 import BoardsSidebar from './BoardsSidebar';
 import MembersPanel from './BoardSettings/MembersPanel';
 import ConfirmDialog from './shared/ConfirmDialog';
+import IconButton from './shared/IconButton';
 import SidePanel from './SidePanel/SidePanel';
 import TrashDrawer from './TrashDrawer';
 
@@ -74,57 +76,49 @@ export default function AppUI() {
         {activeBoardId && role && role !== 'owner' && (
           <span
             className="bg-surface-raised ring-border text-fg-muted flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium tracking-wider uppercase shadow-md ring-1"
-            title={
-              role === 'viewer'
-                ? 'You have read-only access to this board.'
-                : 'You can edit this board but not manage it.'
-            }
+            title={role === 'viewer' ? MESSAGES.BOARD_READ_ONLY : MESSAGES.BOARD_EDIT_ONLY}
           >
             <Lock size={10} strokeWidth={2} aria-hidden />
             {role}
           </span>
         )}
         {activeBoardId && canManage && (
-          <button
+          <IconButton
+            variant="raised"
             onClick={() => setMembersOpen(true)}
             aria-label="Share board"
             title="Share"
-            className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
             <Share2 size={13} strokeWidth={1.6} aria-hidden />
-          </button>
+          </IconButton>
         )}
         {activeBoardId && !canManage && role && (
-          <button
+          <IconButton
+            variant="raised"
             onClick={() => setMembersOpen(true)}
             aria-label="See people with access"
             title="People with access"
-            className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
             <Users size={13} strokeWidth={1.6} aria-hidden />
-          </button>
+          </IconButton>
         )}
         {activeBoardId && (
-          <button
+          <IconButton
+            variant="raised"
             onClick={() => setTrashOpen(true)}
             aria-label="Open trash"
             title="Trash"
-            className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
           >
             <Trash2 size={13} strokeWidth={1.6} aria-hidden />
-          </button>
+          </IconButton>
         )}
-        <button
-          onClick={toggle}
-          aria-label="Toggle dark mode"
-          className="bg-surface-raised ring-border text-fg-muted hover:text-fg flex h-8 w-8 items-center justify-center rounded-full shadow-md ring-1 transition-colors"
-        >
+        <IconButton variant="raised" onClick={toggle} aria-label="Toggle dark mode">
           {isDark ? (
             <Sun size={14} strokeWidth={1.6} aria-hidden />
           ) : (
             <Moon size={14} strokeWidth={1.6} aria-hidden />
           )}
-        </button>
+        </IconButton>
       </div>
 
       {isMulti && (

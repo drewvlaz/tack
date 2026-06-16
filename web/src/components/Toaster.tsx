@@ -4,10 +4,10 @@ import { useToastsStore, type Toast, type ToastKind } from '../store/toasts';
 
 function kindClass(kind: ToastKind): string {
   if (kind === 'error') {
-    return 'text-red-600 dark:text-red-400';
+    return 'text-danger';
   }
   if (kind === 'success') {
-    return 'text-emerald-600 dark:text-emerald-400';
+    return 'text-success';
   }
   return 'text-fg';
 }
