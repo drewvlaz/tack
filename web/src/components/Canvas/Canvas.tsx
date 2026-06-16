@@ -50,7 +50,7 @@ function CanvasInner() {
   const getSelectables = useCallback((): Selectable[] => {
     const result: Selectable[] = [];
     for (const item of items) {
-      if (item.kind !== 'real') {
+      if (item.state !== 'real') {
         continue;
       }
       result.push({
@@ -118,9 +118,13 @@ function CanvasInner() {
         {activeBoardId &&
           !isLoading &&
           items.map((item) => {
-            const key = item.kind === 'real' ? item.id : item.tempId;
+            // Text items don't have a renderer yet (next card). Skip them.
+            if (item.state === 'real' && item.kind === 'text') {
+              return null;
+            }
+            const key = item.state === 'real' ? item.id : item.tempId;
             const initiallyVisible =
-              item.kind === 'real'
+              item.state === 'real'
                 ? rectsIntersect(visibleRect, {
                     x: item.x,
                     y: item.y,

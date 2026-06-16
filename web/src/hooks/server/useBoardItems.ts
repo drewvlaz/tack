@@ -9,7 +9,7 @@ export function useBoardItems(boardId: string | null) {
     queryKey: ['boards', boardId, 'items'],
     queryFn: async (): Promise<CanvasItem[]> => {
       const items = await getItems(boardId!);
-      return items.map((item): RealItem => ({ ...item, kind: 'real' }));
+      return items.map((item): RealItem => ({ ...item, state: 'real' }));
     },
     enabled: boardId !== null,
     staleTime: Infinity,

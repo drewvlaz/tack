@@ -19,7 +19,7 @@ export function useSetPrimaryImage() {
 
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) => {
-          if (item.kind !== 'real' || item.id !== id) {
+          if (item.state !== 'real' || item.kind !== 'product' || item.id !== id) {
             return item;
           }
           const idx = item.images.findIndex((img) => img.id === imageId);

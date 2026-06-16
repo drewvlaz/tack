@@ -10,8 +10,12 @@ import Hero from './Hero';
 import RemoveButton from './RemoveButton';
 import TopBar from './TopBar';
 
+// SidePanel currently surfaces product metadata only. Text items get their
+// own detail UI in a later card; callers must narrow before passing.
+type ProductBoardItem = Extract<BoardItem, { kind: 'product' }>;
+
 type SidePanelProps = {
-  item: BoardItem;
+  item: ProductBoardItem;
   boardId: string;
   onClose: () => void;
 };

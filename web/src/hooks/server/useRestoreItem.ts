@@ -22,7 +22,7 @@ export function useRestoreItem(boardId: string) {
       if (restored) {
         queryClient.setQueryData<CanvasItem[]>(itemsKey, (old = []) => [
           ...old,
-          { ...restored, kind: 'real' },
+          { ...restored, state: 'real' },
         ]);
       }
 

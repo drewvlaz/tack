@@ -58,6 +58,7 @@ function makeParseResult(overrides: Partial<ParseResult> = {}): ParseResult {
 
 function makeBoardItem(overrides: Partial<BoardItem> = {}): BoardItem {
   return {
+    kind: 'product',
     id: 'item-1',
     sourceUrl: 'https://example.com/p/1',
     title: 'Some Shirt',
@@ -91,7 +92,7 @@ describe('useAddItem', () => {
     const client = makeClient();
     // Seed an existing item so we can verify the skeleton is appended.
     const existing = makeBoardItem({ id: 'existing-1' });
-    const existingReal: CanvasItem = { ...existing, kind: 'real' };
+    const existingReal: CanvasItem = { ...existing, state: 'real' };
     client.setQueryData<CanvasItem[]>([...QUERY_KEY], [existingReal]);
 
     // Hold parseUrl unresolved so we observe the post-onMutate state.
@@ -124,8 +125,8 @@ describe('useAddItem', () => {
     expect(items[0]).toEqual(existingReal);
 
     const skeleton = items[1];
-    expect(skeleton.kind).toBe('skeleton');
-    if (skeleton.kind !== 'skeleton') {
+    expect(skeleton.state).toBe('skeleton');
+    if (skeleton.state !== 'skeleton') {
       throw new Error('unreachable');
     }
     expect(skeleton.sourceUrl).toBe('https://example.com/p/1');
@@ -168,9 +169,9 @@ describe('useAddItem', () => {
 
     const items = client.getQueryData<CanvasItem[]>([...QUERY_KEY]) ?? [];
     expect(items).toHaveLength(1);
-    expect(items[0]).toEqual({ ...real, kind: 'real' });
+    expect(items[0]).toEqual({ ...real, state: 'real' });
     // No skeletons left over.
-    expect(items.some((i) => i.kind === 'skeleton')).toBe(false);
+    expect(items.some((i) => i.state === 'skeleton')).toBe(false);
     // Position matched server → no follow-up PATCH.
     expect(patchBoardItemsMock).not.toHaveBeenCalled();
   });
@@ -206,14 +207,14 @@ describe('useAddItem', () => {
     // onDragEnd handler writing the dragged coords back to the skeleton.
     await waitFor(() => {
       const items = client.getQueryData<CanvasItem[]>([...QUERY_KEY]) ?? [];
-      expect(items.some((i) => i.kind === 'skeleton')).toBe(true);
+      expect(items.some((i) => i.state === 'skeleton')).toBe(true);
     });
     const draggedX = 500;
     const draggedY = 700;
     act(() => {
       client.setQueryData<CanvasItem[]>([...QUERY_KEY], (old = []) =>
         old.map((i) =>
-          i.kind === 'skeleton' ? { ...i, x: draggedX, y: draggedY } : i,
+          i.state === 'skeleton' ? { ...i, x: draggedX, y: draggedY } : i,
         ),
       );
     });
@@ -225,7 +226,7 @@ describe('useAddItem', () => {
     const items = client.getQueryData<CanvasItem[]>([...QUERY_KEY]) ?? [];
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
-      kind: 'real',
+      state: 'real',
       id: 'real-1',
       x: draggedX,
       y: draggedY,
@@ -238,7 +239,7 @@ describe('useAddItem', () => {
   it('onError restores the previous list and shows an error toast', async () => {
     const client = makeClient();
     const existing = makeBoardItem({ id: 'existing-1' });
-    const existingReal: CanvasItem = { ...existing, kind: 'real' };
+    const existingReal: CanvasItem = { ...existing, state: 'real' };
     const previous: CanvasItem[] = [existingReal];
     client.setQueryData<CanvasItem[]>([...QUERY_KEY], previous);
 

@@ -120,12 +120,14 @@ describe('membership: editor access', () => {
       }),
     );
 
-    expect(
-      (await listBoardItems(ctx(ALICE), boardId)).map((b) => b.title),
-    ).toContain('Bob added');
-    expect(
-      (await listBoardItems(ctx(BOB), boardId)).map((b) => b.title),
-    ).toContain('Bob added');
+    const titlesAlice = (await listBoardItems(ctx(ALICE), boardId)).map((b) =>
+      b.kind === 'product' ? b.title : null,
+    );
+    expect(titlesAlice).toContain('Bob added');
+    const titlesBob = (await listBoardItems(ctx(BOB), boardId)).map((b) =>
+      b.kind === 'product' ? b.title : null,
+    );
+    expect(titlesBob).toContain('Bob added');
 
     await withTransaction(db(), env.IMAGES, BOB, (tx) =>
       patchBoardItem(tx, placement.id, { x: 999 }),

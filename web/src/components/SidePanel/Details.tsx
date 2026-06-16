@@ -4,6 +4,8 @@ import { ArrowUpRight, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import type { BoardItem } from '../../lib/trpc';
 
+type ProductBoardItem = Extract<BoardItem, { kind: 'product' }>;
+
 function hostname(url: string): string | null {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -28,7 +30,7 @@ function formatPrice(amount: number, currency: string): string {
 }
 
 type DetailsProps = {
-  item: BoardItem;
+  item: ProductBoardItem;
 };
 
 // If the item was reparsed at least a minute after being added, surface that

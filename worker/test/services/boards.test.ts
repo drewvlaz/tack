@@ -209,6 +209,9 @@ describe('addBoardItem', () => {
       }),
     );
 
+    if (item.kind !== 'product') {
+      throw new Error('expected product');
+    }
     expect(item.title).toBe('Blouson');
     expect(item.brand).toBe('LEMAIRE');
     expect(item.details).toEqual([
@@ -257,6 +260,9 @@ describe('addBoardItem', () => {
         y: 0,
       }),
     );
+    if (item.kind !== 'product') {
+      throw new Error('expected product');
+    }
     expect(item.images).toEqual([]);
     const images = await db().query.boardItemImages.findMany({
       where: (img, { eq }) => eq(img.boardItemId, item.id),

@@ -25,12 +25,16 @@ export default function AppUI() {
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
   const { items } = useBoardItems(activeBoardId);
   const realItems = useMemo(
-    () => items.filter((i): i is RealItem => i.kind === 'real'),
+    () => items.filter((i): i is RealItem => i.state === 'real'),
     [items],
   );
   const primaryItem = activeBoardId && primaryId
     ? realItems.find((i) => i.id === primaryId) ?? null
     : null;
+  // SidePanel currently only renders product items. Text items get their own
+  // detail UI in a later card.
+  const primaryProductItem =
+    primaryItem && primaryItem.kind === 'product' ? primaryItem : null;
 
   const deleteItems = useDeleteItems(activeBoardId ?? '');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -141,10 +145,10 @@ export default function AppUI() {
       </div>
 
       <AnimatePresence>
-        {primaryItem && activeBoardId && (
+        {primaryProductItem && activeBoardId && (
           <SidePanel
-            key={primaryItem.id}
-            item={primaryItem}
+            key={primaryProductItem.id}
+            item={primaryProductItem}
             boardId={activeBoardId}
             onClose={() => useSelectionStore.getState().clear()}
           />
@@ -174,8 +178,8 @@ export default function AppUI() {
         message={
           isMulti
             ? `${selectionCount} items will be removed from this board.`
-            : primaryItem?.title
-              ? `“${primaryItem.title}” will be removed from this board.`
+            : primaryProductItem?.title
+              ? `“${primaryProductItem.title}” will be removed from this board.`
               : 'This item will be removed from this board.'
         }
         confirmLabel={isPending ? 'Removing…' : 'Remove'}
