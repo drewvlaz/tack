@@ -85,6 +85,13 @@
       "when": 1781569299631,
       "tag": "0011_invite_role",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1781649558030,
+      "tag": "0012_add_text_kind_to_board_items",
+      "breakpoints": true
     }
   ]
 }
