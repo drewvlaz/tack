@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useSelectionDrag } from '../../hooks/interaction/useSelectionDrag';
 import { useBoardRole } from '../../hooks/server/useBoards';
 import { usePatchItems } from '../../hooks/server/usePatchItems';
+import { usePatchTextItem } from '../../hooks/server/usePatchTextItem';
 import { resolveImageUrl } from '../../lib/api';
 import { can, P } from '../../lib/permissions';
 import type { CanvasItem, RealItem, SkeletonItem } from '../../lib/trpc';
@@ -36,16 +37,9 @@ export default function CanvasCard(props: Props) {
   }
   if (props.item.kind === 'text') {
     return (
-      <TextCard
-        id={props.item.id}
-        content={props.item.textContent}
-        fontSize={props.item.textFontSize}
-        fontWeight={props.item.textWeight}
-        colorToken={props.item.textColorToken}
-        align={props.item.textAlign}
-        x={props.item.x}
-        y={props.item.y}
-        zIndex={props.item.zIndex}
+      <TextCanvasCard
+        item={props.item}
+        activeBoardId={props.activeBoardId}
       />
     );
   }
@@ -93,6 +87,42 @@ function SkeletonCanvasCard({
           ),
         );
       }}
+    />
+  );
+}
+
+type TextRealItem = Extract<RealItem, { kind: 'text' }>;
+
+function TextCanvasCard({
+  item,
+  activeBoardId,
+}: {
+  item: TextRealItem;
+  activeBoardId: string;
+}) {
+  const role = useBoardRole(activeBoardId);
+  const canEdit = can(role, P.BoardEdit);
+  const patchText = usePatchTextItem();
+
+  return (
+    <TextCard
+      id={item.id}
+      content={item.textContent}
+      fontSize={item.textFontSize}
+      fontWeight={item.textWeight}
+      colorToken={item.textColorToken}
+      align={item.textAlign}
+      x={item.x}
+      y={item.y}
+      zIndex={item.zIndex}
+      canEdit={canEdit}
+      onCommit={(content) =>
+        patchText.mutate({
+          id: item.id,
+          boardId: activeBoardId,
+          patch: { content },
+        })
+      }
     />
   );
 }
