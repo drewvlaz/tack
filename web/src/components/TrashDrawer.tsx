@@ -144,6 +144,11 @@ type TrashRowProps = {
 };
 
 function TrashRow({ item, canEdit, onRestore, onPurge }: TrashRowProps) {
+  // Text items aren't surfaced in trash UI yet (no separate text-trash row).
+  // They still exist in the cache; we simply skip them here.
+  if (item.kind !== 'product') {
+    return null;
+  }
   const imageUrl = resolveImageUrl(item.images[0]?.url);
   return (
     <li className="bg-surface-muted ring-border/60 group flex gap-3 overflow-hidden rounded-lg p-2 ring-1">

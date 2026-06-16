@@ -17,7 +17,7 @@ export function useDeleteItems(boardId: string) {
       const previous = queryClient.getQueryData<CanvasItem[]>(queryKey);
       const toRemove = new Set(ids);
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
-        old.filter((i) => i.kind !== 'real' || !toRemove.has(i.id)),
+        old.filter((i) => i.state !== 'real' || !toRemove.has(i.id)),
       );
       return { previous };
     },

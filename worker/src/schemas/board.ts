@@ -29,23 +29,14 @@ export type Board = z.infer<typeof BoardSchema>;
 export type CreateBoardInput = z.infer<typeof CreateBoardBody>;
 export type RenameBoardInput = z.infer<typeof RenameBoardBody>;
 
-// Fields shared between the domain row (what services emit) and the wire shape
-// (what the router returns over tRPC). The two diverge only in how images are
-// represented: rows carry a `StoredImage` (R2 key or external URL); the wire
-// carries a resolved display URL that the frontend can hit directly.
-//
-// After fold 0009: there's no separate item id — `id` IS the placement id and
-// also the only identity for metadata. `addedBy` is informational attribution
-// (nullable if the contributor's account was deleted).
-const BoardItemBaseSchema = z.object({
+export const TextAlignSchema = z.enum(['left', 'center', 'right']);
+export type TextAlign = z.infer<typeof TextAlignSchema>;
+
+// Placement-level fields — shared by every `kind`. After fold 0009 the
+// placement IS the item; `id` is the only identity. `addedBy` is informational
+// attribution (nullable if the contributor's account was deleted).
+const PlacementFields = z.object({
   id: z.string(),
-  title: z.string().nullable(),
-  brand: z.string().nullable(),
-  description: z.string().nullable(),
-  price: z.number().nullable(),
-  currency: z.string(),
-  details: z.array(ItemDetailSchema),
-  sourceUrl: z.string(),
   addedAt: z.number(),
   addedBy: z.string().nullable(),
   updatedAt: z.number(),
@@ -56,26 +47,58 @@ const BoardItemBaseSchema = z.object({
   zIndex: z.number(),
 });
 
+// Product variant — all the URL-parse metadata.
+const ProductFields = z.object({
+  kind: z.literal('product'),
+  title: z.string().nullable(),
+  brand: z.string().nullable(),
+  description: z.string().nullable(),
+  price: z.number().nullable(),
+  currency: z.string(),
+  details: z.array(ItemDetailSchema),
+  sourceUrl: z.string(),
+});
+
+// Text variant — sparse text-shape columns. Nullable style knobs let the
+// renderer fall back to the user's theme default.
+const TextFields = z.object({
+  kind: z.literal('text'),
+  textContent: z.string(),
+  textFontSize: z.number().nullable(),
+  textWeight: z.number().nullable(),
+  textColorToken: z.string().nullable(),
+  textAlign: TextAlignSchema.nullable(),
+});
+
 // Domain — services emit this. No transport knowledge.
 export const BoardItemRowImageSchema = z.object({
   id: z.string(),
   image: StoredImageSchema,
 });
 
-export const BoardItemRowSchema = BoardItemBaseSchema.extend({
+const ProductRow = PlacementFields.merge(ProductFields).extend({
   images: z.array(BoardItemRowImageSchema),
 });
+const TextRow = PlacementFields.merge(TextFields);
+export const BoardItemRowSchema = z.discriminatedUnion('kind', [
+  ProductRow,
+  TextRow,
+]);
 
-// Wire — what the router returns. The `url` is constructed at the router
-// boundary via `lib/imageRoute.ts:imageDisplayUrl`.
+// Wire — what the router returns. The product `url` is constructed at the
+// router boundary via `lib/imageRoute.ts:imageDisplayUrl`.
 export const BoardImageSchema = z.object({
   id: z.string(),
   url: z.string(),
 });
 
-export const BoardItemSchema = BoardItemBaseSchema.extend({
+const ProductWire = PlacementFields.merge(ProductFields).extend({
   images: z.array(BoardImageSchema),
 });
+export const BoardItemSchema = z.discriminatedUnion('kind', [
+  ProductWire,
+  TextRow,
+]);
 
 export const PatchBoardItemBody = z.object({
   x: Coord.optional(),
@@ -113,6 +136,26 @@ export const AddItemBody = z.object({
   y: Coord,
 });
 
+// Text-shape inputs. `null` means clear the style knob (fall back to default);
+// `undefined` means leave it untouched (only on patch). `content` is plain
+// string — rich text is deferred.
+const TextStyleBody = z.object({
+  fontSize: z.number().positive().nullable().optional(),
+  weight: z.number().int().min(100).max(900).nullable().optional(),
+  colorToken: z.string().min(1).max(64).nullable().optional(),
+  align: TextAlignSchema.nullable().optional(),
+});
+
+export const AddTextItemBody = TextStyleBody.extend({
+  content: z.string(),
+  x: Coord,
+  y: Coord,
+});
+
+export const PatchTextItemBody = TextStyleBody.extend({
+  content: z.string().optional(),
+});
+
 export type BoardItem = z.infer<typeof BoardItemSchema>;
 export type BoardImage = z.infer<typeof BoardImageSchema>;
 export type BoardItemRow = z.infer<typeof BoardItemRowSchema>;
@@ -121,3 +164,5 @@ export type PatchBoardItemInput = z.infer<typeof PatchBoardItemBody>;
 export type PatchItemsManyInput = z.infer<typeof PatchItemsManyBody>;
 export type DeleteItemsManyInput = z.infer<typeof DeleteItemsManyBody>;
 export type AddItemInput = z.infer<typeof AddItemBody>;
+export type AddTextItemInput = z.infer<typeof AddTextItemBody>;
+export type PatchTextItemInput = z.infer<typeof PatchTextItemBody>;

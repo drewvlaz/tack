@@ -24,7 +24,7 @@ type Props = {
 };
 
 export default function CanvasCard(props: Props) {
-  if (props.item.kind === 'skeleton') {
+  if (props.item.state === 'skeleton') {
     return (
       <SkeletonCanvasCard
         item={props.item}
@@ -32,6 +32,12 @@ export default function CanvasCard(props: Props) {
         zoomMV={props.zoomMV}
       />
     );
+  }
+  // Canvas.tsx filters text items above; if one slips through (shouldn't
+  // happen until the text renderer lands), bail rather than reading product
+  // fields off of it.
+  if (props.item.kind !== 'product') {
+    return null;
   }
   return (
     <RealCanvasCard
@@ -71,7 +77,7 @@ function SkeletonCanvasCard({
         const key = ['boards', activeBoardId, 'items'];
         queryClient.setQueryData<CanvasItem[]>(key, (old = []) =>
           old.map((i) =>
-            i.kind === 'skeleton' && i.tempId === item.tempId
+            i.state === 'skeleton' && i.tempId === item.tempId
               ? { ...i, x, y }
               : i,
           ),
@@ -81,13 +87,17 @@ function SkeletonCanvasCard({
   );
 }
 
+// Narrowed prop type — Canvas + the parent CanvasCard guard guarantee a
+// product-kind real item by the time this renders.
+type ProductRealItem = Extract<RealItem, { kind: 'product' }>;
+
 function RealCanvasCard({
   item,
   activeBoardId,
   initiallyVisible,
   zoomMV,
 }: {
-  item: RealItem;
+  item: ProductRealItem;
   activeBoardId: string;
   initiallyVisible: boolean;
   zoomMV: MotionValue<number>;
@@ -136,7 +146,7 @@ function RealCanvasCard({
         activeBoardId,
         'items',
       ]) ?? [];
-    const realItems = all.filter((i): i is RealItem => i.kind === 'real');
+    const realItems = all.filter((i): i is RealItem => i.state === 'real');
     const newZ = bringToFront(id, realItems);
     if (newZ !== null) {
       patchItems.mutate([{ id, patch: { zIndex: newZ } }]);

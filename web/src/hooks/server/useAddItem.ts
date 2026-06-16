@@ -54,12 +54,12 @@ export function useAddItem() {
       const zIndices = useCanvasStore.getState().zIndices;
       const maxZ = (previous ?? []).reduce((acc, item) => {
         const z =
-          item.kind === 'real' ? (zIndices[item.id] ?? item.zIndex) : item.zIndex;
+          item.state === 'real' ? (zIndices[item.id] ?? item.zIndex) : item.zIndex;
         return z > acc ? z : acc;
       }, 0);
 
       const skeleton: SkeletonItem = {
-        kind: 'skeleton',
+        state: 'skeleton',
         tempId: `skeleton-${Date.now()}`,
         sourceUrl: url,
         x,
@@ -90,15 +90,15 @@ export function useAddItem() {
       const cached = queryClient.getQueryData<CanvasItem[]>(queryKey) ?? [];
       const skeleton = cached.find(
         (i): i is SkeletonItem =>
-          i.kind === 'skeleton' && i.tempId === ctx.tempId,
+          i.state === 'skeleton' && i.tempId === ctx.tempId,
       );
       const x = skeleton?.x ?? newItem.x;
       const y = skeleton?.y ?? newItem.y;
 
       queryClient.setQueryData<CanvasItem[]>(queryKey, (old = []) =>
         old.map((item) =>
-          item.kind === 'skeleton' && item.tempId === ctx.tempId
-            ? { ...newItem, kind: 'real', x, y }
+          item.state === 'skeleton' && item.tempId === ctx.tempId
+            ? { ...newItem, state: 'real', x, y }
             : item,
         ),
       );
