@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo } from 'react';
 import { canvas, zoom as zoomConfig } from '../../config';
+import { useAddTextFlow } from '../../hooks/interaction/useAddTextFlow';
 import { useAddUrlFlow } from '../../hooks/interaction/useAddUrlFlow';
 import { useCanvasGesture } from '../../hooks/interaction/useCanvasGesture';
 import { useDotGridSync } from '../../hooks/interaction/useDotGridSync';
@@ -15,6 +16,7 @@ import {
   rectsIntersect,
 } from '../../lib/canvasMath';
 import { useBoardsStore } from '../../store/boards';
+import { useCanvasActionsStore } from '../../store/canvasActions';
 import { useRailsStore } from '../../store/rails';
 import { useSelectionStore } from '../../store/selection';
 import AddUrlModal from './AddUrlModal';
@@ -82,6 +84,22 @@ function CanvasInner() {
     zoomMV,
     canEdit,
   );
+  const { spawnAtCenter: spawnText } = useAddTextFlow(
+    activeBoardId,
+    panX,
+    panY,
+    zoomMV,
+    canEdit,
+  );
+
+  // Expose the imperative center-spawn to screen-space chrome (AppUI's
+  // TopBar button) — it lives outside the canvas tree and can't grab the
+  // pan/zoom MVs directly.
+  useEffect(() => {
+    const store = useCanvasActionsStore.getState();
+    store.setSpawnText(canEdit && activeBoardId ? spawnText : null);
+    return () => useCanvasActionsStore.getState().setSpawnText(null);
+  }, [spawnText, canEdit, activeBoardId]);
 
   // Computed once per board (and re-evaluated when items.length changes) so
   // the per-item initiallyVisible flag picks up newly-mounted items. The

@@ -1,5 +1,5 @@
 import { AnimatePresence } from 'framer-motion';
-import { Lock, Moon, Share2, Sun, Trash2, Users } from 'lucide-react';
+import { Lock, Moon, Share2, Sun, Trash2, Type, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useBoardItems } from '../hooks/server/useBoardItems';
 import { useBoardRole, useBoards } from '../hooks/server/useBoards';
@@ -9,6 +9,7 @@ import { MESSAGES } from '../lib/messages';
 import { can, P } from '../lib/permissions';
 import type { RealItem } from '../lib/trpc';
 import { useBoardsStore } from '../store/boards';
+import { useCanvasActionsStore } from '../store/canvasActions';
 import { useSelectionStore } from '../store/selection';
 import { useThemeStore } from '../store/theme';
 import BoardsSidebar from './BoardsSidebar';
@@ -46,6 +47,7 @@ export default function AppUI() {
   const role = useBoardRole(activeBoardId);
   const canManage = can(role, P.BoardManage);
   const canEdit = can(role, P.BoardEdit);
+  const spawnText = useCanvasActionsStore((s) => s.spawnText);
 
   const selectionCount = selectionIds.size;
   const isMulti = selectionCount > 1;
@@ -104,6 +106,16 @@ export default function AppUI() {
             title="People with access"
           >
             <Users size={13} strokeWidth={1.6} aria-hidden />
+          </IconButton>
+        )}
+        {activeBoardId && canEdit && spawnText && (
+          <IconButton
+            variant="raised"
+            onClick={spawnText}
+            aria-label="Add text"
+            title="Add text (T)"
+          >
+            <Type size={13} strokeWidth={1.6} aria-hidden />
           </IconButton>
         )}
         {activeBoardId && (
