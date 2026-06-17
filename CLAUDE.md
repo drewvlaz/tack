@@ -79,40 +79,21 @@ Frontend talks to the worker via tRPC at `${VITE_API_URL ?? 'http://localhost:87
 
 ## Dev flow
 
-Tickets live in Kan.bn — workspace `drewvlaz`, board **Tack** (publicId `dqx7as85uc30`, card prefix `TAC`). **One card = one PR.** Cards and PRs are 1:1; if a card grows past a single PR's worth of work, file a sibling card with a "Depends on TAC-N" line — never let one card own multiple merged PRs.
+Commit straight to `main`. No branches, no PRs, no ticket system — solo
+project, the friction wasn't earning its keep.
 
-The five lists ARE the workflow state — moving the card is the status update:
+1. Make the change.
+2. `pnpm lint && pnpm test` clean.
+3. Stage only files belonging to the current change — pre-existing dirty
+   files in the working tree stay uncommitted.
+4. Commit with `tag: desc` (`feat:`, `fix:`, `refactor:`, `dev:`,
+   `chore:`). Match the existing history — `tag: short description`, not
+   `[scope] tag: description`.
+5. `git push`.
 
-`Backlog` → `Todo` (committed for this stretch) → `In Progress` (branched) → `In Review` (PR open) → `Done` (PR merged).
-
-Every piece of work follows the same loop:
-
-1. **Pick or file a card.** New work → file in `Backlog`. Existing card → move it to `Todo` when you commit to it this stretch.
-2. **Start.** Move to `In Progress`. `git checkout -b <slug>` off `main` — never commit on `main` directly.
-3. **Commit** with `tag: desc` (`feat:`, `fix:`, `refactor:`, `dev:`, `chore:`). Match the existing history — `tag: short description`, not `[scope] tag: description`.
-4. **Push.** `git push -u origin <branch>`.
-5. **Open PR.** `gh pr create` with a short title and a body containing **Summary** + **Test plan** + a `Tracking: <kan.bn card url>` line. Move the card to `In Review` and paste the PR URL into the card.
-6. **Merge.** Move the card to `Done`.
-
-Stage only files belonging to the current change — pre-existing dirty files in the working tree stay uncommitted. Don't amend, don't force-push, don't push to `main`.
-
-**Card shape** (when filing — skip the template for one-liners):
-
-```
-Title:   <imperative, ≤70 chars>           e.g. "Add text kind to board_items schema"
-Body:
-  Why    — one sentence on what this unlocks (link parent card if there is one)
-  What   — bullets: schema/file pointers, "user can ___", "API now ___"
-  Out    — deliberate scope cuts a reviewer might assume
-  Done   — observable criteria, not "implementation complete"
-Labels:  phase-N + scope (web / worker / schema / infra) + risk (load-bearing-schema / breaking-change / migration) as applicable
-```
-
-**Hotfix exception.** Trivial fixes (typo, one-line config, dead code) can ship without a pre-filed card — but file the card retroactively in `Done` with the PR URL so the planning history stays consistent.
-
-**WIP cap.** Soft rule: no more than two cards in `In Progress` at a time. Forces finishing before starting.
-
-**Never Linear.** The Linear MCP is wired up in some environments — don't use it for tack. Kan.bn or GitHub Issues only; Kan.bn is the source of truth here.
+Don't amend pushed commits, don't force-push. If a change is risky enough
+to want a review pass before it lands, branch + open a PR for that one;
+the default is straight-to-main.
 
 ## Keeping the docs honest
 
