@@ -5,16 +5,16 @@ import { useAddTextFlow } from '../../hooks/interaction/useAddTextFlow';
 import { useAddUrlFlow } from '../../hooks/interaction/useAddUrlFlow';
 import { useCanvasGesture } from '../../hooks/interaction/useCanvasGesture';
 import { useDotGridSync } from '../../hooks/interaction/useDotGridSync';
-import { useMarquee, type Selectable } from '../../hooks/interaction/useMarquee';
+import {
+  useMarquee,
+  type Selectable,
+} from '../../hooks/interaction/useMarquee';
 import { usePanForPanel } from '../../hooks/interaction/usePanForPanel';
 import { SelectionDragProvider } from '../../hooks/interaction/useSelectionDrag';
-import { useBoardRole } from '../../hooks/server/useBoards';
 import { useBoardItems } from '../../hooks/server/useBoardItems';
+import { useBoardRole } from '../../hooks/server/useBoards';
+import { getVisibleCanvasRect, rectsIntersect } from '../../lib/canvasMath';
 import { can, P } from '../../lib/permissions';
-import {
-  getVisibleCanvasRect,
-  rectsIntersect,
-} from '../../lib/canvasMath';
 import { useBoardsStore } from '../../store/boards';
 import { useCanvasActionsStore } from '../../store/canvasActions';
 import { useRailsStore } from '../../store/rails';

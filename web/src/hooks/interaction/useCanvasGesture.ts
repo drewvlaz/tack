@@ -105,6 +105,34 @@ export function useCanvasGesture(boardId: string | null) {
     };
   }, []);
 
+  // Suppress browser defaults that hijack middle-click before our pan gesture
+  // can take it: Firefox's auto-scroll cursor (triggered on mousedown), and
+  // X11 middle-click paste (triggered on auxclick). Without these, the
+  // pointer events we rely on still fire, but the OS-level affordance
+  // interferes with the pan UX.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) {
+      return;
+    }
+    function onMouseDown(e: MouseEvent) {
+      if (e.button === 1) {
+        e.preventDefault();
+      }
+    }
+    function onAuxClick(e: MouseEvent) {
+      if (e.button === 1) {
+        e.preventDefault();
+      }
+    }
+    el.addEventListener('mousedown', onMouseDown);
+    el.addEventListener('auxclick', onAuxClick);
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown);
+      el.removeEventListener('auxclick', onAuxClick);
+    };
+  }, []);
+
   // Tracks the board whose viewport we're currently driving. The snap effect
   // uses this to skip the no-op case where boardId hasn't actually changed
   // (e.g. parent re-render).
@@ -202,14 +230,18 @@ export function useCanvasGesture(boardId: string | null) {
   useDrag(
     ({ event, delta: [dx, dy], first, last }) => {
       if (first) {
-        // Activate pan when: touch (no modifier needed) OR Space held.
-        // event.target === canvasRef.current ensures we don't steal a drag
-        // that started on a card.
-        const pointerType = (event as PointerEvent).pointerType;
+        const pe = event as PointerEvent;
+        // Activate pan when: middle mouse button (anywhere, even on a card —
+        // matches Figma/CAD), OR touch / Space-held with the drag starting
+        // on empty canvas. The card's own useDrag uses the default left-only
+        // button filter, so middle-button on a card never starts card drag.
+        const isMiddleButton = pe.button === 1;
+        const pointerType = pe.pointerType;
         const allowedByModifier =
           pointerType === 'touch' || isSpaceHeldRef.current;
         isPanningRef.current =
-          allowedByModifier && event.target === canvasRef.current;
+          isMiddleButton ||
+          (allowedByModifier && event.target === canvasRef.current);
         if (isPanningRef.current && canvasRef.current) {
           canvasRef.current.style.cursor = 'grabbing';
         }
@@ -226,7 +258,10 @@ export function useCanvasGesture(boardId: string | null) {
         isPanningRef.current = false;
       }
     },
-    { target: canvasRef },
+    // pointer.buttons accepts event.buttons bitmask values: 1 = left, 4 =
+    // middle. Without this, use-gesture's default ([1]) would filter out
+    // middle-button drags before they reach our handler.
+    { target: canvasRef, pointer: { buttons: [1, 4] } },
   );
 
   function zoomTo(target: number) {

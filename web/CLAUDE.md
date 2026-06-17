@@ -36,7 +36,7 @@ src/
 │   │   ├── usePatchItems.ts   useMutation — fire-and-forget batch patch of x/y/width/height/zIndex (handles single-card drag and group commit; array shape is required either way)
 │   │   └── useReparseItem.ts  useMutation — re-fetch item from source URL
 │   └── interaction/    Gesture hooks (Framer Motion + use-gesture)
-│       ├── useCanvasGesture.ts Pan + zoom wiring; Space-held → pan, otherwise marquee owns drag
+│       ├── useCanvasGesture.ts Pan + zoom wiring; Space-held or middle-button → pan, otherwise marquee owns drag
 │       ├── useCardGesture.ts   Generic draggable-with-springs gesture (onTap/onDragStart/onDragMove/onDragEnd); knows nothing about selection
 │       ├── useCardResize.ts    Per-card resize gesture
 │       ├── useMarquee.ts       Drag-to-create selection rectangle (mouse/pen only; touch falls through to pan)
@@ -76,7 +76,7 @@ Drag on empty canvas (mouse/pen only) draws a containment-marquee — cards full
 - Shift+drag → add to existing selection
 - Alt/Option+drag → subtract from existing selection
 
-Hold **Space** to pan (Figma convention). Shift+click adds a card; Cmd/Ctrl+click toggles. Cmd/Ctrl+A selects all on the active board. Delete/Backspace opens a confirm dialog scaled to the selection size; Escape clears selection (and closes the SidePanel as a side effect, because `primaryId` becomes null).
+Hold **Space** to pan, or drag with the **middle mouse button** (works anywhere, including on top of a card — matches Figma/CAD). Shift+click adds a card; Cmd/Ctrl+click toggles. Cmd/Ctrl+A selects all on the active board. Delete/Backspace opens a confirm dialog scaled to the selection size; Escape clears selection (and closes the SidePanel as a side effect, because `primaryId` becomes null).
 
 Marquee containment uses `rectContains(outer, inner)` from `lib/canvasMath.ts`. Marquee rect is captured in screen space, converted to canvas space via `screenToCanvas`, then tested against card rects (which live in canvas space). Per-frame selection updates are coalesced through `requestAnimationFrame` to avoid pinning the main thread.
 

@@ -8,9 +8,9 @@ import { usePatchTextItem } from '../../hooks/server/usePatchTextItem';
 import { resolveImageUrl } from '../../lib/api';
 import { can, P } from '../../lib/permissions';
 import type { CanvasItem, RealItem, SkeletonItem } from '../../lib/trpc';
-import { useTextEditStore } from '../../store/textEdit';
 import { useCanvasStore } from '../../store/canvas';
 import { useSelectionStore } from '../../store/selection';
+import { useTextEditStore } from '../../store/textEdit';
 import Card from './Card';
 import TextCard from './TextCard';
 
@@ -38,10 +38,7 @@ export default function CanvasCard(props: Props) {
   }
   if (props.item.kind === 'text') {
     return (
-      <TextCanvasCard
-        item={props.item}
-        activeBoardId={props.activeBoardId}
-      />
+      <TextCanvasCard item={props.item} activeBoardId={props.activeBoardId} />
     );
   }
   return (
@@ -169,9 +166,7 @@ function RealCanvasCard({
   // Two stable single-key subscriptions — each Card only re-renders when its
   // own selection bit or its own group bit flips, not on every selection
   // change anywhere on the board.
-  const isSelected = useSelectionStore(
-    useCallback((s) => s.ids.has(id), [id]),
-  );
+  const isSelected = useSelectionStore(useCallback((s) => s.ids.has(id), [id]));
   const inGroup = useSelectionStore(
     useCallback((s) => s.ids.has(id) && s.ids.size > 1, [id]),
   );
