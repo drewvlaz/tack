@@ -130,6 +130,7 @@ export default function TextCard({
         <textarea
           autoFocus
           value={draft}
+          placeholder="Type…"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={handleKeyDown}
@@ -152,10 +153,11 @@ export default function TextCard({
             lineHeight: 'inherit',
             textAlign: 'inherit',
             whiteSpace: 'pre-wrap',
-            // Selection on a transparent textarea reads as the browser default
-            // (text-cursor). Keep the same visual footprint as the static div.
             display: 'block',
-            minWidth: '1ch',
+            // Wider min so an empty (just-spawned) textarea has visible width
+            // for the cursor + placeholder. Without this, field-sizing
+            // collapses to ~1ch and the spawn is effectively invisible.
+            minWidth: '8ch',
           } as React.CSSProperties}
         />
       ) : (
