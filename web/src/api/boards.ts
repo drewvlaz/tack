@@ -6,6 +6,7 @@ export type { Board, BoardItem };
 
 type RouterInputs = inferRouterInputs<AppRouter>;
 export type AddItemBody = RouterInputs['boards']['addItem']['item'];
+export type AddTextItemBody = RouterInputs['boards']['addTextItem']['item'];
 export type TextItemPatch = RouterInputs['boards']['patchTextItem']['patch'];
 
 export function listBoards(): Promise<Board[]> {
@@ -33,6 +34,13 @@ export function addItem(
   item: AddItemBody,
 ): Promise<BoardItem> {
   return trpc.boards.addItem.mutate({ boardId, item });
+}
+
+export function addTextItem(
+  boardId: string,
+  item: AddTextItemBody,
+): Promise<BoardItem> {
+  return trpc.boards.addTextItem.mutate({ boardId, item });
 }
 
 export type ItemPatch = Partial<

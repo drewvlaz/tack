@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { type MotionValue } from 'framer-motion';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useSelectionDrag } from '../../hooks/interaction/useSelectionDrag';
 import { useBoardRole } from '../../hooks/server/useBoards';
 import { usePatchItems } from '../../hooks/server/usePatchItems';
@@ -8,6 +8,7 @@ import { usePatchTextItem } from '../../hooks/server/usePatchTextItem';
 import { resolveImageUrl } from '../../lib/api';
 import { can, P } from '../../lib/permissions';
 import type { CanvasItem, RealItem, SkeletonItem } from '../../lib/trpc';
+import { useTextEditStore } from '../../store/textEdit';
 import { useCanvasStore } from '../../store/canvas';
 import { useSelectionStore } from '../../store/selection';
 import Card from './Card';
@@ -103,6 +104,19 @@ function TextCanvasCard({
   const role = useBoardRole(activeBoardId);
   const canEdit = can(role, P.BoardEdit);
   const patchText = usePatchTextItem();
+  // Read the flag for THIS render's pass to TextCard (its useState initializer
+  // captures it), then consume after mount so the flag doesn't sit around for
+  // a later remount.
+  const id = item.id;
+  const autoEdit = useTextEditStore((s) => s.pendingEditId === id);
+  useEffect(() => {
+    if (autoEdit) {
+      useTextEditStore.getState().consume(id);
+    }
+    // Mount-only: consuming a stale flag is what we want; subsequent flag
+    // changes are for other cards, not this one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <TextCard
@@ -116,6 +130,7 @@ function TextCanvasCard({
       y={item.y}
       zIndex={item.zIndex}
       canEdit={canEdit}
+      autoEditOnMount={autoEdit}
       onCommit={(content) =>
         patchText.mutate({
           id: item.id,

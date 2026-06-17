@@ -36,6 +36,10 @@ type TextCardProps = {
   // viewers can dblclick and see no effect rather than triggering a server
   // round-trip with the old value.
   onCommit?: (next: string) => void;
+  // When true on first render, the card mounts in edit mode — used by the
+  // spawn affordances (TAC-7) so a freshly-dropped text item is ready to
+  // type into. Read once at mount; subsequent prop changes are ignored.
+  autoEditOnMount?: boolean;
 };
 
 // Canvas text item. View by default; double-click switches to a textarea
@@ -53,8 +57,12 @@ export default function TextCard({
   zIndex = 0,
   canEdit = false,
   onCommit,
+  autoEditOnMount = false,
 }: TextCardProps) {
-  const [editing, setEditing] = useState(false);
+  // useState's lazy initializer runs once on mount. Honoring `autoEditOnMount`
+  // here (rather than via a useEffect) keeps the textarea on the first
+  // paint when the spawn flow flags this card.
+  const [editing, setEditing] = useState(() => canEdit && autoEditOnMount);
   // Draft only matters during edit — initialized fresh on every enter, so
   // external changes to `content` while we're not editing don't need to
   // be re-synced here.
@@ -122,6 +130,7 @@ export default function TextCard({
         <textarea
           autoFocus
           value={draft}
+          placeholder="Type…"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={handleKeyDown}
@@ -144,10 +153,11 @@ export default function TextCard({
             lineHeight: 'inherit',
             textAlign: 'inherit',
             whiteSpace: 'pre-wrap',
-            // Selection on a transparent textarea reads as the browser default
-            // (text-cursor). Keep the same visual footprint as the static div.
             display: 'block',
-            minWidth: '1ch',
+            // Wider min so an empty (just-spawned) textarea has visible width
+            // for the cursor + placeholder. Without this, field-sizing
+            // collapses to ~1ch and the spawn is effectively invisible.
+            minWidth: '8ch',
           } as React.CSSProperties}
         />
       ) : (

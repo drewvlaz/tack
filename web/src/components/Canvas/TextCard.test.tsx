@@ -84,4 +84,18 @@ describe('TextCard edit state machine', () => {
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it('autoEditOnMount opens the textarea on first paint', () => {
+    const { getByRole } = renderTextCard({ autoEditOnMount: true });
+    // No dblclick — should already be editing.
+    expect(getByRole('textbox')).toBeInTheDocument();
+  });
+
+  it('autoEditOnMount is ignored when canEdit is false', () => {
+    const { queryByRole } = renderTextCard({
+      autoEditOnMount: true,
+      canEdit: false,
+    });
+    expect(queryByRole('textbox')).toBeNull();
+  });
 });
