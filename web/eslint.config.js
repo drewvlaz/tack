@@ -8,6 +8,9 @@ export default tseslint.config([
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
+    },
     plugins: {
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,

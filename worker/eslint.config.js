@@ -58,6 +58,9 @@ export default tseslint.config([
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.ts'],
+    languageOptions: {
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
+    },
     rules: {
       curly: ['error', 'all'],
       '@typescript-eslint/no-unused-vars': [
