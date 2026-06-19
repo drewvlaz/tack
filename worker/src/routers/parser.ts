@@ -41,7 +41,10 @@ function mapParseError(err: unknown): never {
     });
   }
   if (err instanceof ParseFetchError) {
-    throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: err.message,
+    });
   }
   throw err;
 }
