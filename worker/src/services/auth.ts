@@ -2,25 +2,15 @@ import { and, eq, gt } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import type { Tx } from '../db/tx';
+import { b64uEncode } from '../lib/b64url';
 import { genId } from '../lib/id';
+import {
+  hashPassword,
+  PLACEHOLDER_PHC,
+  verifyPassword,
+} from '../lib/passwordHash';
 import { nowSec } from '../lib/time';
 import { redeemInvite } from './boardMembers';
-
-// PBKDF2-SHA256. OWASP 2023 guidance is 600k iterations, but the Workers
-// runtime hard-caps PBKDF2 at 100k (CPU-exhaustion guard in workerd; no
-// compatibility flag to bypass). 100k is still well above the "acceptable"
-// floor for password storage given the threat model here: invite-only
-// signup (INVITE_EMAILS allowlist) and per-IP rate-limiting on /login when
-// the AUTH_LIMITER binding is re-enabled.
-// 16-byte salt, 32-byte derived key. Stored as a PHC-style string so the
-// algorithm/cost is rotatable without a schema change — if/when Workers
-// raises the cap, bump this constant and existing hashes still verify
-// (their stored iteration count is read from the PHC string).
-const PBKDF2_ITERATIONS = 100_000;
-const PBKDF2_SALT_BYTES = 16;
-const PBKDF2_KEY_BYTES = 32;
-const PBKDF2_HASH = 'SHA-256';
-const PBKDF2_ALG = 'pbkdf2';
 
 const SESSION_ID_BYTES = 32;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -41,84 +31,6 @@ export class AuthError extends Error {
   ) {
     super(message);
   }
-}
-
-// ---------- password hashing ----------
-
-export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(PBKDF2_SALT_BYTES));
-  const hash = await derive(password, salt);
-  return `${PBKDF2_ALG}$${PBKDF2_ITERATIONS}$${b64uEncode(salt)}$${b64uEncode(hash)}`;
-}
-
-export async function verifyPassword(
-  password: string,
-  phc: string,
-): Promise<boolean> {
-  const parts = phc.split('$');
-  if (parts.length !== 4 || parts[0] !== PBKDF2_ALG) {
-    return false;
-  }
-  const iterations = Number(parts[1]);
-  if (!Number.isFinite(iterations) || iterations < 1) {
-    return false;
-  }
-  const salt = b64uDecode(parts[2]);
-  const expected = b64uDecode(parts[3]);
-  const actual = await derive(password, salt, iterations, expected.length);
-  return timingSafeEqual(actual, expected);
-}
-
-async function derive(
-  password: string,
-  salt: Uint8Array,
-  iterations: number = PBKDF2_ITERATIONS,
-  keyBytes: number = PBKDF2_KEY_BYTES,
-): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveBits'],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: PBKDF2_HASH, salt, iterations },
-    key,
-    keyBytes * 8,
-  );
-  return new Uint8Array(bits);
-}
-
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i];
-  }
-  return diff === 0;
-}
-
-// base64url without `=` padding.
-function b64uEncode(bytes: Uint8Array): string {
-  let s = '';
-  for (let i = 0; i < bytes.length; i++) {
-    s += String.fromCharCode(bytes[i]);
-  }
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function b64uDecode(s: string): Uint8Array {
-  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + pad;
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.charCodeAt(i);
-  }
-  return out;
 }
 
 // ---------- sessions ----------
@@ -280,9 +192,7 @@ export async function login(
   });
   // Run verifyPassword even on miss to keep timing uniform — same call path
   // either way, no fast "user not found" return.
-  const phc =
-    row?.passwordHash ??
-    `${PBKDF2_ALG}$${PBKDF2_ITERATIONS}$${b64uEncode(new Uint8Array(PBKDF2_SALT_BYTES))}$${b64uEncode(new Uint8Array(PBKDF2_KEY_BYTES))}`;
+  const phc = row?.passwordHash ?? PLACEHOLDER_PHC;
   const ok = await verifyPassword(password, phc);
   if (!row || row.deletedAt !== null || !ok) {
     throw new AuthError('invalid_credentials', 'Invalid email or password.');

@@ -4,12 +4,10 @@ import { createDb } from '../../src/db/client';
 import { withTransaction } from '../../src/db/tx';
 import {
   AuthError,
-  hashPassword,
   login,
   lookupSession,
   parseAllowlist,
   signup,
-  verifyPassword,
 } from '../../src/services/auth';
 
 const SCOPE = { userId: '__auth__' };
@@ -24,26 +22,6 @@ async function wipe() {
   await env.DB.exec('DELETE FROM sessions');
   await env.DB.exec('DELETE FROM users');
 }
-
-describe('hashPassword + verifyPassword', () => {
-  it('round-trips a correct password', async () => {
-    const phc = await hashPassword('correct horse battery staple');
-    expect(phc.startsWith('pbkdf2$100000$')).toBe(true);
-    expect(await verifyPassword('correct horse battery staple', phc)).toBe(
-      true,
-    );
-  });
-
-  it('rejects an incorrect password', async () => {
-    const phc = await hashPassword('tackdev123');
-    expect(await verifyPassword('tackdev124', phc)).toBe(false);
-  });
-
-  it('rejects a malformed PHC string', async () => {
-    expect(await verifyPassword('anything', 'not-a-phc')).toBe(false);
-    expect(await verifyPassword('anything', 'pbkdf2$x$y')).toBe(false);
-  });
-});
 
 describe('parseAllowlist', () => {
   it('parses comma-separated emails, lowercasing', async () => {

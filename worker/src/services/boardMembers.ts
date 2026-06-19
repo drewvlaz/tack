@@ -3,6 +3,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { BOARD_ROLES, P, roleHas, type BoardRole } from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
+import { b64uEncode } from '../lib/b64url';
 import { genId } from '../lib/id';
 import { nowSec } from '../lib/time';
 import type { InviteRole } from '../schemas/board';
@@ -31,16 +32,10 @@ function readStoredRole(stored: string): BoardRole {
     : 'viewer';
 }
 
-// base64url, no padding. Same encoding as session ids. Raw form is only
-// ever surfaced to the inviter through the share URL — the DB stores the
-// hash (see hashInviteToken below).
+// Raw form is only ever surfaced to the inviter through the share URL —
+// the DB stores the hash (see hashInviteToken below).
 function genToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(INVITE_TOKEN_BYTES));
-  let s = '';
-  for (let i = 0; i < bytes.length; i++) {
-    s += String.fromCharCode(bytes[i]);
-  }
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return b64uEncode(crypto.getRandomValues(new Uint8Array(INVITE_TOKEN_BYTES)));
 }
 
 // SHA-256 hex of the raw token. Used both at issuance (to derive the value
