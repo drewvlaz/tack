@@ -38,7 +38,11 @@ export default function CanvasCard(props: Props) {
   }
   if (props.item.kind === 'text') {
     return (
-      <TextCanvasCard item={props.item} activeBoardId={props.activeBoardId} />
+      <TextCanvasCard
+        item={props.item}
+        activeBoardId={props.activeBoardId}
+        zoomMV={props.zoomMV}
+      />
     );
   }
   return (
@@ -94,13 +98,16 @@ type TextRealItem = Extract<RealItem, { kind: 'text' }>;
 function TextCanvasCard({
   item,
   activeBoardId,
+  zoomMV,
 }: {
   item: TextRealItem;
   activeBoardId: string;
+  zoomMV: MotionValue<number>;
 }) {
   const role = useBoardRole(activeBoardId);
   const canEdit = can(role, P.BoardEdit);
   const patchText = usePatchTextItem();
+  const patchItems = usePatchItems();
   // Read the flag for THIS render's pass to TextCard (its useState initializer
   // captures it), then consume after mount so the flag doesn't sit around for
   // a later remount.
@@ -115,6 +122,26 @@ function TextCanvasCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isSelected = useSelectionStore(
+    useCallback((s) => s.ids.has(id), [id]),
+  );
+
+  const getZoom = useCallback(() => zoomMV.get(), [zoomMV]);
+
+  const handleTap = useCallback(
+    (mods: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+      const selection = useSelectionStore.getState();
+      if (mods.metaKey || mods.ctrlKey) {
+        selection.toggle(id);
+      } else if (mods.shiftKey) {
+        selection.add(id);
+      } else {
+        selection.replace(id);
+      }
+    },
+    [id],
+  );
+
   return (
     <TextCard
       id={item.id}
@@ -125,15 +152,37 @@ function TextCanvasCard({
       align={item.textAlign}
       x={item.x}
       y={item.y}
+      width={item.width}
+      height={item.height}
       zIndex={item.zIndex}
       canEdit={canEdit}
+      isSelected={isSelected}
       autoEditOnMount={autoEdit}
+      getZoom={getZoom}
+      onTap={handleTap}
       onCommit={(content) =>
         patchText.mutate({
           id: item.id,
           boardId: activeBoardId,
           patch: { content },
         })
+      }
+      onDragEnd={
+        canEdit
+          ? (x, y) => patchItems.mutate([{ id: item.id, patch: { x, y } }])
+          : undefined
+      }
+      onResizeEnd={
+        canEdit
+          ? ({ fontSize, ...geom }) => {
+              patchItems.mutate([{ id: item.id, patch: geom }]);
+              patchText.mutate({
+                id: item.id,
+                boardId: activeBoardId,
+                patch: { fontSize },
+              });
+            }
+          : undefined
       }
     />
   );
