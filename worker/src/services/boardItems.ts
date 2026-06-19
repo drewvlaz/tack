@@ -3,6 +3,7 @@ import type { HydratedPlacement } from '../db/repos/placements';
 import { P } from '../db/schema';
 import type { ServiceCtx, Tx } from '../db/tx';
 import { genId } from '../lib/id';
+import { mapLimit } from '../lib/mapLimit';
 import { nowSec } from '../lib/time';
 import {
   type AddItemInput,
@@ -14,7 +15,7 @@ import {
   type TextAlign,
 } from '../schemas/board';
 import { fromR2Key, r2KeyOwner, storeImage, toR2Key } from './images';
-import { fetchAndParseMeta, mapLimit } from './parser';
+import { fetchAndParseMeta } from './parser';
 
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 400;

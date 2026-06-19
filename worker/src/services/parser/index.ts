@@ -1,4 +1,5 @@
 import { log } from '../../lib/log';
+import { mapLimit } from '../../lib/mapLimit';
 import { safeFetch, UnsafeUrlError } from '../../lib/safeFetch';
 import type { ParseResult, ParseWarning } from '../../schemas/parse';
 import { storeImage, type StoredImage } from '../images';
@@ -45,27 +46,6 @@ const MAX_HTML_BYTES = 4 * 1024 * 1024;
 // unbounded Promise.all can monopolize subrequest budget and worker wall-clock.
 // 4 hits a reasonable wall-clock without amplifying upstream load.
 const IMAGE_FETCH_CONCURRENCY = 4;
-
-export async function mapLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (true) {
-      const i = cursor++;
-      if (i >= items.length) {
-        return;
-      }
-      out[i] = await fn(items[i], i);
-    }
-  }
-  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
-  await Promise.all(workers);
-  return out;
-}
 
 async function readBodyCapped(
   res: Response,
