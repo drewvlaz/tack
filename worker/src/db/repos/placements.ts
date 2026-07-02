@@ -121,6 +121,31 @@ export class PlacementsReadRepo {
     return this.hydrate(placements);
   }
 
+  // Bulk lookup: (id, boardId) for the accessible ACTIVE placements matching
+  // any of the requested ids. Missing / inaccessible / trashed ids are simply
+  // absent from the result — callers compare lengths to detect. Used by bulk
+  // mutation paths (e.g. tag add/remove) to gate N placements in one query
+  // instead of N sequential byIdOrThrow calls.
+  async listActiveByIds(
+    ids: string[],
+  ): Promise<Array<{ id: string; boardId: string }>> {
+    if (ids.length === 0) {
+      return [];
+    }
+    return this.db
+      .select({
+        id: schema.boardItems.id,
+        boardId: schema.boardItems.boardId,
+      })
+      .from(schema.boardItems)
+      .where(
+        and(
+          inArray(schema.boardItems.id, ids),
+          activeScope(this.db, this.scope),
+        ),
+      );
+  }
+
   // (id, deletedAt) for every placement on the board, active or trashed.
   // Used by deleteBoard before it stages a hard purge.
   async listIdsForBoardIncludingTrashed(

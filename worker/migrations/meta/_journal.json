@@ -92,6 +92,13 @@
       "when": 1781649558030,
       "tag": "0012_add_text_kind_to_board_items",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1782843498138,
+      "tag": "0013_board_item_tags",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import Rail from '../shared/Rail';
 import Details from './Details';
 import Hero from './Hero';
 import RemoveButton from './RemoveButton';
+import TagEditor from './TagEditor';
 import TopBar from './TopBar';
 
 // SidePanel currently surfaces product metadata only. Text items get their
@@ -51,6 +52,9 @@ export default function SidePanel({ item, boardId, onClose }: SidePanelProps) {
           boardId={boardId}
         />
         <Details item={item} />
+        <div className="border-border border-t">
+          <TagEditor boardId={boardId} itemId={item.id} tags={item.tags} />
+        </div>
         {canEdit && (
           <div className="border-border border-t px-7 py-4">
             <RemoveButton

@@ -11,7 +11,13 @@ import {
   PatchItemsManyBody,
   PatchTextItemBody,
   RenameBoardBody,
+  TagsMutationBody,
 } from '../../schemas/board';
+import {
+  addTags,
+  listBoardTags,
+  removeTags,
+} from '../../services/boardItemTags';
 import {
   addBoardItem,
   addTextItem,
@@ -233,6 +239,35 @@ export const boardsRouter = router({
         setPrimaryImage(tx, input.id, input.imageId),
       ),
     ),
+
+  // ---------- tags ----------
+
+  listTags: protectedProcedure
+    .input(z.object({ boardId: z.string() }))
+    .query(({ ctx, input }) =>
+      listBoardTags(
+        new ServiceCtx(ctx.db, ctx.images, { userId: ctx.userId }),
+        input.boardId,
+      ),
+    ),
+
+  addTags: protectedProcedure
+    .input(TagsMutationBody)
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
+        addTags(tx, input.boardItemIds, input.names),
+      );
+      return { ok: true as const };
+    }),
+
+  removeTags: protectedProcedure
+    .input(TagsMutationBody)
+    .mutation(async ({ ctx, input }) => {
+      await withTransaction(ctx.db, ctx.images, { userId: ctx.userId }, (tx) =>
+        removeTags(tx, input.boardItemIds, input.names),
+      );
+      return { ok: true as const };
+    }),
 
   // ---------- collab: invites + membership ----------
 

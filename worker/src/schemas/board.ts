@@ -45,6 +45,7 @@ const PlacementFields = z.object({
   width: z.number(),
   height: z.number(),
   zIndex: z.number(),
+  tags: z.array(z.string()),
 });
 
 // Product variant — all the URL-parse metadata.
@@ -122,6 +123,14 @@ export const PatchItemsManyBody = z.object({
 export const DeleteItemsManyBody = z.object({
   ids: z.array(z.string()).min(1).max(BATCH_MAX),
 });
+
+const TagName = z.string().min(1).max(64);
+
+export const TagsMutationBody = z.object({
+  boardItemIds: z.array(z.string()).min(1).max(BATCH_MAX),
+  names: z.array(TagName).min(1).max(50),
+});
+export type TagsMutationInput = z.infer<typeof TagsMutationBody>;
 
 export const AddItemBody = z.object({
   sourceUrl: SafeUrl,

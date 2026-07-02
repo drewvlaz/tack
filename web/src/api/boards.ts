@@ -126,3 +126,25 @@ export function updateMemberRole(
 export function leaveBoard(boardId: string): Promise<{ ok: true }> {
   return trpc.boards.leave.mutate({ boardId });
 }
+
+// ---------- tags ----------
+
+export type BoardTag = { name: string; count: number };
+
+export function listBoardTags(boardId: string): Promise<BoardTag[]> {
+  return trpc.boards.listTags.query({ boardId });
+}
+
+export function addItemTags(
+  boardItemIds: string[],
+  names: string[],
+): Promise<{ ok: true }> {
+  return trpc.boards.addTags.mutate({ boardItemIds, names });
+}
+
+export function removeItemTags(
+  boardItemIds: string[],
+  names: string[],
+): Promise<{ ok: true }> {
+  return trpc.boards.removeTags.mutate({ boardItemIds, names });
+}

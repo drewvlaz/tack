@@ -27,12 +27,41 @@ const IMAGE_FETCH_CONCURRENCY = 4;
 
 // ---------- reads ----------
 
+async function hydrateTags(
+  ctx: ServiceCtx,
+  placementIds: string[],
+): Promise<Map<string, string[]>> {
+  if (placementIds.length === 0) {
+    return new Map();
+  }
+  const rows = await ctx.boardItemTags.listForBoardItems(placementIds);
+  const byPlacement = new Map<string, string[]>();
+  for (const r of rows) {
+    const list = byPlacement.get(r.boardItemId);
+    if (list) {
+      list.push(r.name);
+    } else {
+      byPlacement.set(r.boardItemId, [r.name]);
+    }
+  }
+  for (const list of byPlacement.values()) {
+    list.sort();
+  }
+  return byPlacement;
+}
+
 export async function listBoardItems(
   ctx: ServiceCtx,
   boardId: string,
 ): Promise<BoardItemRow[]> {
   const hydrated = await ctx.placements.listForBoard(boardId);
-  return hydrated.map(toBoardItemRow);
+  const tagsByPlacement = await hydrateTags(
+    ctx,
+    hydrated.map((h) => h.placement.id),
+  );
+  return hydrated.map((h) =>
+    toBoardItemRow(h, tagsByPlacement.get(h.placement.id) ?? []),
+  );
 }
 
 export async function listTrashedBoardItems(
@@ -40,16 +69,22 @@ export async function listTrashedBoardItems(
   boardId: string,
 ): Promise<BoardItemRow[]> {
   const hydrated = await ctx.placements.listTrashForBoard(boardId);
-  return hydrated.map(toBoardItemRow);
+  const tagsByPlacement = await hydrateTags(
+    ctx,
+    hydrated.map((h) => h.placement.id),
+  );
+  return hydrated.map((h) =>
+    toBoardItemRow(h, tagsByPlacement.get(h.placement.id) ?? []),
+  );
 }
 
 // Map a hydrated placement (row + images) to the domain shape. Branches on
 // `kind`: null and 'product' both read as product (existing rows pre-TAC-1
 // have null and must continue to work). Text rows drop images entirely.
-function toBoardItemRow({
-  placement,
-  images,
-}: HydratedPlacement): BoardItemRow {
+function toBoardItemRow(
+  { placement, images }: HydratedPlacement,
+  tags: string[],
+): BoardItemRow {
   const placementBase = {
     id: placement.id,
     addedAt: placement.createdAt,
@@ -60,6 +95,7 @@ function toBoardItemRow({
     width: placement.width,
     height: placement.height,
     zIndex: placement.zIndex,
+    tags,
   };
   if (placement.kind === 'text') {
     return {
@@ -215,6 +251,7 @@ export async function addBoardItem(
     width: DEFAULT_CARD_WIDTH,
     height: DEFAULT_CARD_HEIGHT,
     zIndex,
+    tags: [],
   };
 }
 
@@ -272,6 +309,7 @@ export async function addTextItem(
     width: DEFAULT_TEXT_WIDTH,
     height: DEFAULT_TEXT_HEIGHT,
     zIndex,
+    tags: [],
   };
 }
 

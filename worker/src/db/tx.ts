@@ -4,6 +4,8 @@ import type { Db } from './client';
 import {
   BoardItemImagesReadRepo,
   BoardItemImagesTxRepo,
+  BoardItemTagsReadRepo,
+  BoardItemTagsTxRepo,
   BoardsReadRepo,
   BoardsTxRepo,
   PlacementsReadRepo,
@@ -28,6 +30,7 @@ export class ServiceCtx {
   readonly boards: BoardsReadRepo;
   readonly placements: PlacementsReadRepo;
   readonly boardItemImages: BoardItemImagesReadRepo;
+  readonly boardItemTags: BoardItemTagsReadRepo;
 
   constructor(
     public readonly db: Db,
@@ -37,6 +40,7 @@ export class ServiceCtx {
     this.boards = new BoardsReadRepo(db, scope);
     this.placements = new PlacementsReadRepo(db, scope);
     this.boardItemImages = new BoardItemImagesReadRepo(db, scope);
+    this.boardItemTags = new BoardItemTagsReadRepo(db, scope);
   }
 }
 
@@ -72,6 +76,7 @@ export class Tx {
   readonly boards: BoardsTxRepo;
   readonly placements: PlacementsTxRepo;
   readonly boardItemImages: BoardItemImagesTxRepo;
+  readonly boardItemTags: BoardItemTagsTxRepo;
 
   constructor(
     public readonly db: Db,
@@ -81,6 +86,7 @@ export class Tx {
     this.boards = new BoardsTxRepo(this);
     this.placements = new PlacementsTxRepo(this);
     this.boardItemImages = new BoardItemImagesTxRepo(this);
+    this.boardItemTags = new BoardItemTagsTxRepo(this);
   }
 
   stage(...stmts: BatchStatement[]): void {

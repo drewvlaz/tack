@@ -8,6 +8,7 @@ export function useDeleteItems(boardId: string) {
   const queryClient = useQueryClient();
   const queryKey = ['boards', boardId, 'items'];
   const trashKey = ['boards', boardId, 'trash'];
+  const tagsKey = ['boards', boardId, 'tags'];
 
   return useMutation({
     mutationFn: (ids: string[]) => deleteItems(ids),
@@ -30,6 +31,8 @@ export function useDeleteItems(boardId: string) {
 
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: trashKey });
+      // Deleting cards changes tag counts; refresh the sidebar/autocomplete.
+      queryClient.invalidateQueries({ queryKey: tagsKey });
     },
   });
 }

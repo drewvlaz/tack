@@ -194,12 +194,14 @@ pnpm deploy:pages:production # build SPA against prod API, deploy to branch `pro
 
 ## DB schema (D1, managed by Drizzle)
 
-Defined in `worker/src/db/schema.ts`. Tables:
+Defined in `worker/src/db/schema/`. Tables:
 
 - `boards` — board metadata.
-- `items` — canonical product (title, brand, description, price, source URL). Shared across boards in theory; one row per parsed URL.
-- `item_images` — N images per item, ordered by `display_order`. `r2_key` points into R2.
-- `board_items` — placement of an item on a board (x, y, width, height, z_index). Unique on `(board_id, item_id)`.
+- `board_items` — placement on a board (x, y, width, height, z_index) AND the product metadata (title, brand, description, price, source URL). After fold 0009 there is no separate canonical `items` table — the placement IS the item. `kind` discriminates product/text variants.
+- `board_item_images` — N images per placement, ordered by `display_order`. `r2_key` points into R2.
+- `board_item_tags` — `(board_item_id, name)` composite PK, free-form lowercased strings. No tag entity — a tag exists iff a row references its name. Access flows transitively through the placement's board.
+- `users`, `sessions` — auth.
+- `board_members`, `board_invites` — collab membership + invites.
 
 Generate migrations: `pnpm db:generate --name <description>`. Apply locally: `pnpm db:migrate:local`. Apply to staging/prod: `pnpm db:migrate:staging` / `pnpm db:migrate:production`. All work from root or `worker/`.
 
@@ -213,4 +215,24 @@ Worker has a vitest suite under `worker/test/` (`pnpm test:worker` or root `pnpm
 
 - Done: canvas interaction (pan/zoom/drag/expand), URL parse → R2 → board item, optimistic add/delete, position sync, end-to-end types via tRPC.
 - Done: auth, deploy scaffolding (staging + production envs in `worker/wrangler.toml` and `web/.env.*`, deploy scripts).
-- Not yet: multi-board UI, real-time collab (Phase 2 DOs — see `docs/architecture-live.html`), rate-limit bindings re-enabled (require Workers Paid; bindings commented out in `wrangler.toml`).
+- Done: multi-board UI (`BoardsSidebar.tsx`, `BoardSettings/`, rename/delete/invite/members hooks).
+- Done: tags (`board_item_tags`; bulk `addTags`/`removeTags`/`listTags` on the boards router; `TagEditor` in the SidePanel).
+
+**Roadmap, rough priority:**
+
+1. **Browser extension / share target** — "send to Tack" while browsing; fixes the acquisition flow.
+2. **Purchase status + totals** — per-card status (to buy / bought / passed), running board total, currency. The product knows `price` and does nothing with it.
+3. **Scheduled reparse + diff badge** — cron re-runs the parser; surface price drops / sold-out. Reparse logic already exists.
+4. **Public read-only board URL** — new visibility column + public route; easiest path to multiplayer before full DOs.
+5. **Real-time collab** — Phase 2 DOs, see `docs/architecture-live.html`.
+6. **Board-wide tag filter + search** — tags are in; sidebar chip list with click-to-filter cards + D1 FTS5 across title/brand/tags still TODO.
+7. **Outfit groups** — explicit "these items go together" lasso/set.
+8. **Image upload** — own photos for inspiration; schema already has `item_images`, needs UI + R2 upload route.
+9. **Size/fit metadata** — per-item size, per-user "what I wear in brand X". Clothing-specific differentiator.
+10. **Mobile / touch view** — canvas is mouse-first; likely a feed IA on phone, not the canvas.
+11. **Export** — PDF / image of a board.
+12. **Bulk URL paste** — multi-URL textarea.
+13. **Comments / notes** — per-card; pairs with collab.
+14. **Rate-limit bindings re-enabled** — requires Workers Paid; bindings commented out in `wrangler.toml`.
+
+Considered & deferred: color-palette extraction (YAGNI), catalog-wide product search (different product).

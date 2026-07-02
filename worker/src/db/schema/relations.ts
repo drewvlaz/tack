@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm';
 import { boardInvites } from './boardInvites';
 import { boardItemImages } from './boardItemImages';
+import { boardItemTags } from './boardItemTags';
 import { boardItems } from './boardItems';
 import { boardMembers } from './boardMembers';
 import { boards } from './boards';
@@ -60,6 +61,14 @@ export const boardItemsRelations = relations(boardItems, ({ one, many }) => ({
     references: [users.id],
   }),
   images: many(boardItemImages),
+  tags: many(boardItemTags),
+}));
+
+export const boardItemTagsRelations = relations(boardItemTags, ({ one }) => ({
+  boardItem: one(boardItems, {
+    fields: [boardItemTags.boardItemId],
+    references: [boardItems.id],
+  }),
 }));
 
 export const boardItemImagesRelations = relations(
