@@ -113,7 +113,7 @@ Read-only services keep the `Db` signature — there's nothing to stage.
 - `IMAGES` — R2 bucket `tack-images`.
 - `ANTHROPIC_API_KEY` — set as a worker secret (or in `.dev.vars` locally, which is gitignored).
 - `PARSE_LIMITER` — first-party rate-limit binding (`[[ratelimits]]` block), 30 requests per 60s per `cf-connecting-ip`. Only `parseUrl` consults it; the rest of the API isn't rate-limited yet.
-- `INVITE_EMAILS` — comma-separated email allowlist for signup. Read by `services/auth.ts:parseAllowlist`. Add yourself to sign up locally; override in `.dev.vars` if you don't want your email in source.
+- `INVITE_EMAILS` — comma-separated email allowlist for signup. Read by `services/auth.ts:parseAllowlist`. Not committed. Local: put `INVITE_EMAILS=you@example.com` in `worker/.dev.vars` (gitignored). Staging/prod: `wrangler secret put INVITE_EMAILS --env <env>`. Absent → signup is closed (fail-safe).
 
 ## CORS / auth
 

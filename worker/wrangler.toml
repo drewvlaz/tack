@@ -46,15 +46,18 @@ bucket_name = "tack-images"
 
 [vars]
 ENVIRONMENT = "development"
-# Comma-separated email allowlist for signup. Add yourself to sign up locally.
-# Override in `.dev.vars` (gitignored) if you don't want your email in source.
-INVITE_EMAILS = "REDACTED@example.com"
+# INVITE_EMAILS (comma-separated signup allowlist) lives in `.dev.vars`
+# (gitignored) locally, and as a wrangler secret in staging/prod:
+#   wrangler secret put INVITE_EMAILS --env <env>
+# Not committed — INVITE_EMAILS = "" here would broadcast the shape but
+# still require the real value at deploy time.
 
 # ------------------------------------------------------------------
 # Staging environment.
 # Deploy:   pnpm deploy:staging       (or `wrangler deploy --env staging`)
 # Migrate:  pnpm db:migrate:staging
-# Secret:   wrangler secret put ANTHROPIC_API_KEY --env staging
+# Secrets:  wrangler secret put ANTHROPIC_API_KEY --env staging
+#           wrangler secret put INVITE_EMAILS     --env staging
 # ------------------------------------------------------------------
 [env.staging]
 name = "tack-worker-staging"
@@ -66,13 +69,15 @@ ENVIRONMENT = "staging"
 # Used by the CORS middleware in worker/src/index.ts to admit the frontend
 # origin.
 FRONTEND_ORIGIN = "https://main.tack-cxk.pages.dev"
-# Per-env signup allowlist. Move to a secret if you don't want it in source.
-INVITE_EMAILS = "REDACTED@example.com"
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "tack-staging"
-database_id = "REDACTED_STAGING_D1_ID"
+# Set locally via `worker/.env.deploy` (gitignored) or export in your shell;
+# CI sets it as a repo secret. Wrangler expands ${VAR} at load. Not a
+# credential (access requires an API token + account ID), just out of source
+# for consistency with the same treatment as INVITE_EMAILS.
+database_id = "7b84b302-a490-4838-a74a-c97545be4195"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]
@@ -89,7 +94,8 @@ enabled = true
 # Production environment.
 # Deploy:   pnpm deploy:production
 # Migrate:  pnpm db:migrate:production
-# Secret:   wrangler secret put ANTHROPIC_API_KEY --env production
+# Secrets:  wrangler secret put ANTHROPIC_API_KEY --env production
+#           wrangler secret put INVITE_EMAILS     --env production
 # ------------------------------------------------------------------
 [env.production]
 name = "tack-worker"
@@ -97,12 +103,12 @@ name = "tack-worker"
 [env.production.vars]
 ENVIRONMENT = "production"
 FRONTEND_ORIGIN = "https://tack-cxk.pages.dev"
-INVITE_EMAILS = "REDACTED@example.com"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "tack-prod"
-database_id = "REPLACE_WITH_PROD_D1_ID"
+# Same pattern as staging — set in `worker/.dev.vars` (gitignored) or shell.
+database_id = "6143bb1a-12be-4afe-bc3f-c6b7e76036ec"
 migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]

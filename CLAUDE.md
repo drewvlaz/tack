@@ -139,7 +139,7 @@ The stack binds to Cloudflare (Workers, D1, R2, rate-limit bindings, Durable Obj
 ## Running locally
 
 ```bash
-# Put ANTHROPIC_API_KEY in worker/.dev.vars (gitignored), then from the repo root:
+# Put ANTHROPIC_API_KEY and INVITE_EMAILS in worker/.dev.vars (gitignored), then from the repo root:
 pnpm db:migrate:local   # apply migrations to local D1
 pnpm db:seed:local      # seed board-1 with 3 placeholder items
 pnpm dev                # web (5173/5174) + worker (8787) concurrently
@@ -167,6 +167,7 @@ wrangler login                                                      # once per m
 wrangler d1 create tack-<env>                                       # paste the ID into worker/wrangler.toml under [[env.<env>.d1_databases]]
 wrangler r2 bucket create tack-<env>-images
 wrangler secret put ANTHROPIC_API_KEY --env <env>                   # paste the key when prompted
+wrangler secret put INVITE_EMAILS     --env <env>                   # comma-separated signup allowlist
 pnpm deploy:<env>                                                   # regenerates types, applies migrations, deploys the worker
 ```
 
