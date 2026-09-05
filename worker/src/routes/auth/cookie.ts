@@ -36,7 +36,7 @@ export function clearSessionCookie(
   c.header('set-cookie', buildSessionCookie('', environment, 0));
 }
 
-function buildSessionCookie(
+export function buildSessionCookie(
   value: string,
   environment: string | undefined,
   maxAge: number = SESSION_MAX_AGE,
@@ -50,6 +50,15 @@ function buildSessionCookie(
   //        cross-site fetch/XHR, so signup looks fine but the very next
   //        request lands without the cookie. Need SameSite=None + Secure
   //        (Secure is mandatory for None per spec).
+  //   Partitioned (CHIPS) is required for privacy Chromium forks
+  //        (Helium, Brave, ungoogled-chromium) and Chrome Incognito /
+  //        Tracking Protection: unpartitioned SameSite=None cookies are
+  //        third-party on this topology and those browsers drop them by
+  //        default. Stock Chrome still accepts the unpartitioned cookie,
+  //        which is why boards load there. Firefox already partitions
+  //        automatically. Must also be present on the Max-Age=0 clear so
+  //        logout expires the partitioned cookie, not a different
+  //        unpartitioned one.
   const parts = [
     `${SESSION_COOKIE}=${value}`,
     'Path=/',
@@ -58,7 +67,7 @@ function buildSessionCookie(
     `Max-Age=${maxAge}`,
   ];
   if (!isDev) {
-    parts.push('Secure');
+    parts.push('Secure', 'Partitioned');
   }
   return parts.join('; ');
 }

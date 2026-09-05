@@ -20,7 +20,7 @@ import Rail from './shared/Rail';
 const PENDING_PREFIX = '__pending__';
 
 export default function BoardsSidebar() {
-  const { boards, isLoading: boardsLoading } = useBoards();
+  const { boards, isLoading: boardsLoading, error: boardsError } = useBoards();
   const { data: me } = useMe();
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
@@ -59,9 +59,11 @@ export default function BoardsSidebar() {
     }
   }, []);
 
-  // Reconcile active id once boards have loaded.
+  // Reconcile active id once boards have loaded. Skip on error — an empty
+  // `data` from a failed fetch is not "the user has no boards", and
+  // clearing activeBoardId would wipe the last-selected board.
   useEffect(() => {
-    if (boardsLoading) {
+    if (boardsLoading || boardsError) {
       return;
     }
     if (boards.length === 0) {
@@ -73,7 +75,7 @@ export default function BoardsSidebar() {
     if (!activeBoardId || !boards.some((b) => b.id === activeBoardId)) {
       setActiveBoardId(boards[0].id);
     }
-  }, [boardsLoading, boards, activeBoardId, setActiveBoardId]);
+  }, [boardsLoading, boardsError, boards, activeBoardId, setActiveBoardId]);
 
   useEffect(() => {
     if (draftName !== null) {
@@ -193,7 +195,13 @@ export default function BoardsSidebar() {
           />
         )}
 
-        {boards.length === 0 && draftName === null && (
+        {boardsError && (
+          <p className="text-danger px-3 py-6 text-center text-xs">
+            Could not load boards. Refresh to try again.
+          </p>
+        )}
+
+        {boards.length === 0 && draftName === null && !boardsError && (
           <p className="text-fg-subtle px-3 py-6 text-center text-xs">
             No boards yet — click + to create one.
           </p>
