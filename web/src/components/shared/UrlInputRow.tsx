@@ -20,7 +20,9 @@ export default function UrlInputRow({
     <>
       <input
         ref={inputRef}
-        type="url"
+        type="text"
+        inputMode="url"
+        autoComplete="off"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Paste product URL…"
@@ -31,8 +33,11 @@ export default function UrlInputRow({
       />
       <button
         type="submit"
-        disabled={!value.trim() || isPending}
-        className="bg-fg text-surface flex h-7 w-7 items-center justify-center rounded-full transition-opacity disabled:opacity-30"
+        aria-label="Add URL"
+        disabled={isPending}
+        className={`bg-fg text-surface flex h-7 w-7 items-center justify-center rounded-full transition-opacity disabled:opacity-30 ${
+          !value.trim() ? 'opacity-30' : ''
+        }`}
       >
         {isPending ? (
           <span className="border-surface block h-3 w-3 animate-spin rounded-full border-2 border-t-transparent" />

@@ -41,7 +41,10 @@ export default function AddUrlModal({
 
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    const url = value.trim();
+    // Read from the DOM, not React state — paste + Enter in the same
+    // tick leaves `value` stale, and a disabled submit button would also
+    // make Chromium swallow that first Enter entirely.
+    const url = (inputRef.current?.value ?? value).trim();
     if (!url || isPending) {
       return;
     }
@@ -64,6 +67,7 @@ export default function AddUrlModal({
             role="dialog"
             aria-modal="true"
             aria-label="Add URL"
+            noValidate
             onSubmit={handleSubmit}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
