@@ -45,7 +45,7 @@ export function useAddUrlFlow(
 
   useHotkey('a', () => setAddOpen(true), {
     scope: 'global',
-    enabled: enabled && !!activeBoardId,
+    enabled: enabled && !!activeBoardId && !addOpen,
   });
 
   useHotkey(
@@ -68,7 +68,9 @@ export function useAddUrlFlow(
     },
     {
       scope: 'global',
-      enabled: enabled && !!activeBoardId,
+      // When the modal is open, paste belongs to the input — stealing it
+      // starts a parse (isPending) that makes the modal's first Enter no-op.
+      enabled: enabled && !!activeBoardId && !addOpen,
       preventDefault: false,
     },
   );

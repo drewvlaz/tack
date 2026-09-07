@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { spring } from '../../config';
 import { useHotkey } from '../../hooks/useHotkey';
 import BookmarkletLink from '../Import/BookmarkletLink';
@@ -20,10 +20,34 @@ export default function AddUrlModal({
 }: AddUrlModalProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingAutofillSubmit = useRef(false);
 
   function close() {
+    pendingAutofillSubmit.current = false;
     setValue('');
     onClose();
+  }
+
+  function submitFrom(raw: string) {
+    const url = raw.trim();
+    if (!url || isPending) {
+      // Empty on Enter is usually the browser committing autofill, not a
+      // real submit. Flag it so the following onChange can finish the add.
+      if (!url) {
+        pendingAutofillSubmit.current = true;
+      }
+      return;
+    }
+    pendingAutofillSubmit.current = false;
+    onSubmit(url);
+    close();
+  }
+
+  function handleChange(next: string) {
+    setValue(next);
+    if (pendingAutofillSubmit.current && next.trim()) {
+      submitFrom(next);
+    }
   }
 
   useHotkey('Escape', close, {
@@ -32,25 +56,21 @@ export default function AddUrlModal({
     allowInInputs: true,
   });
 
-  useEffect(() => {
+  useHotkey(
+    'Enter',
+    () => submitFrom(inputRef.current?.value ?? value),
+    {
+      scope: 'modal',
+      enabled: open,
+      allowInInputs: true,
+    },
+  );
+
+  useLayoutEffect(() => {
     if (open) {
-      // Defer one tick so the input is mounted before focusing.
-      requestAnimationFrame(() => inputRef.current?.focus());
+      inputRef.current?.focus();
     }
   }, [open]);
-
-  function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
-    e.preventDefault();
-    // Read from the DOM, not React state — paste + Enter in the same
-    // tick leaves `value` stale, and a disabled submit button would also
-    // make Chromium swallow that first Enter entirely.
-    const url = (inputRef.current?.value ?? value).trim();
-    if (!url || isPending) {
-      return;
-    }
-    onSubmit(url);
-    close();
-  }
 
   return (
     <AnimatePresence>
@@ -68,14 +88,11 @@ export default function AddUrlModal({
             aria-modal="true"
             aria-label="Add URL"
             noValidate
-            onSubmit={handleSubmit}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                close();
-              }
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitFrom(inputRef.current?.value ?? value);
             }}
+            onClick={(e) => e.stopPropagation()}
             className="bg-surface-raised ring-border/60 flex w-full max-w-[560px] flex-col gap-3 rounded-xl px-4 py-3 shadow-2xl ring-1"
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -89,9 +106,10 @@ export default function AddUrlModal({
           >
             <UrlInputRow
               value={value}
-              onChange={setValue}
+              onChange={handleChange}
               isPending={isPending}
               inputRef={inputRef}
+              onEnter={submitFrom}
             />
             <BookmarkletLink />
           </motion.form>
