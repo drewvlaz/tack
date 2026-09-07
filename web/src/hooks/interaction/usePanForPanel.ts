@@ -3,62 +3,117 @@ import {
   type AnimationPlaybackControls,
   type MotionValue,
 } from 'framer-motion';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { spring } from '../../config';
+import { panelAvoidanceOffset } from '../../lib/canvasMath';
 import type { CanvasItem } from '../../lib/trpc';
 
-// Gap to leave between the selected card's right edge and the right panel's
-// left edge when the panel opens.
 const PANEL_EDGE_MARGIN = 24;
+const MIN_DELTA = 0.5;
 
 type Params = {
   primaryId: string | null;
   rightWidth: number;
+  leftInset: number;
   items: CanvasItem[];
   panX: MotionValue<number>;
   zoom: MotionValue<number>;
 };
 
-// Pans the canvas left when the right panel opens over the selected card, and
-// restores the pan when it closes. Tracks the applied offset in a ref so the
-// restore exactly undoes the open animation even if the user pans in between.
-// Recomputes the target offset on every selection change so switching to a
-// card that doesn't need a pan releases any pan applied by the previous one.
+// Pans the canvas just enough that the selected product card isn't covered
+// by the right panel, and restores that shift when the panel closes.
+//
+// Only product selections open the panel (text items keep primaryId but no
+// rail), so those are the only ones that request an offset. Other items
+// changing does not retrigger — only this card's id/x/width and the rail
+// sizes do.
+//
+// Natural pan (viewport minus our compensation) is snapshotted for the
+// duration of an in-flight animation. Deriving it from panX.get() minus
+// the *target* offset while the spring is mid-flight was the source of the
+// inconsistent jumps: the ref had already committed, panX hadn't.
 export function usePanForPanel({
   primaryId,
   rightWidth,
+  leftInset,
   items,
   panX,
   zoom,
 }: Params): void {
-  const panelOffsetRef = useRef(0);
+  const offsetTargetRef = useRef(0);
+  const naturalPanXRef = useRef<number | null>(null);
   const panAnimRef = useRef<AnimationPlaybackControls | null>(null);
+  const animGenRef = useRef(0);
 
-  useEffect(() => {
-    const selected =
-      primaryId === null
-        ? null
-        : (items.find((i) => i.state === 'real' && i.id === primaryId) ?? null);
+  const selected = findPanelItem(items, primaryId);
+  const selectedId = selected?.id ?? null;
+  const selectedX = selected?.x;
+  const selectedWidth = selected?.width;
+
+  useLayoutEffect(() => {
+    const naturalPanX =
+      naturalPanXRef.current ?? panX.get() - offsetTargetRef.current;
 
     let targetOffset = 0;
-    if (selected) {
-      const z = zoom.get();
-      const naturalPanX = panX.get() - panelOffsetRef.current;
-      const itemRightScreen = naturalPanX + (selected.x + selected.width) * z;
-      const panelLeftScreen = window.innerWidth - rightWidth;
-      const overlap = itemRightScreen - (panelLeftScreen - PANEL_EDGE_MARGIN);
-      if (overlap > 0) {
-        targetOffset = -overlap;
-      }
+    if (selectedId !== null && selectedX !== undefined && selectedWidth !== undefined) {
+      targetOffset = panelAvoidanceOffset({
+        itemX: selectedX,
+        itemWidth: selectedWidth,
+        zoom: zoom.get(),
+        panX: naturalPanX,
+        viewportWidth: window.innerWidth,
+        panelWidth: rightWidth,
+        leftInset,
+        margin: PANEL_EDGE_MARGIN,
+      });
     }
 
-    const delta = targetOffset - panelOffsetRef.current;
-    if (delta === 0) {
+    const delta = targetOffset - offsetTargetRef.current;
+    if (Math.abs(delta) < MIN_DELTA) {
       return;
     }
 
-    panelOffsetRef.current = targetOffset;
+    naturalPanXRef.current = naturalPanX;
+    offsetTargetRef.current = targetOffset;
+    const gen = ++animGenRef.current;
     panAnimRef.current?.stop();
-    panAnimRef.current = animate(panX, panX.get() + delta, spring.panel);
-  }, [primaryId, rightWidth, panX, zoom, items]);
+    const controls = animate(panX, panX.get() + delta, spring.panelPan);
+    panAnimRef.current = controls;
+    void controls.then(() => {
+      if (animGenRef.current === gen) {
+        naturalPanXRef.current = null;
+        panAnimRef.current = null;
+      }
+    });
+  }, [
+    selectedId,
+    selectedX,
+    selectedWidth,
+    rightWidth,
+    leftInset,
+    panX,
+    zoom,
+  ]);
+
+  useLayoutEffect(() => {
+    return () => {
+      animGenRef.current += 1;
+      panAnimRef.current?.stop();
+    };
+  }, []);
+}
+
+function findPanelItem(
+  items: CanvasItem[],
+  primaryId: string | null,
+): Extract<CanvasItem, { state: 'real'; kind: 'product' }> | null {
+  if (primaryId === null) {
+    return null;
+  }
+  for (const item of items) {
+    if (item.state === 'real' && item.kind === 'product' && item.id === primaryId) {
+      return item;
+    }
+  }
+  return null;
 }

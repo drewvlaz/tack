@@ -38,6 +38,8 @@ function CanvasInner() {
   const activeBoardId = useBoardsStore((s) => s.activeBoardId);
   const { items, isLoading } = useBoardItems(activeBoardId);
   const rightWidth = useRailsStore((s) => s.rightWidth);
+  const leftCollapsed = useRailsStore((s) => s.leftCollapsed);
+  const leftWidth = useRailsStore((s) => s.leftWidth);
   const primaryId = useSelectionStore((s) => s.primaryId);
 
   const { canvasRef, zoomMV, panX, panY, zoomTo, isPanModifierHeld } =
@@ -72,7 +74,14 @@ function CanvasInner() {
     isPanModifierHeld,
   });
 
-  usePanForPanel({ primaryId, rightWidth, items, panX, zoom: zoomMV });
+  usePanForPanel({
+    primaryId,
+    rightWidth,
+    leftInset: leftCollapsed ? 0 : leftWidth,
+    items,
+    panX,
+    zoom: zoomMV,
+  });
 
   const bgStyle = useDotGridSync(zoomMV, panX, panY);
 

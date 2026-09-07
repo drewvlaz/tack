@@ -42,6 +42,7 @@ src/
 │       ├── useMarquee.ts       Drag-to-create selection rectangle (mouse/pen only; touch falls through to pan)
 │       ├── useSelectionDrag.tsx Group-drag coordinator: drag targets publish position MVs via useRegisterDragTarget, coordinator drives all selected in lockstep + commits via patchItemsMany
 │       ├── useDotGridSync.ts   Recomputes canvas background-size/position from pan/zoom MVs
+│       ├── usePanForPanel.ts   Springs the canvas just enough that a selected product card isn't covered by the right rail; restores on close. Product-only (text selections don't mount the panel).
 │       └── useAddUrlFlow.ts    URL-add modal state + 'a' / 'mod+v' hotkeys + drop-at-viewport-center handler
 ├── store/         Zustand. INTERACTION STATE ONLY.
 │   ├── canvas.ts     zIndices, bringToFront

@@ -25,7 +25,7 @@ Two files own the design tokens. Anything visual that isn't already captured her
 
 Color tokens MUST be defined in both `:root` and `.dark`. Non-color tokens (radius) live in `:root` only.
 
-**`web/src/config.ts`** — TypeScript constants for values consumed in JS (not CSS): motion springs (`spring.card`, `spring.panel`, `spring.zoom`), zoom limits, card sizing, canvas params. Used by Framer Motion `transition` props and gesture math.
+**`web/src/config.ts`** — TypeScript constants for values consumed in JS (not CSS): motion springs (`spring.card`, `spring.panel`, `spring.panelPan`, `spring.zoom`), zoom limits, card sizing, canvas params. Used by Framer Motion `transition` props and gesture math.
 
 The split is deliberate: CSS holds anything dark-mode-aware or styling-only; TS holds anything JS reads at runtime.
 

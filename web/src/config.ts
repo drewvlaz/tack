@@ -1,6 +1,9 @@
 export const spring = {
   card: { stiffness: 300, damping: 30 },
   panel: { stiffness: 350, damping: 35 },
+  // Overdamped on purpose — a large canvas shift that overshoots reads as
+  // the whole board bouncing. Critically damped at k=280 is ~33.5.
+  panelPan: { stiffness: 280, damping: 38 },
   zoom: { stiffness: 300, damping: 30 },
 } as const;
 

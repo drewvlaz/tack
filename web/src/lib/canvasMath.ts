@@ -53,6 +53,46 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
 // True iff `inner` is fully contained within `outer`. Marquee selection uses
 // containment (not intersection) so partially-overlapping cards are excluded.
 // Edges touching are treated as contained (<=, not <).
+// How far to shift panX so a selected card's right edge clears the right
+// panel, without pushing the card's left edge under the left rail when the
+// remaining gutter can still fit it. 0 means the card is already clear.
+export function panelAvoidanceOffset(args: {
+  itemX: number;
+  itemWidth: number;
+  zoom: number;
+  panX: number;
+  viewportWidth: number;
+  panelWidth: number;
+  leftInset: number;
+  margin: number;
+}): number {
+  const {
+    itemX,
+    itemWidth,
+    zoom,
+    panX,
+    viewportWidth,
+    panelWidth,
+    leftInset,
+    margin,
+  } = args;
+  const itemLeft = panX + itemX * zoom;
+  const itemRight = panX + (itemX + itemWidth) * zoom;
+  const clearRight = viewportWidth - panelWidth - margin;
+  const overlap = itemRight - clearRight;
+  if (overlap <= 0) {
+    return 0;
+  }
+
+  let offset = -overlap;
+  const clearLeft = leftInset + margin;
+  const itemLeftAfter = itemLeft + offset;
+  if (itemLeftAfter < clearLeft) {
+    offset += clearLeft - itemLeftAfter;
+  }
+  return offset;
+}
+
 export function rectContains(outer: Rect, inner: Rect): boolean {
   return (
     inner.x >= outer.x &&

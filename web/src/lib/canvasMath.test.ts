@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getVisibleCanvasRect,
+  panelAvoidanceOffset,
   rectContains,
   rectsIntersect,
   screenToCanvas,
@@ -103,6 +104,61 @@ describe('rectsIntersect', () => {
   it('detects containment', () => {
     expect(rectsIntersect(a, { x: 25, y: 25, width: 10, height: 10 })).toBe(true);
     expect(rectsIntersect({ x: 25, y: 25, width: 10, height: 10 }, a)).toBe(true);
+  });
+});
+
+describe('panelAvoidanceOffset', () => {
+  const base = {
+    itemX: 0,
+    itemWidth: 200,
+    zoom: 1,
+    panX: 0,
+    viewportWidth: 1000,
+    panelWidth: 380,
+    leftInset: 260,
+    margin: 24,
+  };
+
+  it('is 0 when the card is already left of the panel', () => {
+    // item right = 200; clearRight = 1000 - 380 - 24 = 596
+    expect(panelAvoidanceOffset(base)).toBe(0);
+  });
+
+  it('shifts left by the overlap plus margin when the card sits under the panel', () => {
+    // item right = 900; clearRight = 596; overlap = 304
+    expect(panelAvoidanceOffset({ ...base, itemX: 700 })).toBe(-304);
+  });
+
+  it('accounts for zoom and the current pan', () => {
+    // item right screen = 50 + (400 + 200) * 2 = 1250; clearRight = 596
+    // leftInset 0 so the large shift doesn't hit the left-rail clamp.
+    expect(
+      panelAvoidanceOffset({
+        ...base,
+        itemX: 400,
+        zoom: 2,
+        panX: 50,
+        leftInset: 0,
+      }),
+    ).toBe(-(1250 - 596));
+  });
+
+  it('does not push the card under the left rail when the gutter can fit it', () => {
+    // Would need a large left shift; left clamp keeps itemLeft at clearLeft (284)
+    // itemLeft = 0 + 500 = 500; overlap shift = -(700 - 596) = -104
+    // itemLeftAfter = 396, still right of 284 — no clamp
+    expect(panelAvoidanceOffset({ ...base, itemX: 500, itemWidth: 200 })).toBe(
+      -(700 - 596),
+    );
+    // Card already at the left inset: itemLeft = 260. Unclamped shift would
+    // put it at 260 - 304 = -44. Clamp back so left edge stays at 284.
+    expect(panelAvoidanceOffset({ ...base, itemX: 260, itemWidth: 700 })).toBe(
+      284 - 260,
+    );
+  });
+
+  it('is 0 when the panel width is 0 and the card is on-screen', () => {
+    expect(panelAvoidanceOffset({ ...base, panelWidth: 0, itemX: 700 })).toBe(0);
   });
 });
 
