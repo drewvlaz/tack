@@ -38,7 +38,7 @@ For "currency": only return a 3-letter ISO 4217 code (USD, GBP, EUR, JPY, etc). 
 
 For "image_indices": select up to 6 indices from IMAGE_CANDIDATES that are photographs of the MAIN product, ordered best-first — the product hero / front view at position 0. Use each candidate's URL (filenames, SKU codes, path segments) plus its source annotation to judge. Candidates marked "suspect: related-products section" are images found inside recommendation/related-items containers — exclude them unless the URL clearly shows the main product's SKU. EXCLUDE: other products, related/recommended thumbnails, brand logos, social icons, payment badges, size charts, swatches/color chips, customer/review photos, packaging shots. Candidates sourced from "jsonld" are the retailer's own declared product gallery — prefer them. If several candidates are variants of the same shot (size variants, or the same filename served from different hosts/CDNs), include only one — prefer the higher-resolution / cleaner URL.
 
-If REQUESTED_VARIANT is present, the user picked a specific colorway via the URL query (e.g. ?color=cream). Candidates tagged "variant: match" are images of THAT colorway; "variant: mismatch" are images of a different colorway on the same product. Select only matching ones — even when og:image / jsonld / script sources point at a different colorway (the page's default), prefer the matching candidates. If no "match" candidates exist, fall back to your usual selection but bias toward URLs whose filenames look like they could be the requested colorway. Return [] if no candidate shows the main product.
+If REQUESTED_VARIANT is present, the user picked a specific colorway via the URL query (e.g. ?color=cream, or a Shopify ?variant=<id> resolved to its option name like variant=Slate). Candidates tagged "variant: match" are images of THAT colorway; "variant: mismatch" are images of a different colorway on the same product. Select only matching ones — even when og:image / jsonld / script sources point at a different colorway (the page's default), prefer the matching candidates. If no "match" candidates exist, fall back to your usual selection but bias toward URLs whose filenames look like they could be the requested colorway. Return [] if no candidate shows the main product.
 
 For "details": extract supplemental product facts from PAGE_TEXT that don't fit in description — materials/composition, care instructions, sizing/fit notes, country of origin, dimensions, fabric weight, color name, model height/wearing size. Each entry is one short label and one short value (no marketing copy). Return an empty array if nothing fits. Skip facts already in title/brand/price.`;
 
@@ -60,10 +60,8 @@ export function buildEvidence(
   lines.push(`OG_SITE_NAME: ${extract.brand ?? 'none'}`);
   lines.push(`OG_DESCRIPTION: ${extract.description ?? 'none'}`);
   if (extract.requestedVariant) {
-    const { attr, value } = extract.requestedVariant;
-    lines.push(
-      `REQUESTED_VARIANT: ${attr.replace(/^data-/, '')}=${value} (from URL query)`,
-    );
+    const { key, value } = extract.requestedVariant;
+    lines.push(`REQUESTED_VARIANT: ${key}=${value} (from URL query)`);
   }
   lines.push('');
 

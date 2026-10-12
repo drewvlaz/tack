@@ -134,16 +134,53 @@ describe('extractCandidates', () => {
       html,
       'https://shop.example.com/products/shirt?color=cream',
     );
-    expect(out.requestedVariant).toEqual({
-      attr: 'data-color',
-      value: 'cream',
-    });
+    expect(out.requestedVariant).toEqual({ key: 'color', value: 'cream' });
     const picked = pickDefaultImages(out.candidates, 12);
     expect(picked).toEqual([
       'https://cdn.test/products/cream-hero.jpg',
       'https://cdn.test/products/cream-back.jpg',
       'https://cdn.test/products/cream-detail.jpg',
     ]);
+  });
+
+  it('resolves a Shopify ?variant=<id> via the embedded variants JSON', async () => {
+    // Server render reflects the default (oak) variant everywhere; only the
+    // variants array ties the id to "Slate" and its featured image. Sibling
+    // shots are attributed by the filename token that differs between
+    // variants' featured images.
+    const html = `
+      <meta property="og:image" content="https://shop.test/cdn/shop/files/dresseroak2.jpg">
+      <script type="application/json">[
+        {"id":1,"title":"Oak","featured_image":{"src":"//cdn.shopify.com/s/files/1/files/dresseroak2.jpg?v=1"}},
+        {"id":2,"title":"Slate","featured_image":{"src":"//cdn.shopify.com/s/files/1/files/dresserblack2.jpg?v=1"}}
+      ]</script>
+      <img src="https://shop.test/cdn/shop/files/dresseroak2.jpg">
+      <img src="https://shop.test/cdn/shop/files/dresseroak1.jpg">
+      <img src="https://shop.test/cdn/shop/files/dresserblack2.jpg">
+      <img src="https://shop.test/cdn/shop/files/dresserblack1.jpg">
+      <img src="https://shop.test/cdn/shop/files/lifestyle.jpg">
+    `;
+    const out = await extractCandidates(
+      html,
+      'https://shop.test/products/dresser?variant=2',
+    );
+    expect(out.requestedVariant).toEqual({ key: 'variant', value: 'Slate' });
+    const urls = out.candidates.map((c) => c.url);
+    expect(urls.slice(0, 2).sort()).toEqual([
+      'https://shop.test/cdn/shop/files/dresserblack1.jpg',
+      'https://shop.test/cdn/shop/files/dresserblack2.jpg',
+    ]);
+    expect(urls.some((u) => u.includes('dresseroak'))).toBe(false);
+    expect(urls).toContain('https://shop.test/cdn/shop/files/lifestyle.jpg');
+  });
+
+  it('ignores a Shopify variant id the page JSON does not resolve', async () => {
+    const html = `<img src="https://cdn.test/p/x.jpg">`;
+    const out = await extractCandidates(
+      html,
+      'https://shop.example.com/products/shirt?variant=123',
+    );
+    expect(out.requestedVariant).toBeNull();
   });
 
   it('falls through cleanly when URL has no variant query', async () => {

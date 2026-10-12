@@ -11,8 +11,15 @@ import {
   type RankedImage,
   type VariantHint,
 } from './meta';
+import { resolveShopifyVariant } from './shopifyVariant';
 
 export type ImageCandidate = RankedImage;
+
+// The variant the user picked via the URL, in Claude-readable form:
+// `{ key: 'color', value: 'cream' }` from `?color=cream`, or
+// `{ key: 'variant', value: 'Slate' }` from a Shopify `?variant=<id>`
+// resolved against the page's variant JSON.
+export type RequestedVariant = { key: string; value: string };
 
 export type StaticExtract = {
   title: string | null;
@@ -27,9 +34,9 @@ export type StaticExtract = {
   // Price-shaped fields harvested from embedded script JSON, with context.
   // Evidence for the Claude stage only — never trusted directly.
   priceSignals: string[];
-  // Variant requested via the page URL query (e.g. ?color=cream). Null when
-  // the URL carries no recognized variant param.
-  requestedVariant: VariantHint | null;
+  // Null when the URL carries no recognized variant param (or a Shopify
+  // variant id the page's JSON doesn't resolve).
+  requestedVariant: RequestedVariant | null;
 };
 
 // How many ranked candidates to keep. Larger than the final image cap so the
@@ -109,9 +116,8 @@ export function hasPlaceholderSegment(url: string): boolean {
 }
 
 // URL query keys that hint at a product variant the retailer expresses as a
-// `data-<key>` attribute on its gallery containers. `variant` (Shopify's
-// numeric id) is deliberately omitted — IDs rarely appear as raw text on the
-// page; surface those to Claude only.
+// `data-<key>` attribute on its gallery containers. Shopify's numeric
+// `?variant=<id>` is handled separately by `resolveShopifyVariant`.
 const VARIANT_QUERY_KEYS: Record<string, string> = {
   color: 'data-color',
   colour: 'data-colour',
@@ -160,8 +166,16 @@ export async function extractCandidates(
   html: string,
   pageUrl: string,
 ): Promise<StaticExtract> {
-  const requestedVariant = extractVariantHint(pageUrl);
-  const parsed = await parseHtml(html, requestedVariant ?? undefined);
+  const variantHint = extractVariantHint(pageUrl);
+  const shopifyVariant = variantHint
+    ? null
+    : resolveShopifyVariant(html, pageUrl);
+  const requestedVariant: RequestedVariant | null = variantHint
+    ? { key: variantHint.attr.replace(/^data-/, ''), value: variantHint.value }
+    : shopifyVariant
+      ? { key: 'variant', value: shopifyVariant.title }
+      : null;
+  const parsed = await parseHtml(html, variantHint ?? undefined);
   const {
     title,
     docTitle,
@@ -248,6 +262,28 @@ export async function extractCandidates(
         scriptSameDir.push(u);
       } else {
         scriptSameHost.push(u);
+      }
+    }
+  }
+
+  // Shopify variant attribution is by filename, so it applies to every
+  // discovered URL, not just <img> tags. Reusing the img-variant-* buckets
+  // gets the same scoring, hard filter, and Claude annotation as the
+  // data-color path.
+  if (shopifyVariant) {
+    const discovered = [
+      ...imgTagImages.map((i) => i.url),
+      ...jsonLd.productImages,
+      ...rebuiltFromTemplates,
+      ...ogImages,
+      ...scriptSameDir,
+    ];
+    for (const url of discovered) {
+      const verdict = shopifyVariant.classify(url);
+      if (verdict === 'match') {
+        imgVariantMatch.push(url);
+      } else if (verdict === 'mismatch') {
+        imgVariantMismatch.push(url);
       }
     }
   }

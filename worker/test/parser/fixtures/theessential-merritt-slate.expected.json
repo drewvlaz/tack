@@ -1,0 +1,23 @@
+{
+  "url": "https://theessential.com/products/merritt-low-dresser?variant=40984259887153",
+  "title": "Merritt Low Dresser",
+  "brand": "The Essential",
+  "price": 600,
+  "currency": "USD",
+  "structuredPrice": false,
+  "minImages": 2,
+  "imageMustMatch": ["merrittlowdresserblack1", "merrittlowdresserblack2"],
+  "imageMustNotMatch": ["merrittlowdresserwalnut", "merrittlowdresserwhite"],
+  "imageLabels": {
+    "positives": ["merrittlowdresserblack"],
+    "negatives": [
+      "merrittlowdresserwalnut",
+      "merrittlowdresserwhite",
+      "Arka_Bookshelf",
+      "Spine_Bookcase",
+      "D01027XF",
+      "TETRABOOKSHELF"
+    ]
+  },
+  "notes": "Shopify ?variant=<id> URL (no ?color=). The variant id resolves to \"Slate\" only via the Dawn-style variants array in <script type=\"application/json\">; og:image and gallery order reflect the default Oak (walnut) variant. Colorways differ only by a filename token (merrittlowdresser{walnut,black,white}{1,2}), so the requested variant's featured_image plus token attribution picks the black shots and filters walnut/white. The Slate hero also appears in the sticky add-to-cart bar (suspect container). No product JSON-LD in the server render (injected by client JS); price lives only in script JSON."
+}

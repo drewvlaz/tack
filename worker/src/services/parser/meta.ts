@@ -226,7 +226,7 @@ export async function parseHtml(
         } else if (prop === 'og:description') {
           description ??= decodeEntities(content);
         } else if (OG_IMAGE_PROPS.has(prop)) {
-          ogImages.push(content);
+          ogImages.push(decodeEntities(content));
         }
       },
     })
@@ -312,10 +312,12 @@ export async function parseHtml(
       // until the img scrolls into view — leaving `src` blank or pointing
       // at a 1×1 spacer. Read those as a fallback so server-side parsing
       // sees the same image a browser would.
+      // lol-html returns attribute values undecoded; a literal `&amp;` would
+      // reach the CDN as an `amp;width` param and the resize gets ignored.
       const srcset =
         el.getAttribute('srcset') ?? el.getAttribute('data-srcset');
       if (srcset) {
-        const picked = largestFromSrcset(srcset);
+        const picked = largestFromSrcset(decodeEntities(srcset));
         // Drop the candidate when its biggest descriptor is sub-thumbnail —
         // it's a UI sprite, badge, or social icon, never a hero shot.
         if (
@@ -328,7 +330,7 @@ export async function parseHtml(
       }
       const src = el.getAttribute('src') ?? el.getAttribute('data-src');
       if (src) {
-        imgTagImages.push({ url: src, suspect, variantMatch });
+        imgTagImages.push({ url: decodeEntities(src), suspect, variantMatch });
       }
     },
   });
@@ -960,6 +962,26 @@ function dedupeKey(parsed: URL): string {
     segments[last] = segments[last].replace(SHOPIFY_SIZE_SUFFIX, '$1');
   }
   return `${parsed.origin}/${segments.join('/')}`;
+}
+
+// Lowercased filename without extension or Shopify size suffix — the same
+// asset served from the storefront's `/cdn/shop/` alias and from
+// `cdn.shopify.com` yields the same stem, which `dedupeKey` (origin-scoped)
+// can't see.
+export function filenameStem(rawUrl: string, base: string): string | null {
+  let path: string;
+  try {
+    path = new URL(rawUrl, base).pathname;
+  } catch {
+    return null;
+  }
+  const file = path
+    .slice(path.lastIndexOf('/') + 1)
+    .replace(SHOPIFY_SIZE_SUFFIX, '$1')
+    .toLowerCase();
+  const dot = file.lastIndexOf('.');
+  const stem = dot > 0 ? file.slice(0, dot) : file;
+  return stem || null;
 }
 
 export function resolveAndDedupeUrls(base: string, urls: string[]): string[] {
