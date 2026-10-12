@@ -105,7 +105,7 @@ All mutations follow the same shape (see `useAddItem.ts` as the canonical exampl
 2. `onSuccess` — replace optimistic value with server response (do not invalidate — we already have the data).
 3. `onError` — restore previous snapshot from context.
 
-For position/size sync (`usePatchItems`) the mutation is fire-and-forget — Framer Motion is already showing the final position/size, so we don't even need optimistic update logic; we just persist. Both single-card commits and group commits go through the same hook with an array-wrapped input; the worker batches each call inside one `withTransaction`.
+For position/size sync (`usePatchItems`) the mutation is fire-and-forget — Framer Motion is already showing the final position/size, so nothing awaits the server and there's no rollback. It still writes the patch into the items cache in `onMutate`: marquee hit-testing (`Canvas.tsx:getSelectables`), `usePanForPanel`, and lazy-load visibility all read geometry from the cache, and would otherwise test against pre-drag rects. Card motion values are seeded from `x`/`y`/`width`/`height` only on mount, so the cache write doesn't re-drive the springs. Both single-card commits and group commits go through the same hook with an array-wrapped input; the worker batches each call inside one `withTransaction`.
 
 ## Skeleton cards
 
